@@ -1,0 +1,26 @@
+# Render.com deployment configuration
+# Place this in the backend/ root directory
+
+services:
+  - type: web
+    name: zy-invest-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: TZ
+        value: Asia/Kuala_Lumpur
+    healthCheckPath: /health
+    autoDeploy: true
