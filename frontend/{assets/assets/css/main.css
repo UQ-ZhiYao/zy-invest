@@ -1,0 +1,238 @@
+/* ============================================================
+   ZY-Invest Design System  v1.1.0
+   Brand: Blue #1565C0, Green #2E7D32, Orange #E65100
+   Font: DM Sans (body) + DM Serif Display (headings)
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Serif+Display:ital@0;1&display=swap');
+
+/* ── CSS Variables ─────────────────────────────────────────── */
+:root {
+  --blue:        #1565C0;
+  --blue-light:  #1E88E5;
+  --blue-dark:   #0D47A1;
+  --blue-bg:     #E3F2FD;
+  --green:       #2E7D32;
+  --green-light: #43A047;
+  --orange:      #E65100;
+  --orange-light:#F57C00;
+  --white:       #FFFFFF;
+  --off-white:   #F8FAFC;
+  --gray-50:     #F9FAFB;
+  --gray-100:    #F3F4F6;
+  --gray-200:    #E5E7EB;
+  --gray-400:    #9CA3AF;
+  --gray-600:    #4B5563;
+  --gray-800:    #1F2937;
+  --gray-900:    #111827;
+  --text:        #0F172A;
+  --text-muted:  #64748B;
+  --border:      #E2E8F0;
+  --shadow-sm:   0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md:   0 4px 16px rgba(0,0,0,0.10);
+  --shadow-lg:   0 12px 40px rgba(0,0,0,0.12);
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   16px;
+  --radius-xl:   24px;
+  --nav-h:       68px;
+  --font-body:   'DM Sans', sans-serif;
+  --font-display:'DM Serif Display', serif;
+  --transition:  0.2s ease;
+}
+
+/* ── Reset ─────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+body {
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--white);
+}
+img { max-width: 100%; display: block; }
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font-family: var(--font-body); border: none; background: none; }
+ul { list-style: none; }
+
+/* ── Typography ────────────────────────────────────────────── */
+.display { font-family: var(--font-display); }
+h1, h2, h3, h4 { font-family: var(--font-body); font-weight: 600; line-height: 1.2; color: var(--gray-900); }
+h1 { font-size: clamp(2rem, 5vw, 3.5rem); }
+h2 { font-size: clamp(1.5rem, 3vw, 2.25rem); }
+h3 { font-size: 1.25rem; }
+p { color: var(--text-muted); line-height: 1.7; }
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.container { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
+.section { padding: 96px 0; }
+.section-sm { padding: 64px 0; }
+
+/* ── Navbar ─────────────────────────────────────────────────── */
+.navbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+  height: var(--nav-h);
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  transition: box-shadow var(--transition);
+}
+.navbar.scrolled { box-shadow: var(--shadow-md); }
+.navbar .container {
+  height: 100%;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.navbar-brand {
+  display: flex; align-items: center; gap: 10px;
+}
+.navbar-brand img { height: 36px; width: auto; }
+.navbar-brand .brand-text {
+  font-size: 1.1rem; font-weight: 600; color: var(--blue-dark);
+  letter-spacing: -0.02em;
+}
+.navbar-nav {
+  display: flex; align-items: center; gap: 8px;
+}
+.navbar-nav a {
+  padding: 8px 16px;
+  font-size: 0.9rem; font-weight: 500;
+  color: var(--gray-600);
+  border-radius: var(--radius-sm);
+  transition: color var(--transition), background var(--transition);
+}
+.navbar-nav a:hover { color: var(--blue); background: var(--blue-bg); }
+.navbar-nav a.active { color: var(--blue); font-weight: 600; }
+.btn-nav-login {
+  padding: 9px 20px !important;
+  background: var(--blue) !important;
+  color: var(--white) !important;
+  border-radius: var(--radius-md) !important;
+  font-weight: 600 !important;
+  transition: background var(--transition), transform var(--transition) !important;
+}
+.btn-nav-login:hover {
+  background: var(--blue-dark) !important;
+  transform: translateY(-1px);
+}
+
+/* Mobile menu toggle */
+.navbar-toggle {
+  display: none;
+  flex-direction: column; gap: 5px;
+  padding: 8px; border-radius: var(--radius-sm);
+}
+.navbar-toggle span {
+  display: block; width: 22px; height: 2px;
+  background: var(--gray-800);
+  transition: all 0.3s ease;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 24px;
+  font-family: var(--font-body);
+  font-size: 0.95rem; font-weight: 600;
+  border-radius: var(--radius-md);
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+.btn-primary {
+  background: var(--blue);
+  color: var(--white);
+  box-shadow: 0 2px 8px rgba(21,101,192,0.3);
+}
+.btn-primary:hover {
+  background: var(--blue-dark);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(21,101,192,0.4);
+}
+.btn-outline {
+  background: transparent;
+  color: var(--gray-800);
+  border: 1.5px solid var(--border);
+}
+.btn-outline:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: var(--blue-bg);
+}
+.btn-lg { padding: 15px 32px; font-size: 1rem; border-radius: var(--radius-lg); }
+
+/* ── Cards ──────────────────────────────────────────────────── */
+.card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+.card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+
+/* ── Badge ──────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px;
+  font-size: 0.78rem; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  border-radius: 999px;
+}
+.badge-blue { background: var(--blue-bg); color: var(--blue); }
+.badge-green { background: #E8F5E9; color: var(--green); }
+.badge::before { content: '◆'; font-size: 0.6rem; }
+
+/* ── Stat number ────────────────────────────────────────────── */
+.stat-number {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 700;
+  color: var(--gray-900);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.stat-number span { color: var(--blue); }
+.stat-label {
+  font-size: 0.8rem; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted); margin-top: 6px;
+}
+
+/* ── Section header ─────────────────────────────────────────── */
+.section-header { text-align: center; max-width: 600px; margin: 0 auto 56px; }
+.section-header .badge { margin-bottom: 16px; }
+.section-header h2 { margin-bottom: 16px; }
+.section-header p { font-size: 1.05rem; }
+
+/* ── Footer ─────────────────────────────────────────────────── */
+.footer {
+  background: var(--gray-900);
+  color: var(--gray-400);
+  padding: 48px 0 32px;
+  margin-top: auto;
+}
+.footer-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 48px;
+  padding-bottom: 40px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 32px;
+}
+.footer-brand img { height: 32px; filter: brightness(10); margin-bottom: 12px; }
+.footer-brand p { font-size: 0.9rem; line-height: 1.6; max-width: 280px; }
+.footer-links h4 { color: var(--white); font-size: 0.85rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 16px; }
+.footer-links a { display: block; font-size: 0.9rem; margin-bottom: 10px; transition: color var(--transition); }
+.footer-links a:hover { color: var(--white); }
+.footer-bottom { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; }
+
+/* ── Divider ────────────────────────────────────────────────── */
+.divider { height: 1px; background: var(--border); margin: 40px 0; }
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .navbar-nav { display: none; flex-direction: column; position: absolute; top: var(--nav-h); left: 0; right: 0; background: var(--white); border-bottom: 1px solid var(--border); padding: 16px; gap: 4px; }
+  .navbar-nav.open { display: flex; }
+  .navbar-toggle { display: flex; }
+  .footer-grid { grid-template-columns: 1fr; gap: 32px; }
+  .footer-bottom { flex-direction: column; gap: 8px; text-align: center; }
+}

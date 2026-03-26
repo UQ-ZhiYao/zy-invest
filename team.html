@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Our Team — ZY-Invest</title>
+  <link rel="icon" href="assets/img/logo.png">
+  <link rel="stylesheet" href="assets/css/main.css">
+  <style>
+    .page-hero {
+      padding-top: calc(var(--nav-h) + 80px);
+      padding-bottom: 80px;
+      background: linear-gradient(135deg, #F0F7FF, #EBF5FB);
+      text-align: center;
+    }
+    .page-hero .badge { margin-bottom: 20px; }
+    .page-hero h1 { margin-bottom: 16px; }
+    .page-hero p { font-size: 1.1rem; max-width: 560px; margin: 0 auto; }
+
+    /* Team grid */
+    .team-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+      margin-top: 56px;
+    }
+    .team-card {
+      text-align: center;
+      padding: 40px 28px 32px;
+    }
+    .team-avatar {
+      width: 96px; height: 96px;
+      border-radius: 50%;
+      margin: 0 auto 20px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 2rem; font-weight: 700;
+      color: var(--white);
+      position: relative;
+    }
+    .team-avatar::after {
+      content: '';
+      position: absolute; inset: -3px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+    }
+    .avatar-blue { background: linear-gradient(135deg, var(--blue), var(--blue-light)); }
+    .avatar-green { background: linear-gradient(135deg, var(--green), var(--green-light)); }
+    .avatar-orange { background: linear-gradient(135deg, var(--orange), var(--orange-light)); }
+    .team-card h3 { margin-bottom: 4px; font-size: 1.15rem; }
+    .team-role {
+      font-size: 0.85rem; font-weight: 600;
+      color: var(--blue); letter-spacing: 0.04em;
+      text-transform: uppercase; margin-bottom: 14px;
+    }
+    .team-card p { font-size: 0.92rem; }
+    .team-divider {
+      width: 40px; height: 2px;
+      background: var(--border);
+      margin: 16px auto;
+    }
+    .team-detail {
+      font-size: 0.82rem; color: var(--text-muted);
+    }
+
+    /* Values */
+    .values-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+    .value-item {
+      display: flex; gap: 16px; align-items: flex-start;
+      padding: 24px;
+      background: var(--off-white);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+    }
+    .value-icon {
+      font-size: 1.5rem; flex-shrink: 0;
+      width: 44px; height: 44px;
+      background: var(--blue-bg);
+      border-radius: var(--radius-md);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .value-item h4 { margin-bottom: 6px; }
+    .value-item p { font-size: 0.9rem; }
+
+    @media (max-width: 900px) {
+      .team-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 600px) {
+      .team-grid { grid-template-columns: 1fr; }
+      .values-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="container">
+    <a href="index.html" class="navbar-brand">
+      <img src="assets/img/logo.png" alt="ZY-Invest">
+    </a>
+    <ul class="navbar-nav">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="team.html" class="active">Team</a></li>
+      <li><a href="about.html">About Us</a></li>
+      <li><a href="login.html" class="btn-nav-login">Member Login</a></li>
+    </ul>
+    <button class="navbar-toggle"><span></span><span></span><span></span></button>
+  </div>
+</nav>
+
+<section class="page-hero">
+  <div class="container">
+    <span class="badge badge-blue">Our People</span>
+    <h1>Meet the Management Team</h1>
+    <p>A dedicated team of professionals committed to growing and protecting your wealth through disciplined investing.</p>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="team-grid">
+      <div class="card team-card">
+        <div class="team-avatar avatar-blue">NZY</div>
+        <h3>Ng Zhi Yao</h3>
+        <div class="team-role">Founder & Fund Manager</div>
+        <p>Leads investment strategy, portfolio construction, and day-to-day fund operations. Specialises in quantitative equity analysis and long-term value investing across Bursa Malaysia.</p>
+        <div class="team-divider"></div>
+        <div class="team-detail">MSc Finance · University of Queensland</div>
+      </div>
+
+      <div class="card team-card">
+        <div class="team-avatar avatar-green">SKT</div>
+        <h3>Siah Kim Teck</h3>
+        <div class="team-role">Senior Advisor</div>
+        <p>Provides strategic oversight and governance guidance. Brings decades of business and financial management experience to support sound decision-making and investor relations.</p>
+        <div class="team-divider"></div>
+        <div class="team-detail">Senior Business Advisor</div>
+      </div>
+
+      <div class="card team-card">
+        <div class="team-avatar avatar-orange">SLL</div>
+        <h3>Siah Lih Ling</h3>
+        <div class="team-role">Operations & Compliance</div>
+        <p>Oversees fund administration, investor communications, and compliance matters. Ensures all operational processes meet the fund's standards for accuracy and transparency.</p>
+        <div class="team-divider"></div>
+        <div class="team-detail">Fund Operations</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Values -->
+<section class="section-sm" style="background:var(--off-white)">
+  <div class="container">
+    <div class="section-header">
+      <span class="badge badge-blue">Our Principles</span>
+      <h2>What Guides Every Decision</h2>
+    </div>
+    <div class="values-grid">
+      <div class="value-item">
+        <div class="value-icon">🎯</div>
+        <div>
+          <h4>Discipline Over Impulse</h4>
+          <p>Every investment must have a clear thesis, defined risk parameters, and an exit plan before capital is deployed.</p>
+        </div>
+      </div>
+      <div class="value-item">
+        <div class="value-icon">🔍</div>
+        <div>
+          <h4>Rigorous Analysis</h4>
+          <p>We combine fundamental research with quantitative screening to identify asymmetric risk-reward opportunities.</p>
+        </div>
+      </div>
+      <div class="value-item">
+        <div class="value-icon">⏳</div>
+        <div>
+          <h4>Patient Capital</h4>
+          <p>We believe patient capital combined with rigorous analysis consistently outperforms speculative approaches over full market cycles.</p>
+        </div>
+      </div>
+      <div class="value-item">
+        <div class="value-icon">🤝</div>
+        <div>
+          <h4>Aligned Interests</h4>
+          <p>Management fees are structured to align our interests with investors — we succeed only when our investors succeed.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <img src="assets/img/logo.png" alt="ZY-Invest">
+        <p>A founder-led private investment fund focused on long-term wealth compounding through disciplined equity investing.</p>
+      </div>
+      <div class="footer-links">
+        <h4>Navigation</h4>
+        <a href="index.html">Home</a>
+        <a href="team.html">Team</a>
+        <a href="about.html">About Us</a>
+        <a href="login.html">Member Login</a>
+      </div>
+      <div class="footer-links">
+        <h4>Fund</h4>
+        <a href="about.html#mission">Our Mission</a>
+        <a href="about.html#philosophy">Philosophy</a>
+        <a href="about.html#distribution">Distribution Policy</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2021–2026 ZY-Invest. All rights reserved.</span>
+      <span>Private Investment Fund · Bursa Malaysia</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/api.js"></script>
+</body>
+</html>
