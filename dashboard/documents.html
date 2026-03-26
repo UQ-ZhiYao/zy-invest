@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documents — ZY-Invest</title>
+  <link rel="icon" href="../assets/img/logo.png">
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <link rel="stylesheet" href="../assets/css/dashboard.css">
+</head>
+<body>
+<div class="dash-root">
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="dash-main" id="dash-main">
+    <header class="dash-topbar">
+      <div class="topbar-left">
+        <button class="mobile-menu-btn" onclick="document.getElementById('sidebar').classList.toggle('mobile-open');document.getElementById('sidebar-overlay').style.display='block'">☰</button>
+        <span class="topbar-title" id="topbar-title">Documents</span>
+      </div>
+      <div class="topbar-right"><span class="topbar-date" id="topbar-date"></span></div>
+    </header>
+    <div class="dash-content">
+      <div class="page-header">
+        <div class="breadcrumb"><a href="../index.html">ZY-Invest</a><span>›</span><span>Fund</span><span>›</span><span>Documents</span></div>
+        <h1>Documents</h1>
+        <p>Fund reports, distribution notices, and your personal statements.</p>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3>All Documents</h3>
+          <input type="text" placeholder="Search..." id="doc-search" style="padding:6px 12px;border:1px solid var(--border);border-radius:var(--radius-md);font-size:0.85rem;width:200px" oninput="filterDocs()">
+        </div>
+        <div class="panel-body" id="docs-grid">
+          <div style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../assets/js/api.js"></script>
+<script src="../assets/js/dashboard.js"></script>
+<script>
+let allDocs = [];
+const DOC_ICONS = { annual_report:'📊', distribution_notice:'💰', member_statement:'📄', fund_rules:'📋', meeting_minutes:'📝', other:'📁' };
+
+document.addEventListener('DOMContentLoaded', async () => {
+  initDashboard('documents', 'Documents');
+  try {
+    allDocs = await api.get('/api/member/fund/documents') || [];
+    renderDocs(allDocs);
+  } catch(e) { document.getElementById('docs-grid').innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted)">No documents available</div>'; }
+});
+
+function renderDocs(docs) {
+  const grid = document.getElementById('docs-grid');
+  if (!docs.length) { grid.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted)">No documents found</div>'; return; }
+  grid.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">` +
+    docs.map(d => `
+      <div style="border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;display:flex;gap:14px;align-items:flex-start;cursor:pointer;transition:box-shadow 0.2s" onmouseenter="this.style.boxShadow='var(--shadow-md)'" onmouseleave="this.style.boxShadow='none'" onclick="downloadDoc('${d.id}')">
+        <div style="font-size:1.8rem;line-height:1">${DOC_ICONS[d.doc_type]||'📁'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:0.9rem;color:var(--gray-900);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.title}</div>
+          <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:8px">${fmtDate(d.created_at)} ${d.financial_year?'· '+d.financial_year:''}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span class="pill ${d.visibility==='fund'?'pill-blue':'pill-orange'}" style="font-size:0.72rem">${d.visibility==='fund'?'Fund':'Personal'}</span>
+            <span style="font-size:0.78rem;color:var(--text-muted)">${d.file_size_kb?d.file_size_kb+'KB':''}</span>
+          </div>
+        </div>
+      </div>`).join('') + '</div>';
+}
+
+function filterDocs() {
+  const q = document.getElementById('doc-search').value.toLowerCase();
+  renderDocs(allDocs.filter(d => d.title.toLowerCase().includes(q)));
+}
+
+async function downloadDoc(id) {
+  try {
+    const data = await api.get(`/api/member/fund/documents/${id}/download`);
+    if (data?.url) window.open(data.url, '_blank');
+  } catch(e) { showToast('Failed to download document','error'); }
+}
+</script>
+</body>
+</html>

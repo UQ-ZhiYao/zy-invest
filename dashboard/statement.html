@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Corporate Results — ZY-Invest</title>
+  <link rel="icon" href="../assets/img/logo.png">
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <link rel="stylesheet" href="../assets/css/dashboard.css">
+</head>
+<body>
+<div class="dash-root">
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="dash-main" id="dash-main">
+    <header class="dash-topbar">
+      <div class="topbar-left">
+        <button class="mobile-menu-btn" onclick="document.getElementById('sidebar').classList.toggle('mobile-open');document.getElementById('sidebar-overlay').style.display='block'">☰</button>
+        <span class="topbar-title" id="topbar-title">Corporate Results</span>
+      </div>
+      <div class="topbar-right"><span class="topbar-date" id="topbar-date"></span></div>
+    </header>
+    <div class="dash-content">
+      <div class="page-header">
+        <div class="breadcrumb"><a href="../index.html">ZY-Invest</a><span>›</span><span>Fund</span><span>›</span><span>Corporate Results</span></div>
+        <h1>Corporate Results</h1>
+        <p>Fund income statement by financial year — revenue, expenses, and net performance.</p>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h3>Fund P&amp;L Statement</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="min-width:200px">Line Item</th>
+                <th class="td-right">FY22</th>
+                <th class="td-right">FY23</th>
+                <th class="td-right">FY24</th>
+                <th class="td-right">FY25</th>
+                <th class="td-right">FY26 (YTD)</th>
+              </tr>
+            </thead>
+            <tbody id="stmt-body">
+              <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel-footer">Financial year runs December 1 – November 30. FY26 shows year-to-date figures.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../assets/js/api.js"></script>
+<script src="../assets/js/dashboard.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  initDashboard('statement', 'Corporate Results');
+  try {
+    const data = await api.get('/api/member/fund/statement');
+    const tbody = document.getElementById('stmt-body');
+    if (!data || !data.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">No data available</td></tr>'; return; }
+    const fys = ['FY22','FY23','FY24','FY25','FY26'];
+    const byFY = {};
+    fys.forEach(fy => { byFY[fy] = data.find(r => r.financial_year === fy) || {}; });
+
+    const rows = [
+      { label: 'REVENUE', isHeader: true },
+      { label: 'Dividend Income', key: 'dividend_income' },
+      { label: 'Interest Income', key: 'interest_income' },
+      { label: 'OTHER INCOME', isHeader: true },
+      { label: 'Realised P&L (Settlement)', key: 'realized_pl' },
+      { label: 'Other Income', key: 'other_income' },
+      { label: 'TOTAL INCOME', key: 'total_income', isTotal: true },
+    ];
+
+    tbody.innerHTML = rows.map(row => {
+      if (row.isHeader) return `<tr style="background:var(--gray-50)"><td colspan="6" style="font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);padding:10px 14px">${row.label}</td></tr>`;
+      const style = row.isTotal ? 'font-weight:700;border-top:2px solid var(--border)' : '';
+      return `<tr style="${style}">
+        <td>${row.label}</td>
+        ${fys.map(fy => {
+          const val = byFY[fy][row.key];
+          const n = Number(val||0);
+          const color = row.isTotal ? (n>=0?'color:var(--green)':'color:#DC2626') : '';
+          return `<td class="td-right" style="${color}">${val!=null?fmtRM(n):'—'}</td>`;
+        }).join('')}
+      </tr>`;
+    }).join('');
+  } catch(e) { showToast('Failed to load statement','error'); }
+});
+</script>
+</body>
+</html>
