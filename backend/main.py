@@ -9,9 +9,16 @@ from database import engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await engine.connect()
+    try:
+        await engine.connect()
+        print("Database connected successfully")
+    except Exception as e:
+        print(f"Database connection warning: {e}")
     yield
-    await engine.disconnect()
+    try:
+        await engine.disconnect()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -43,4 +50,9 @@ async def root():
 
 @app.get("/health")
 async def health():
+    if engine.pool is None:
+        try:
+            await engine.connect()
+        except Exception as e:
+            return {"status": "degraded", "db": str(e)}
     return {"status": "healthy"}
