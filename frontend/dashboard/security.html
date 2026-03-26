@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Security & Password — ZY-Invest</title>
+  <link rel="icon" href="../assets/img/logo.png">
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <link rel="stylesheet" href="../assets/css/dashboard.css">
+  <style>
+    .form-group{margin-bottom:20px}
+    .form-label{display:block;font-size:0.85rem;font-weight:600;color:var(--gray-700,#374151);margin-bottom:8px}
+    .form-input{width:100%;padding:10px 14px;font-family:var(--font-body);font-size:0.95rem;background:var(--gray-50);border:1.5px solid var(--border);border-radius:var(--radius-md);color:var(--text);outline:none;transition:border-color 0.2s,box-shadow 0.2s}
+    .form-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(21,101,192,0.1);background:var(--white)}
+    .strength-bar{height:4px;border-radius:99px;margin-top:8px;background:var(--gray-200);overflow:hidden}
+    .strength-fill{height:100%;border-radius:99px;transition:width 0.3s,background 0.3s}
+  </style>
+</head>
+<body>
+<div class="dash-root">
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="dash-main" id="dash-main">
+    <header class="dash-topbar">
+      <div class="topbar-left">
+        <button class="mobile-menu-btn" onclick="document.getElementById('sidebar').classList.toggle('mobile-open');document.getElementById('sidebar-overlay').style.display='block'">☰</button>
+        <span class="topbar-title" id="topbar-title">Security & Password</span>
+      </div>
+      <div class="topbar-right"><span class="topbar-date" id="topbar-date"></span></div>
+    </header>
+    <div class="dash-content">
+      <div class="page-header">
+        <div class="breadcrumb"><a href="../index.html">ZY-Invest</a><span>›</span><span>My Account</span><span>›</span><span>Security</span></div>
+        <h1>Security &amp; Password</h1>
+        <p>Change your login password. You must enter your current password to confirm.</p>
+      </div>
+      <div style="max-width:480px">
+        <div class="panel">
+          <div class="panel-header"><h3>Change Password</h3></div>
+          <div class="panel-body">
+            <div id="error-msg" style="display:none;background:#FEF2F2;border:1px solid #FECACA;color:#B91C1C;border-radius:var(--radius-md);padding:12px 16px;font-size:0.88rem;margin-bottom:20px"></div>
+            <form id="pw-form" onsubmit="changePassword(event)">
+              <div class="form-group">
+                <label class="form-label">Current Password</label>
+                <input type="password" id="pw-current" class="form-input" required placeholder="Enter current password">
+              </div>
+              <div class="form-group">
+                <label class="form-label">New Password</label>
+                <input type="password" id="pw-new" class="form-input" required placeholder="At least 8 characters" oninput="checkStrength(this.value)">
+                <div class="strength-bar"><div class="strength-fill" id="strength-fill" style="width:0"></div></div>
+                <div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px" id="strength-label"></div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Confirm New Password</label>
+                <input type="password" id="pw-confirm" class="form-input" required placeholder="Repeat new password">
+              </div>
+              <button type="submit" class="btn btn-primary" id="pw-btn">Update Password</button>
+            </form>
+          </div>
+          <div class="panel-footer">After changing your password, you will remain logged in on this device.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../assets/js/api.js"></script>
+<script src="../assets/js/dashboard.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  initDashboard('security', 'Security & Password');
+});
+
+function checkStrength(pw) {
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  const fill = document.getElementById('strength-fill');
+  const label = document.getElementById('strength-label');
+  const configs = [
+    {w:'0%',bg:'',t:''},
+    {w:'20%',bg:'#DC2626',t:'Very weak'},
+    {w:'40%',bg:'#F97316',t:'Weak'},
+    {w:'60%',bg:'#EAB308',t:'Fair'},
+    {w:'80%',bg:'#22C55E',t:'Strong'},
+    {w:'100%',bg:'#15803D',t:'Very strong'},
+  ];
+  const c = configs[score] || configs[0];
+  fill.style.width = c.w; fill.style.background = c.bg;
+  label.textContent = c.t; label.style.color = c.bg;
+}
+
+async function changePassword(e) {
+  e.preventDefault();
+  const current = document.getElementById('pw-current').value;
+  const newPw   = document.getElementById('pw-new').value;
+  const confirm = document.getElementById('pw-confirm').value;
+  const errEl   = document.getElementById('error-msg');
+  errEl.style.display = 'none';
+  if (newPw !== confirm) { errEl.textContent = 'New passwords do not match.'; errEl.style.display = 'block'; return; }
+  if (newPw.length < 8)  { errEl.textContent = 'Password must be at least 8 characters.'; errEl.style.display = 'block'; return; }
+  const btn = document.getElementById('pw-btn');
+  btn.disabled = true; btn.textContent = 'Updating...';
+  try {
+    await api.post('/api/auth/change-password', { current_password: current, new_password: newPw });
+    showToast('Password updated successfully','success');
+    document.getElementById('pw-form').reset();
+    document.getElementById('strength-fill').style.width = '0';
+    document.getElementById('strength-label').textContent = '';
+  } catch(err) {
+    errEl.textContent = err.message || 'Failed to update password.';
+    errEl.style.display = 'block';
+  }
+  btn.disabled = false; btn.textContent = 'Update Password';
+}
+</script>
+</body>
+</html>
