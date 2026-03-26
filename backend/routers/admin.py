@@ -80,7 +80,7 @@ async def update_user(
     db: Database = Depends(get_db)
 ):
     fields, vals, idx = [], [], 1
-    for field, val in body.model_dump(exclude_none=True).items():
+    for field, val in body.dict(exclude_none=True).items():
         fields.append(f"{field} = ${idx}")
         vals.append(val)
         idx += 1
@@ -259,7 +259,7 @@ async def update_ticker(
     db: Database = Depends(get_db)
 ):
     fields, vals, idx = [], [], 1
-    for field, val in body.model_dump(exclude_none=True).items():
+    for field, val in body.dict(exclude_none=True).items():
         fields.append(f"{field} = ${idx}")
         vals.append(val)
         idx += 1
