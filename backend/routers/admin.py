@@ -353,11 +353,21 @@ async def compute_holdings_and_settlement(
 ):
     """
     Recompute all holdings from transactions using VWAP (net amount basis).
-    - BUY:  VWAP = total_net_cost / total_units  (net amount includes fees)
-    - SELL: realised P&L = (sell_net_per_unit - avg_cost) * units
-    - Saves final holdings to holdings table
+    Uses Python Decimal for exact financial arithmetic — no float rounding errors.
+    - BUY:  VWAP = total_net_cost / total_units  (net_amount includes all fees)
+    - SELL: realised P&L = (sell_net_per_unit - vwap) * units_sold
+    - Saves final positions to holdings table
     - Writes settlement records for all sells
     """
+    from decimal import Decimal, ROUND_HALF_UP, getcontext
+    getcontext().prec = 28  # 28 significant digits — sufficient for all fund values
+
+    def D(val):
+        """Convert any value to Decimal safely."""
+        if val is None:
+            return Decimal('0')
+        return Decimal(str(val))
+
     rows = await db.fetch("""
         SELECT id, date, instrument, asset_class, sector, region,
                units, price, amount, total_fees, net_amount, theme
@@ -365,38 +375,41 @@ async def compute_holdings_and_settlement(
         ORDER BY date ASC, created_at ASC
     """)
 
-    # positions[instrument] = {units, total_net_cost, avg_cost, asset_class, sector, region}
+    # positions[instrument] = {units, total_net_cost, avg_cost, ...}
     positions = {}
     settlement_count = 0
     settlement_errors = []
 
-    # Clear existing settlement records that were auto-computed
+    # Clear existing auto-computed settlement records
     await db.execute("DELETE FROM settlement WHERE remark = 'auto-computed VWAP'")
 
     for row in rows:
-        instr      = row['instrument']
-        units      = float(row['units'])
-        net_amount = float(row['net_amount'] or 0)
-        fees       = float(row['total_fees'] or 0)
-        price      = float(row['price'] or 0)
+        instr       = row['instrument']
+        units       = D(row['units'])
+        net_amount  = D(row['net_amount'])
         asset_class = row['asset_class'] or 'Securities [H]'
         sector      = row['sector']
         region      = row['region'] or 'MY'
 
         if instr not in positions:
             positions[instr] = {
-                'units': 0, 'total_net_cost': 0, 'avg_cost': 0,
-                'asset_class': asset_class, 'sector': sector, 'region': region
+                'units':          Decimal('0'),
+                'total_net_cost': Decimal('0'),
+                'avg_cost':       Decimal('0'),
+                'asset_class': asset_class,
+                'sector':      sector,
+                'region':      region,
             }
 
         pos = positions[instr]
 
         if units > 0:
-            # BUY — VWAP based on net cost (gross + fees)
-            buy_net_cost = abs(net_amount)  # net_amount is negative for buys
-            new_total    = pos['total_net_cost'] + buy_net_cost
-            new_units    = pos['units'] + units
-            pos['avg_cost']       = new_total / new_units if new_units > 0 else (buy_net_cost / units)
+            # BUY — net_amount is negative (cash outflow), abs() = actual cost paid
+            buy_net_cost  = abs(net_amount)
+            new_units     = pos['units'] + units
+            new_total     = pos['total_net_cost'] + buy_net_cost
+            # VWAP = cumulative net cost / cumulative units
+            pos['avg_cost']       = new_total / new_units if new_units > 0 else buy_net_cost / units
             pos['total_net_cost'] = new_total
             pos['units']          = new_units
             pos['asset_class']    = asset_class
@@ -404,15 +417,16 @@ async def compute_holdings_and_settlement(
             pos['region']         = region
 
         else:
-            # SELL — net proceeds = net_amount (positive, after fees deducted)
-            sell_units    = abs(units)
-            net_proceeds  = abs(net_amount)  # net_amount is positive for sells
-            sell_net_per_unit = net_proceeds / sell_units if sell_units > 0 else price
+            # SELL — net_amount is positive (cash inflow), abs() = actual proceeds received
+            sell_units        = abs(units)
+            net_proceeds      = abs(net_amount)
+            sell_net_per_unit = net_proceeds / sell_units if sell_units > 0 else D(row['price'] or 0)
 
-            if pos['units'] >= sell_units * 0.99:  # allow tiny float difference
+            if pos['units'] >= sell_units - Decimal('0.00000001'):
                 avg_cost = pos['avg_cost']
                 pl       = (sell_net_per_unit - avg_cost) * sell_units
-                ret_pct  = ((sell_net_per_unit - avg_cost) / avg_cost * 100) if avg_cost > 0 else 0
+                ret_pct  = ((sell_net_per_unit - avg_cost) / avg_cost * 100) if avg_cost > 0 else Decimal('0')
+                cost_basis = avg_cost * sell_units
 
                 try:
                     await db.execute("""
@@ -423,28 +437,31 @@ async def compute_holdings_and_settlement(
                     """,
                         row['date'],
                         region, asset_class, sector, instr,
-                        sell_units,
-                        round(avg_cost, 6),
-                        round(sell_net_per_unit, 6),
-                        round(pl, 4),
-                        round(ret_pct, 4),
+                        float(sell_units),
+                        float(avg_cost.quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
+                        float(sell_net_per_unit.quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
+                        float(pl.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
+                        float(ret_pct.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
                         'auto-computed VWAP'
                     )
                     settlement_count += 1
                 except Exception as e:
-                    settlement_errors.append(f"{instr}: {e}")
+                    settlement_errors.append(f"{instr} SELL: {e}")
 
-                # Deduct from position
+                # Deduct from position — recalculate total_net_cost exactly
                 pos['units']          -= sell_units
-                pos['total_net_cost']  = pos['units'] * pos['avg_cost']
+                pos['total_net_cost']  = pos['avg_cost'] * pos['units']
             else:
-                settlement_errors.append(f"SELL {instr} {sell_units} units but only {pos['units']} held")
+                settlement_errors.append(
+                    f"SELL {instr}: tried {sell_units} units, only {pos['units']} held"
+                )
 
     # Save final holdings to holdings table
     await db.execute("DELETE FROM holdings")
     holdings_saved = 0
     for instr, pos in positions.items():
-        if pos['units'] > 0.001:
+        if pos['units'] > Decimal('0.00000001'):
+            total_cost = pos['avg_cost'] * pos['units']
             try:
                 await db.execute("""
                     INSERT INTO holdings
@@ -461,9 +478,9 @@ async def compute_holdings_and_settlement(
                     pos['asset_class'],
                     pos['sector'],
                     pos['region'],
-                    round(pos['units'], 6),
-                    round(pos['avg_cost'], 6),
-                    round(pos['units'] * pos['avg_cost'], 4),
+                    float(pos['units'].quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
+                    float(pos['avg_cost'].quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
+                    float(total_cost.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
                 )
                 holdings_saved += 1
             except Exception as e:
