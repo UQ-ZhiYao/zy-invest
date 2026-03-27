@@ -20,6 +20,7 @@
       </div>
       <div class="topbar-right">
         <span class="topbar-date" id="topbar-date"></span>
+        <button class="btn btn-primary" style="padding:8px 16px;font-size:0.82rem" onclick="computeHoldings()">⚙ Compute Holdings</button>
         <button class="btn btn-outline" style="padding:8px 16px;font-size:0.82rem" onclick="refreshPrices()">Refresh Prices</button>
       </div>
     </header>
@@ -197,6 +198,15 @@ function renderCharts(data) {
 function filterHoldings() {
   const q = document.getElementById('holdings-search').value.toLowerCase();
   renderHoldings(allHoldings.filter(h => h.instrument.toLowerCase().includes(q) || (h.sector||'').toLowerCase().includes(q)));
+}
+
+async function computeHoldings() {
+  try {
+    showToast('Computing holdings from transactions...', 'info');
+    const r = await api.post('/api/admin/holdings/compute', {});
+    showToast(`Done! ${r.positions} positions, ${r.settlement_records} settlement records generated.`, 'success');
+    await loadHoldings();
+  } catch(e) { showToast('Compute failed: ' + e.message, 'error'); }
 }
 
 async function refreshPrices() {

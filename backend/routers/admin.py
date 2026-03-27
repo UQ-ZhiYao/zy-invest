@@ -347,12 +347,12 @@ async def get_holdings(
     holdings = []
     for r in rows:
         avg_cost = float(r['total_cost']) / float(r['total_bought']) if r['total_bought'] else 0
-        # Get latest price
+        # Get latest price from price_history
         price_row = await db.fetchrow(
-            "SELECT last_price FROM price_data WHERE instrument=$1 ORDER BY price_date DESC LIMIT 1",
+            "SELECT price FROM price_history WHERE instrument=$1 ORDER BY date DESC LIMIT 1",
             r['instrument']
         )
-        last_price = float(price_row['last_price']) if price_row else None
+        last_price = float(price_row['price']) if price_row else None
         holdings.append({
             'instrument': r['instrument'],
             'asset_class': r['asset_class'],
