@@ -332,37 +332,18 @@ async def get_holdings(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    """Compute current holdings from all buy/sell transactions using VWAP."""
+    """Get current holdings from holdings table. Run /compute first to populate."""
     rows = await db.fetch("""
-        SELECT instrument, asset_class, sector, region,
-               SUM(units) as net_units,
-               SUM(CASE WHEN units > 0 THEN units ELSE 0 END) as total_bought,
-               SUM(CASE WHEN units > 0 THEN units * price ELSE 0 END) as total_cost
-        FROM transactions
-        WHERE investor_id IS NULL OR TRUE
-        GROUP BY instrument, asset_class, sector, region
-        HAVING SUM(units) > 0.001
-        ORDER BY instrument
+        SELECT h.*, ph.price as last_price
+        FROM holdings h
+        LEFT JOIN (
+            SELECT DISTINCT ON (instrument) instrument, price
+            FROM price_history
+            ORDER BY instrument, date DESC
+        ) ph ON ph.instrument = h.instrument
+        ORDER BY h.units * COALESCE(ph.price, h.avg_cost) DESC
     """)
-    holdings = []
-    for r in rows:
-        avg_cost = float(r['total_cost']) / float(r['total_bought']) if r['total_bought'] else 0
-        # Get latest price from price_history
-        price_row = await db.fetchrow(
-            "SELECT price FROM price_history WHERE instrument=$1 ORDER BY date DESC LIMIT 1",
-            r['instrument']
-        )
-        last_price = float(price_row['price']) if price_row else None
-        holdings.append({
-            'instrument': r['instrument'],
-            'asset_class': r['asset_class'],
-            'sector': r['sector'],
-            'region': r['region'],
-            'units': float(r['net_units']),
-            'avg_cost': round(avg_cost, 6),
-            'last_price': last_price,
-        })
-    return holdings
+    return [dict(r) for r in rows]
 
 
 @router.post("/holdings/compute")
@@ -370,73 +351,129 @@ async def compute_holdings_and_settlement(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    """Recompute all holdings and auto-generate settlement records for sells."""
-    # Get all transactions ordered by date
+    """
+    Recompute all holdings from transactions using VWAP (net amount basis).
+    - BUY:  VWAP = total_net_cost / total_units  (net amount includes fees)
+    - SELL: realised P&L = (sell_net_per_unit - avg_cost) * units
+    - Saves final holdings to holdings table
+    - Writes settlement records for all sells
+    """
     rows = await db.fetch("""
-        SELECT * FROM transactions ORDER BY date ASC, created_at ASC
+        SELECT id, date, instrument, asset_class, sector, region,
+               units, price, amount, total_fees, net_amount, theme
+        FROM transactions
+        ORDER BY date ASC, created_at ASC
     """)
 
-    # Build holdings with VWAP, detect sells → generate settlement
-    positions = {}  # instrument -> {units, total_cost, avg_cost}
+    # positions[instrument] = {units, total_net_cost, avg_cost, asset_class, sector, region}
+    positions = {}
     settlement_count = 0
+    settlement_errors = []
+
+    # Clear existing settlement records that were auto-computed
+    await db.execute("DELETE FROM settlement WHERE remark = 'auto-computed VWAP'")
 
     for row in rows:
-        instr = row['instrument']
-        units = float(row['units'])
-        price = float(row['price'])
+        instr      = row['instrument']
+        units      = float(row['units'])
+        net_amount = float(row['net_amount'] or 0)
+        fees       = float(row['total_fees'] or 0)
+        price      = float(row['price'] or 0)
+        asset_class = row['asset_class'] or 'Securities [H]'
+        sector      = row['sector']
+        region      = row['region'] or 'MY'
 
         if instr not in positions:
-            positions[instr] = {'units': 0, 'total_cost': 0, 'avg_cost': 0}
+            positions[instr] = {
+                'units': 0, 'total_net_cost': 0, 'avg_cost': 0,
+                'asset_class': asset_class, 'sector': sector, 'region': region
+            }
 
         pos = positions[instr]
 
         if units > 0:
-            # BUY — update VWAP
-            new_total_cost = pos['total_cost'] + (units * price)
-            new_units      = pos['units'] + units
-            pos['avg_cost']    = new_total_cost / new_units if new_units > 0 else price
-            pos['total_cost']  = new_total_cost
-            pos['units']       = new_units
+            # BUY — VWAP based on net cost (gross + fees)
+            buy_net_cost = abs(net_amount)  # net_amount is negative for buys
+            new_total    = pos['total_net_cost'] + buy_net_cost
+            new_units    = pos['units'] + units
+            pos['avg_cost']       = new_total / new_units if new_units > 0 else (buy_net_cost / units)
+            pos['total_net_cost'] = new_total
+            pos['units']          = new_units
+            pos['asset_class']    = asset_class
+            pos['sector']         = sector
+            pos['region']         = region
+
         else:
-            # SELL — compute realised P&L using VWAP
-            sell_units = abs(units)
-            if pos['units'] > 0:
-                bought_price = pos['avg_cost']
-                pl = (price - bought_price) * sell_units
-                ret_pct = ((price - bought_price) / bought_price * 100) if bought_price > 0 else 0
-                # Insert settlement record
+            # SELL — net proceeds = net_amount (positive, after fees deducted)
+            sell_units    = abs(units)
+            net_proceeds  = abs(net_amount)  # net_amount is positive for sells
+            sell_net_per_unit = net_proceeds / sell_units if sell_units > 0 else price
+
+            if pos['units'] >= sell_units * 0.99:  # allow tiny float difference
+                avg_cost = pos['avg_cost']
+                pl       = (sell_net_per_unit - avg_cost) * sell_units
+                ret_pct  = ((sell_net_per_unit - avg_cost) / avg_cost * 100) if avg_cost > 0 else 0
+
                 try:
                     await db.execute("""
                         INSERT INTO settlement
-                        (date, investor_id, region, asset_class, sector, instrument,
+                        (date, region, asset_class, sector, instrument,
                          units, bought_price, sale_price, profit_loss, return_pct, remark)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-                        ON CONFLICT DO NOTHING
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
                     """,
                         row['date'],
-                        row.get('investor_id'),
-                        row.get('region', 'MY'),
-                        row.get('asset_class', ''),
-                        row.get('sector'),
-                        instr,
+                        region, asset_class, sector, instr,
                         sell_units,
-                        round(bought_price, 6),
-                        price,
+                        round(avg_cost, 6),
+                        round(sell_net_per_unit, 6),
                         round(pl, 4),
                         round(ret_pct, 4),
                         'auto-computed VWAP'
                     )
                     settlement_count += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    settlement_errors.append(f"{instr}: {e}")
+
                 # Deduct from position
-                pos['units']      -= sell_units
-                pos['total_cost']  = pos['units'] * pos['avg_cost']
+                pos['units']          -= sell_units
+                pos['total_net_cost']  = pos['units'] * pos['avg_cost']
+            else:
+                settlement_errors.append(f"SELL {instr} {sell_units} units but only {pos['units']} held")
+
+    # Save final holdings to holdings table
+    await db.execute("DELETE FROM holdings")
+    holdings_saved = 0
+    for instr, pos in positions.items():
+        if pos['units'] > 0.001:
+            try:
+                await db.execute("""
+                    INSERT INTO holdings
+                    (instrument, asset_class, sector, region,
+                     units, avg_cost, total_cost, last_updated)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+                    ON CONFLICT (instrument) DO UPDATE SET
+                        units=EXCLUDED.units,
+                        avg_cost=EXCLUDED.avg_cost,
+                        total_cost=EXCLUDED.total_cost,
+                        last_updated=NOW()
+                """,
+                    instr,
+                    pos['asset_class'],
+                    pos['sector'],
+                    pos['region'],
+                    round(pos['units'], 6),
+                    round(pos['avg_cost'], 6),
+                    round(pos['units'] * pos['avg_cost'], 4),
+                )
+                holdings_saved += 1
+            except Exception as e:
+                settlement_errors.append(f"Holdings save {instr}: {e}")
 
     return {
         "message": "Holdings and settlement recomputed",
-        "positions": len([p for p in positions.values() if p['units'] > 0.001]),
-        "settlement_records": settlement_count
+        "positions": holdings_saved,
+        "settlement_records": settlement_count,
+        "errors": settlement_errors[:5] if settlement_errors else []
     }
 
 
