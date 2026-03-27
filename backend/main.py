@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
@@ -9,11 +9,13 @@ from database import engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Connect with retry — don't crash if DB is slow to connect
     try:
         await engine.connect()
         print("Database connected successfully")
     except Exception as e:
         print(f"Database connection warning: {e}")
+        print("Will retry on first request...")
     yield
     try:
         await engine.disconnect()
@@ -50,6 +52,7 @@ async def root():
 
 @app.get("/health")
 async def health():
+    # Try to connect if not already connected
     if engine.pool is None:
         try:
             await engine.connect()

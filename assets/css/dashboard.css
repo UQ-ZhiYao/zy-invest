@@ -333,3 +333,11 @@ tbody tr:hover { background: var(--gray-50); }
 @media (max-width: 480px) {
   .metrics-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Sidebar collapsed: hide section labels completely (no gap) */
+.sidebar.collapsed .nav-section-label {
+  display: none;
+}
+.sidebar.collapsed .nav-section {
+  margin-bottom: 2px;
+}

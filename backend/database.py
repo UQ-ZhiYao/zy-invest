@@ -11,12 +11,14 @@ class Database:
     async def connect(self):
         if self.pool is not None:
             return
+        # Parse URL and add SSL
         self.pool = await asyncpg.create_pool(
             DATABASE_URL,
             min_size=1,
             max_size=5,
             command_timeout=30,
             ssl="require",
+            server_settings={"application_name": "zy-invest-api"},
         )
 
     async def disconnect(self):
