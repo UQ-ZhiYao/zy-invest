@@ -346,7 +346,7 @@ async def get_holdings(
             FROM price_history
             ORDER BY instrument, date DESC
         ) ph ON ph.instrument = h.instrument
-        WHERE h.units > 0.00000001
+        WHERE h.units > 0.001
         ORDER BY COALESCE(h.units * ph.price, h.total_cost) DESC NULLS LAST
     """)
     return [dict(r) for r in rows]
@@ -423,18 +423,17 @@ async def compute_holdings_and_settlement(
             pos['region']         = region
 
         else:
-            # SELL — net_amount is positive (cash inflow), abs() = actual proceeds received
-            sell_units        = abs(units)
-            net_proceeds      = abs(net_amount)
-            sell_net_per_unit = net_proceeds / sell_units if sell_units > 0 else D(row['price'] or 0)
+            # SELL — net_amount is positive (cash inflow) = exact proceeds including fees
+            # We ALWAYS use net_amount directly — never units × price
+            sell_units = abs(units)
+            proceeds   = abs(net_amount)  # ground truth from transaction record
+            sell_net_per_unit = proceeds / sell_units if sell_units > 0 else D(row['price'] or 0)
 
-            if pos['units'] >= sell_units - Decimal('0.01'):
+            if pos['units'] >= sell_units - Decimal('0.001'):  # tolerance for tiny residuals
                 avg_cost   = pos['avg_cost']
-                proceeds   = abs(net_amount)          # exact from transaction
-                cost_basis = avg_cost * sell_units     # exact Decimal
-                pl         = proceeds - cost_basis     # ALWAYS proceeds - cost_basis
+                cost_basis = avg_cost * sell_units  # VWAP cost of units being sold
+                pl         = proceeds - cost_basis  # ALWAYS net proceeds - cost basis
                 ret_pct    = (pl / cost_basis * 100) if cost_basis > 0 else Decimal('0')
-                sell_net_per_unit = proceeds / sell_units if sell_units > 0 else D(row['price'] or 0)
 
                 try:
                     await db.execute("""
@@ -471,7 +470,7 @@ async def compute_holdings_and_settlement(
     await db.execute("DELETE FROM holdings")
     holdings_saved = 0
     for instr, pos in positions.items():
-        if pos['units'] > Decimal('0.00000001'):
+        if pos['units'] > Decimal('0.001'):  # filter tiny residuals from decimal CSV imports
             total_cost = pos['avg_cost'] * pos['units']
             try:
                 await db.execute("""
