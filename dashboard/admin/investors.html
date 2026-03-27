@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account Management — ZY-Invest</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="stylesheet" href="../../assets/css/dashboard.css">
+  <style>
+    .form-group{margin-bottom:16px}
+    .form-label{display:block;font-size:0.83rem;font-weight:600;color:var(--gray-700,#374151);margin-bottom:6px}
+    .form-input{width:100%;padding:9px 12px;font-family:var(--font-body);font-size:0.88rem;background:var(--gray-50);border:1.5px solid var(--border);border-radius:var(--radius-md);color:var(--text);outline:none}
+    .form-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(21,101,192,0.1);background:var(--white)}
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;align-items:center;justify-content:center}
+    .modal-overlay.open{display:flex}
+    .modal{background:var(--white);border-radius:var(--radius-xl);padding:32px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto}
+    .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+    .modal-close{font-size:1.2rem;cursor:pointer;color:var(--text-muted);padding:4px 8px;border-radius:var(--radius-sm)}
+    .modal-close:hover{background:var(--gray-100)}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  </style>
+</head>
+<body>
+<div class="dash-root">
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99" onclick="document.getElementById('sidebar').classList.remove('mobile-open');this.style.display='none'"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="dash-main" id="dash-main">
+    <header class="dash-topbar">
+      <div class="topbar-left">
+        <button class="mobile-menu-btn" onclick="document.getElementById('sidebar').classList.toggle('mobile-open');document.getElementById('sidebar-overlay').style.display='block'">☰</button>
+        <span class="topbar-title" id="topbar-title">Account Management</span>
+      </div>
+      <div class="topbar-right">
+        <span class="topbar-date" id="topbar-date"></span>
+        <button class="btn btn-primary" style="padding:8px 16px;font-size:0.82rem" onclick="openNewUserModal()">+ New User</button>
+      </div>
+    </header>
+    <div class="dash-content">
+      <div class="page-header">
+        <div class="breadcrumb"><a href="../../index.html">ZY-Invest</a><span>›</span><span>Admin</span><span>›</span><span>Account Management</span></div>
+        <h1>Account Management</h1>
+        <p>Manage investor accounts, roles, and access.</p>
+      </div>
+
+      <!-- Users table -->
+      <div class="panel" style="margin-bottom:20px">
+        <div class="panel-header"><h3>All Users</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Investor Profile</th><th>Actions</th></tr></thead>
+            <tbody id="users-table">
+              <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Investors table -->
+      <div class="panel">
+        <div class="panel-header"><h3>Investor Profiles</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th class="td-right">Units</th><th class="td-right">Total Cost</th><th class="td-right">Market Value</th><th class="td-right">Unrealised P&L</th><th class="td-right">Return %</th><th>Joined</th></tr></thead>
+            <tbody id="investors-table">
+              <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit User Modal -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Edit User</h3>
+      <span class="modal-close" onclick="closeModal()">✕</span>
+    </div>
+    <form id="edit-form" onsubmit="saveUser(event)">
+      <input type="hidden" id="edit-user-id">
+      <div class="form-group">
+        <label class="form-label">Full Name</label>
+        <input type="text" id="edit-name" class="form-input" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="edit-email" class="form-input" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone</label>
+        <input type="text" id="edit-phone" class="form-input">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Role</label>
+          <select id="edit-role" class="form-input">
+            <option value="member">Member</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <select id="edit-active" class="form-input">
+            <option value="true">Active</option>
+            <option value="false">Suspended</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">New Password <span style="font-weight:400;color:var(--text-muted)">(leave blank to keep current)</span></label>
+        <input type="password" id="edit-password" class="form-input" placeholder="Set new password">
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button type="submit" class="btn btn-primary" id="save-user-btn">Save Changes</button>
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/dashboard.js"></script>
+<script>
+let allUsers = [];
+
+document.addEventListener('DOMContentLoaded', async () => {
+  initDashboard('admin-dashboard', 'Account Management');
+  await Promise.all([loadUsers(), loadInvestors()]);
+});
+
+async function loadUsers() {
+  try {
+    allUsers = await api.get('/api/admin/users') || [];
+    const tbody = document.getElementById('users-table');
+    tbody.innerHTML = allUsers.map(u => `
+      <tr>
+        <td style="font-weight:600">${u.name}</td>
+        <td style="color:var(--text-muted)">${u.email}</td>
+        <td><span class="pill ${u.role==='admin'?'pill-blue':'pill-gray'}">${u.role}</span></td>
+        <td><span class="pill ${u.is_active?'pill-green':'pill-red'}">${u.is_active?'Active':'Suspended'}</span></td>
+        <td style="font-size:0.82rem;color:var(--text-muted)">${u.investor_id?u.investor_id.slice(0,8)+'...':'Not linked'}</td>
+        <td>
+          <button class="btn btn-outline" style="padding:5px 12px;font-size:0.78rem" onclick='editUser(${JSON.stringify(u)})'>Edit</button>
+        </td>
+      </tr>`).join('');
+  } catch(e) { showToast('Failed to load users', 'error'); }
+}
+
+async function loadInvestors() {
+  try {
+    const data = await api.get('/api/admin/investors') || [];
+    document.getElementById('investors-table').innerHTML = data.map(r => `
+      <tr>
+        <td style="font-weight:600">${r.name}</td>
+        <td class="td-right">${fmtUnits(r.units)}</td>
+        <td class="td-right">${fmtRM(r.total_costs)}</td>
+        <td class="td-right">${fmtRM(r.market_value)}</td>
+        <td class="td-right">${plPill(r.unrealized_pl)}</td>
+        <td class="td-right">${pctPill(r.simple_return_pct)}</td>
+        <td>${fmtDate(r.joined_date)}</td>
+      </tr>`).join('');
+  } catch(e) {}
+}
+
+function editUser(u) {
+  document.getElementById('modal-title').textContent = 'Edit User — ' + u.name;
+  document.getElementById('edit-user-id').value  = u.id;
+  document.getElementById('edit-name').value     = u.name;
+  document.getElementById('edit-email').value    = u.email;
+  document.getElementById('edit-phone').value    = u.phone || '';
+  document.getElementById('edit-role').value     = u.role;
+  document.getElementById('edit-active').value   = String(u.is_active);
+  document.getElementById('edit-password').value = '';
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+function openNewUserModal() {
+  document.getElementById('modal-title').textContent = 'New User';
+  document.getElementById('edit-user-id').value  = '';
+  document.getElementById('edit-name').value     = '';
+  document.getElementById('edit-email').value    = '';
+  document.getElementById('edit-phone').value    = '';
+  document.getElementById('edit-role').value     = 'member';
+  document.getElementById('edit-active').value   = 'true';
+  document.getElementById('edit-password').value = '';
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('edit-modal').classList.remove('open');
+}
+
+async function saveUser(e) {
+  e.preventDefault();
+  const btn = document.getElementById('save-user-btn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  const userId = document.getElementById('edit-user-id').value;
+  const body = {
+    name:      document.getElementById('edit-name').value.trim(),
+    email:     document.getElementById('edit-email').value.trim(),
+    phone:     document.getElementById('edit-phone').value.trim(),
+    role:      document.getElementById('edit-role').value,
+    is_active: document.getElementById('edit-active').value === 'true',
+  };
+  try {
+    await api.put(`/api/admin/users/${userId}`, body);
+    showToast('User updated successfully', 'success');
+    closeModal();
+    await loadUsers();
+  } catch(err) { showToast('Failed to save: ' + err.message, 'error'); }
+  btn.disabled = false; btn.textContent = 'Save Changes';
+}
+</script>
+</body>
+</html>

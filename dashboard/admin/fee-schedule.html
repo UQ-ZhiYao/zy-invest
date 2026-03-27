@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fee Schedule — ZY-Invest Admin</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="stylesheet" href="../../assets/css/dashboard.css">
+  <style>
+    .form-group{margin-bottom:14px}
+    .form-label{display:block;font-size:0.83rem;font-weight:600;color:var(--gray-700,#374151);margin-bottom:6px}
+    .form-input{width:100%;padding:9px 12px;font-family:var(--font-body);font-size:0.88rem;background:var(--gray-50);border:1.5px solid var(--border);border-radius:var(--radius-md);color:var(--text);outline:none}
+    .form-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(21,101,192,0.1);background:var(--white)}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  </style>
+</head>
+<body>
+<div class="dash-root">
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99" onclick="document.getElementById('sidebar').classList.remove('mobile-open');this.style.display='none'"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="dash-main" id="dash-main">
+    <header class="dash-topbar">
+      <div class="topbar-left">
+        <button class="mobile-menu-btn" onclick="document.getElementById('sidebar').classList.toggle('mobile-open');document.getElementById('sidebar-overlay').style.display='block'">☰</button>
+        <span class="topbar-title" id="topbar-title">Fee Schedule</span>
+      </div>
+      <div class="topbar-right"><span class="topbar-date" id="topbar-date"></span></div>
+    </header>
+    <div class="dash-content">
+      <div class="page-header">
+        <div class="breadcrumb"><a href="../../index.html">ZY-Invest</a><span>›</span><span>Admin</span><span>›</span><span>Fee Schedule</span></div>
+        <h1>Fee Schedule</h1>
+        <p>Manage base and performance fee license periods. Fees are accrued daily into the NTA calculation.</p>
+      </div>
+
+      <!-- Current schedules -->
+      <div class="panel" style="margin-bottom:20px">
+        <div class="panel-header"><h3>Active Fee Schedules</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Type</th><th>Rate</th><th>Basis</th><th>Hurdle Rate</th><th>Valid From</th><th>Valid To</th><th>Status</th><th>Description</th></tr></thead>
+            <tbody id="fee-table">
+              <tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Add new schedule -->
+      <div class="panel">
+        <div class="panel-header"><h3>Add Fee Schedule</h3></div>
+        <div class="panel-body">
+          <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:var(--radius-md);padding:12px 16px;margin-bottom:20px;font-size:0.85rem;color:#C2410C">
+            ⚠ Fee periods of the same type must not overlap. Set <strong>Valid To</strong> on the previous schedule before adding a new one.
+          </div>
+          <form id="fee-form" onsubmit="addFeeSchedule(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">Fee Type</label>
+                <select id="f-type" class="form-input" onchange="toggleHurdle()">
+                  <option value="base">Base Fee</option>
+                  <option value="performance">Performance Fee</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Rate (% per annum)</label>
+                <input type="number" step="0.01" id="f-rate" class="form-input" placeholder="e.g. 1.00 for 1%" required>
+              </div>
+              <div class="form-group" id="hurdle-group" style="display:none">
+                <label class="form-label">Hurdle Rate (% per annum)</label>
+                <input type="number" step="0.01" id="f-hurdle" class="form-input" placeholder="e.g. 8.00 for 8%">
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">Valid From</label>
+                <input type="date" id="f-from" class="form-input" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Valid To <span style="font-weight:400;color:var(--text-muted)">(leave blank = open-ended)</span></label>
+                <input type="date" id="f-to" class="form-input">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Description</label>
+                <input type="text" id="f-desc" class="form-input" placeholder="e.g. FY2024 base charge">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary" id="add-fee-btn">Add Fee Schedule</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <div class="panel" style="margin-top:20px">
+        <div class="panel-header"><h3>How Daily Fee Accrual Works</h3></div>
+        <div class="panel-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:0.88rem">
+            <div>
+              <div style="font-weight:600;margin-bottom:8px;color:var(--blue)">Base Fee (daily)</div>
+              <code style="background:var(--gray-100);padding:8px 12px;border-radius:var(--radius-md);display:block;font-size:0.82rem">
+                Base Fee = AUM × rate% / 365
+              </code>
+              <p style="margin-top:8px">Accrues every calendar day regardless of performance. Deducted from NTA daily.</p>
+            </div>
+            <div>
+              <div style="font-weight:600;margin-bottom:8px;color:var(--orange)">Performance Fee (daily)</div>
+              <code style="background:var(--gray-100);padding:8px 12px;border-radius:var(--radius-md);display:block;font-size:0.82rem">
+                If daily_return &gt; hurdle/365:<br>
+                Perf Fee = AUM × excess × rate%
+              </code>
+              <p style="margin-top:8px">Only accrues on days the fund outperforms the daily hurdle rate. Zero on underperforming days.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/dashboard.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  initDashboard('fee-schedule', 'Fee Schedule');
+  document.getElementById('f-from').value = new Date().toISOString().slice(0,10);
+  await loadFeeSchedules();
+});
+
+function toggleHurdle() {
+  const isPerf = document.getElementById('f-type').value === 'performance';
+  document.getElementById('hurdle-group').style.display = isPerf ? 'block' : 'none';
+}
+
+async function loadFeeSchedules() {
+  try {
+    const data = await api.get('/api/admin/fee-schedules') || [];
+    const tbody = document.getElementById('fee-table');
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">No fee schedules defined</td></tr>'; return; }
+    tbody.innerHTML = data.map(r => `
+      <tr>
+        <td><span class="pill ${r.fee_type==='base'?'pill-blue':'pill-orange'}">${r.fee_type}</span></td>
+        <td style="font-weight:600">${Number(r.rate_pct).toFixed(2)}% p.a.</td>
+        <td>${r.basis}</td>
+        <td>${r.hurdle_rate ? Number(r.hurdle_rate*100).toFixed(2)+'% p.a.' : '—'}</td>
+        <td>${fmtDate(r.valid_from)}</td>
+        <td>${r.valid_to ? fmtDate(r.valid_to) : '<span style="color:var(--green)">Open-ended</span>'}</td>
+        <td><span class="pill ${r.is_active?'pill-green':'pill-gray'}">${r.is_active?'Active':'Expired'}</span></td>
+        <td style="color:var(--text-muted);font-size:0.82rem">${r.description||'—'}</td>
+      </tr>`).join('');
+  } catch(e) { showToast('Failed to load fee schedules', 'error'); }
+}
+
+async function addFeeSchedule(e) {
+  e.preventDefault();
+  const btn = document.getElementById('add-fee-btn');
+  btn.disabled = true; btn.textContent = 'Adding...';
+  const rate    = parseFloat(document.getElementById('f-rate').value) / 100;
+  const hurdle  = document.getElementById('f-hurdle').value ? parseFloat(document.getElementById('f-hurdle').value) / 100 : null;
+  const validTo = document.getElementById('f-to').value || null;
+  try {
+    await api.post('/api/admin/fee-schedules', {
+      fee_type:    document.getElementById('f-type').value,
+      rate,
+      basis:       'daily',
+      hurdle_rate: hurdle,
+      valid_from:  document.getElementById('f-from').value,
+      valid_to:    validTo,
+      description: document.getElementById('f-desc').value.trim(),
+    });
+    showToast('Fee schedule added', 'success');
+    document.getElementById('fee-form').reset();
+    document.getElementById('f-from').value = new Date().toISOString().slice(0,10);
+    await loadFeeSchedules();
+  } catch(err) { showToast('Failed: ' + err.message, 'error'); }
+  btn.disabled = false; btn.textContent = 'Add Fee Schedule';
+}
+</script>
+</body>
+</html>

@@ -80,7 +80,7 @@ async def update_user(
     db: Database = Depends(get_db)
 ):
     fields, vals, idx = [], [], 1
-    for field, val in body.dict(exclude_none=True).items():
+    for field, val in body.model_dump(exclude_none=True).items():
         fields.append(f"{field} = ${idx}")
         vals.append(val)
         idx += 1
@@ -259,7 +259,7 @@ async def update_ticker(
     db: Database = Depends(get_db)
 ):
     fields, vals, idx = [], [], 1
-    for field, val in body.dict(exclude_none=True).items():
+    for field, val in body.model_dump(exclude_none=True).items():
         fields.append(f"{field} = ${idx}")
         vals.append(val)
         idx += 1
@@ -271,3 +271,56 @@ async def update_ticker(
         *vals
     )
     return {"message": f"Ticker {instrument} updated"}
+
+
+# ── Transactions (admin view all) ────────────────────────────
+@router.get("/transactions")
+async def list_all_transactions(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db),
+    page: int = 1,
+    limit: int = 50
+):
+    offset = (page - 1) * limit
+    rows = await db.fetch(
+        """SELECT t.*, i.name as investor_name
+           FROM transactions t
+           LEFT JOIN investors i ON i.id = t.investor_id
+           ORDER BY t.date DESC LIMIT $1 OFFSET $2""",
+        limit, offset
+    )
+    total = await db.fetchval("SELECT COUNT(*) FROM transactions")
+    return {"data": [dict(r) for r in rows], "total": total, "page": page}
+
+
+@router.post("/transactions")
+async def create_transaction(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    from datetime import date as date_type
+    await db.execute(
+        """INSERT INTO transactions
+           (date, investor_id, region, asset_class, sector, instrument,
+            units, price, amount, total_fees, net_amount, theme, notes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)""",
+        date_type.fromisoformat(body['date']),
+        body['investor_id'],
+        body.get('region', 'MY'),
+        body.get('asset_class', 'Securities [H]'),
+        body.get('sector'),
+        body['instrument'],
+        body['units'],
+        body['price'],
+        body['amount'],
+        body.get('total_fees', 0),
+        body['net_amount'],
+        body.get('theme'),
+        body.get('notes'),
+    )
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, table_name) VALUES ($1,$2,$3)",
+        str(admin["id"]), "INSERT", "transactions"
+    )
+    return {"message": "Transaction added"}

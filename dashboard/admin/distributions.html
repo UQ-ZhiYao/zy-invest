@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>distributions — ZY-Invest Admin</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="stylesheet" href="../../assets/css/dashboard.css">
+</head>
+<body>
+<div class="dash-root">
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="dash-main" id="dash-main">
+    <header class="dash-topbar">
+      <div class="topbar-left">
+        <button class="mobile-menu-btn" onclick="document.getElementById('sidebar').classList.toggle('mobile-open');document.getElementById('sidebar-overlay').style.display='block'">☰</button>
+        <span class="topbar-title" id="topbar-title">distributions</span>
+      </div>
+      <div class="topbar-right"><span class="topbar-date" id="topbar-date"></span></div>
+    </header>
+    <div class="dash-content">
+      <div class="page-header">
+        <div class="breadcrumb"><a href="../../index.html">ZY-Invest</a><span>&rsaquo;</span><span>Admin</span><span>&rsaquo;</span><span>distributions</span></div>
+        <h1>distributions</h1>
+        <p>Manage distributions records. Import from Excel or add manually.</p>
+      </div>
+      <div class="panel">
+        <div class="panel-body">
+          <div style="text-align:center;padding:48px">
+            <div style="font-size:2.5rem;margin-bottom:12px">📥</div>
+            <h3 style="margin-bottom:8px">Import from Excel</h3>
+            <p style="margin-bottom:20px">Use the Excel Upload feature to bulk import distributions data from your spreadsheet.</p>
+            <a href="upload.html" class="btn btn-primary">Go to Upload</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/dashboard.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  initDashboard('admin-distributions', 'distributions');
+});
+</script>
+</body>
+</html>
