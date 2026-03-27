@@ -231,7 +231,7 @@ async function loadHoldings() {
     if (!data.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text-muted)">No holdings yet</td></tr>'; return; }
     tbody.innerHTML = data.map(h => {
       const mv  = h.units * (h.last_price || h.avg_cost);
-      const upl = mv - (h.units * h.avg_cost);
+      const upl = mv - Number(h.total_cost || (h.units * h.avg_cost));
       return `<tr>
         <td style="font-weight:600">${h.instrument}</td>
         <td><span class="pill pill-gray" style="font-size:0.72rem">${h.asset_class}</span></td>
