@@ -127,6 +127,9 @@ function handleFileSelect(file) {
 }
 
 async function uploadFile() {
+  // Wake up Render first
+  try { await fetch("https://zy-invest-api.onrender.com/health"); } catch(e) {}
+  await new Promise(r => setTimeout(r, 2000)); // wait 2s for wake
   if (!selectedFile) return;
   const btn = document.getElementById('upload-btn');
   btn.disabled = true; btn.textContent = 'Importing...';
@@ -145,7 +148,8 @@ async function uploadFile() {
     const formData = new FormData();
     formData.append('file', selectedFile);
     const token = localStorage.getItem('zy_token');
-    const res = await fetch(`${API_BASE}/api/admin/upload/excel`, {
+    const API_URL = typeof API_BASE !== "undefined" ? API_BASE : "https://zy-invest-api.onrender.com";
+    const res = await fetch(`${API_URL}/api/admin/upload/excel`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` },
       body: formData,
