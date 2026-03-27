@@ -2,38 +2,60 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>settlement — ZY-Invest Admin</title>
+  <title>Settlement — ZY-Invest Admin</title>
   <link rel="icon" href="../../assets/img/logo.png">
   <link rel="stylesheet" href="../../assets/css/main.css">
   <link rel="stylesheet" href="../../assets/css/dashboard.css">
 </head>
 <body>
 <div class="dash-root">
-  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99"></div>
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99" onclick="document.getElementById('sidebar').classList.remove('mobile-open');this.style.display='none'"></div>
   <aside class="sidebar" id="sidebar"></aside>
   <div class="dash-main" id="dash-main">
     <header class="dash-topbar">
       <div class="topbar-left">
         <button class="mobile-menu-btn" onclick="document.getElementById('sidebar').classList.toggle('mobile-open');document.getElementById('sidebar-overlay').style.display='block'">☰</button>
-        <span class="topbar-title" id="topbar-title">settlement</span>
+        <span class="topbar-title" id="topbar-title">Settlement</span>
       </div>
       <div class="topbar-right"><span class="topbar-date" id="topbar-date"></span></div>
     </header>
     <div class="dash-content">
       <div class="page-header">
-        <div class="breadcrumb"><a href="../../index.html">ZY-Invest</a><span>&rsaquo;</span><span>Admin</span><span>&rsaquo;</span><span>settlement</span></div>
-        <h1>settlement</h1>
-        <p>Manage settlement records. Import from Excel or add manually.</p>
+        <div class="breadcrumb"><a href="../../index.html">ZY-Invest</a><span>›</span><span>Admin</span><span>›</span><span>Settlement</span></div>
+        <h1>Settlement Records</h1>
+        <p>Realised P&L automatically computed when a SELL trade is entered. Cost basis: VWAP method.</p>
       </div>
+
+      <!-- Summary -->
+      <div class="metrics-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+        <div class="metric-card"><div class="metric-label">Total Settlements</div><div class="metric-value blue" id="m-count">—</div></div>
+        <div class="metric-card"><div class="metric-label">Total Realised P&L</div><div class="metric-value" id="m-total-pl">—</div></div>
+        <div class="metric-card"><div class="metric-label">Total Gains</div><div class="metric-value green" id="m-gains">—</div></div>
+        <div class="metric-card"><div class="metric-label">Total Losses</div><div class="metric-value" style="color:#DC2626" id="m-losses">—</div></div>
+      </div>
+
       <div class="panel">
-        <div class="panel-body">
-          <div style="text-align:center;padding:48px">
-            <div style="font-size:2.5rem;margin-bottom:12px">📥</div>
-            <h3 style="margin-bottom:8px">Import from Excel</h3>
-            <p style="margin-bottom:20px">Use the Excel Upload feature to bulk import settlement data from your spreadsheet.</p>
-            <a href="upload.html" class="btn btn-primary">Go to Upload</a>
+        <div class="panel-header">
+          <h3>Settlement Records</h3>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="filter-year" class="form-input" style="padding:6px 10px;font-size:0.82rem;border:1px solid var(--border);border-radius:var(--radius-md);width:120px" onchange="filterSettlement()">
+              <option value="">All Years</option>
+              <option>2022</option><option>2023</option><option>2024</option><option>2025</option><option>2026</option>
+            </select>
+            <input type="text" id="filter-instrument" placeholder="Filter instrument..." style="padding:6px 10px;font-size:0.82rem;border:1px solid var(--border);border-radius:var(--radius-md);width:160px" oninput="filterSettlement()">
           </div>
         </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Sell Date</th><th>Instrument</th><th>Class</th><th class="td-right">Units Sold</th><th class="td-right">VWAP Cost</th><th class="td-right">Sale Price</th><th class="td-right">Cost Basis</th><th class="td-right">Proceeds</th><th class="td-right">Realised P&L</th><th class="td-right">Return %</th></tr>
+            </thead>
+            <tbody id="settlement-table">
+              <tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel-footer">Settlement records are auto-generated when SELL trades are entered in Trade Transactions. Manual editing is not permitted.</div>
       </div>
     </div>
   </div>
@@ -41,9 +63,65 @@
 <script src="../../assets/js/api.js"></script>
 <script src="../../assets/js/dashboard.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-  initDashboard('admin-settlement', 'settlement');
+let allSettlements = [];
+
+document.addEventListener('DOMContentLoaded', async () => {
+  initDashboard('admin-settlement', 'Settlement');
+  await loadSettlement();
 });
+
+async function loadSettlement() {
+  try {
+    allSettlements = await api.get('/api/admin/settlement') || [];
+    updateSummary(allSettlements);
+    renderTable(allSettlements);
+  } catch(e) { showToast('Failed to load settlement', 'error'); }
+}
+
+function updateSummary(data) {
+  const total  = data.reduce((s,r) => s + Number(r.profit_loss||0), 0);
+  const gains  = data.filter(r => Number(r.profit_loss) > 0).reduce((s,r) => s + Number(r.profit_loss), 0);
+  const losses = data.filter(r => Number(r.profit_loss) < 0).reduce((s,r) => s + Number(r.profit_loss), 0);
+  document.getElementById('m-count').textContent     = data.length;
+  const plEl = document.getElementById('m-total-pl');
+  plEl.textContent = fmtRM(total);
+  plEl.className   = 'metric-value ' + (total >= 0 ? 'green' : 'red');
+  document.getElementById('m-gains').textContent     = fmtRM(gains);
+  document.getElementById('m-losses').textContent    = fmtRM(losses);
+}
+
+function renderTable(data) {
+  const tbody = document.getElementById('settlement-table');
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No settlement records. Add SELL trades via Trade Transactions.</td></tr>'; return; }
+  tbody.innerHTML = data.map(r => {
+    const cost     = Number(r.units) * Number(r.bought_price||0);
+    const proceeds = Number(r.units) * Number(r.sale_price||0);
+    const pl       = Number(r.profit_loss||0);
+    const ret      = cost > 0 ? (pl/cost)*100 : 0;
+    return `<tr>
+      <td>${fmtDate(r.date)}</td>
+      <td style="font-weight:600">${r.instrument}</td>
+      <td><span class="pill pill-gray" style="font-size:0.72rem">${r.asset_class||'—'}</span></td>
+      <td class="td-right">${fmtNum(r.units)}</td>
+      <td class="td-right">RM ${Number(r.bought_price||0).toFixed(4)}</td>
+      <td class="td-right">RM ${Number(r.sale_price||0).toFixed(4)}</td>
+      <td class="td-right">${fmtRM(cost)}</td>
+      <td class="td-right">${fmtRM(proceeds)}</td>
+      <td class="td-right">${plPill(pl)}</td>
+      <td class="td-right">${pctPill(ret)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function filterSettlement() {
+  const year  = document.getElementById('filter-year').value;
+  const instr = document.getElementById('filter-instrument').value.toLowerCase();
+  let data = allSettlements;
+  if (year)  data = data.filter(r => r.date?.startsWith(year));
+  if (instr) data = data.filter(r => r.instrument.toLowerCase().includes(instr));
+  updateSummary(data);
+  renderTable(data);
+}
 </script>
 </body>
 </html>

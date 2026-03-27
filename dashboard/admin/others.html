@@ -2,37 +2,100 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>others — ZY-Invest Admin</title>
+  <title>Others — ZY-Invest Admin</title>
   <link rel="icon" href="../../assets/img/logo.png">
   <link rel="stylesheet" href="../../assets/css/main.css">
   <link rel="stylesheet" href="../../assets/css/dashboard.css">
+  <style>
+    .form-group{margin-bottom:14px}
+    .form-label{display:block;font-size:0.83rem;font-weight:600;color:var(--gray-700,#374151);margin-bottom:6px}
+    .form-input{width:100%;padding:9px 12px;font-family:var(--font-body);font-size:0.88rem;background:var(--gray-50);border:1.5px solid var(--border);border-radius:var(--radius-md);color:var(--text);outline:none}
+    .form-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(21,101,192,0.1);background:var(--white)}
+    .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  </style>
 </head>
 <body>
 <div class="dash-root">
-  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99"></div>
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99" onclick="document.getElementById('sidebar').classList.remove('mobile-open');this.style.display='none'"></div>
   <aside class="sidebar" id="sidebar"></aside>
   <div class="dash-main" id="dash-main">
     <header class="dash-topbar">
       <div class="topbar-left">
         <button class="mobile-menu-btn" onclick="document.getElementById('sidebar').classList.toggle('mobile-open');document.getElementById('sidebar-overlay').style.display='block'">☰</button>
-        <span class="topbar-title" id="topbar-title">others</span>
+        <span class="topbar-title" id="topbar-title">Others</span>
       </div>
       <div class="topbar-right"><span class="topbar-date" id="topbar-date"></span></div>
     </header>
     <div class="dash-content">
       <div class="page-header">
-        <div class="breadcrumb"><a href="../../index.html">ZY-Invest</a><span>&rsaquo;</span><span>Admin</span><span>&rsaquo;</span><span>others</span></div>
-        <h1>others</h1>
-        <p>Manage others records. Import from Excel or add manually.</p>
+        <div class="breadcrumb"><a href="../../index.html">ZY-Invest</a><span>›</span><span>Admin</span><span>›</span><span>Others</span></div>
+        <h1>Others</h1>
+        <p>Record miscellaneous income such as interest, rebates, and other non-investment income.</p>
       </div>
-      <div class="panel">
+
+      <!-- Summary -->
+      <div class="metrics-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
+        <div class="metric-card"><div class="metric-label">Total Other Income</div><div class="metric-value green" id="m-total">—</div></div>
+        <div class="metric-card"><div class="metric-label">Interest Income</div><div class="metric-value blue" id="m-interest">—</div></div>
+        <div class="metric-card"><div class="metric-label">Other Income</div><div class="metric-value" id="m-other">—</div></div>
+      </div>
+
+      <!-- Add form -->
+      <div class="panel" style="margin-bottom:20px">
+        <div class="panel-header"><h3>Add Record</h3></div>
         <div class="panel-body">
-          <div style="text-align:center;padding:48px">
-            <div style="font-size:2.5rem;margin-bottom:12px">📥</div>
-            <h3 style="margin-bottom:8px">Import from Excel</h3>
-            <p style="margin-bottom:20px">Use the Excel Upload feature to bulk import others data from your spreadsheet.</p>
-            <a href="upload.html" class="btn btn-primary">Go to Upload</a>
-          </div>
+          <form id="others-form" onsubmit="addOther(event)">
+            <div class="grid-3">
+              <div class="form-group">
+                <label class="form-label">Record Date</label>
+                <input type="date" id="o-date" class="form-input" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Title</label>
+                <input type="text" id="o-title" class="form-input" placeholder="e.g. Cash Account Interest" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Income Type</label>
+                <select id="o-type" class="form-input">
+                  <option value="Interests">Interest</option>
+                  <option value="Others">Rebate</option>
+                  <option value="Others">Fee Refund</option>
+                  <option value="Others">Others</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid-3">
+              <div class="form-group">
+                <label class="form-label">Amount (RM)</label>
+                <input type="number" step="0.01" id="o-amount" class="form-input" placeholder="e.g. 12.50" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Platform</label>
+                <select id="o-platform" class="form-input">
+                  <option>Rakuten</option><option>Mplus</option><option>Kenanga</option>
+                  <option>CIMB</option><option>Maybank</option><option>Others</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Description</label>
+                <input type="text" id="o-desc" class="form-input" placeholder="Optional details">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary" id="other-btn">Add Record</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- History -->
+      <div class="panel">
+        <div class="panel-header"><h3>Records</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Title</th><th>Type</th><th>Platform</th><th class="td-right">Amount (RM)</th><th>Description</th></tr></thead>
+            <tbody id="others-table">
+              <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -41,9 +104,54 @@
 <script src="../../assets/js/api.js"></script>
 <script src="../../assets/js/dashboard.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-  initDashboard('admin-others', 'others');
+document.addEventListener('DOMContentLoaded', async () => {
+  initDashboard('admin-others', 'Others');
+  document.getElementById('o-date').value = new Date().toISOString().slice(0,10);
+  await loadOthers();
 });
+
+async function addOther(e) {
+  e.preventDefault();
+  const btn = document.getElementById('other-btn');
+  btn.disabled = true; btn.textContent = 'Adding...';
+  try {
+    await api.post('/api/admin/others', {
+      record_date:  document.getElementById('o-date').value,
+      title:        document.getElementById('o-title').value.trim(),
+      income_type:  document.getElementById('o-type').value,
+      amount:       parseFloat(document.getElementById('o-amount').value),
+      platform:     document.getElementById('o-platform').value,
+      description:  document.getElementById('o-desc').value.trim(),
+    });
+    showToast('Record added', 'success');
+    document.getElementById('others-form').reset();
+    document.getElementById('o-date').value = new Date().toISOString().slice(0,10);
+    await loadOthers();
+  } catch(err) { showToast('Failed: ' + err.message, 'error'); }
+  btn.disabled = false; btn.textContent = 'Add Record';
+}
+
+async function loadOthers() {
+  try {
+    const data = await api.get('/api/admin/others') || [];
+    const total    = data.reduce((s,r) => s + Number(r.amount||0), 0);
+    const interest = data.filter(r => r.income_type === 'Interests').reduce((s,r) => s + Number(r.amount||0), 0);
+    document.getElementById('m-total').textContent    = fmtRM(total);
+    document.getElementById('m-interest').textContent = fmtRM(interest);
+    document.getElementById('m-other').textContent    = fmtRM(total - interest);
+    const tbody = document.getElementById('others-table');
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">No records yet</td></tr>'; return; }
+    tbody.innerHTML = data.map(r => `
+      <tr>
+        <td>${fmtDate(r.record_date)}</td>
+        <td style="font-weight:500">${r.title}</td>
+        <td><span class="pill pill-blue" style="font-size:0.72rem">${r.income_type}</span></td>
+        <td style="color:var(--text-muted)">${r.platform||'—'}</td>
+        <td class="td-right" style="font-weight:600;color:var(--green)">${fmtRM(r.amount)}</td>
+        <td style="font-size:0.82rem;color:var(--text-muted)">${r.description||'—'}</td>
+      </tr>`).join('');
+  } catch(e) {}
+}
 </script>
 </body>
 </html>

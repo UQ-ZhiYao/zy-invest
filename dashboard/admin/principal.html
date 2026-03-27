@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Principal Cashflow — ZY-Invest Admin</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="stylesheet" href="../../assets/css/dashboard.css">
+  <style>
+    .form-group{margin-bottom:14px}
+    .form-label{display:block;font-size:0.83rem;font-weight:600;color:var(--gray-700,#374151);margin-bottom:6px}
+    .form-input{width:100%;padding:9px 12px;font-family:var(--font-body);font-size:0.88rem;background:var(--gray-50);border:1.5px solid var(--border);border-radius:var(--radius-md);color:var(--text);outline:none}
+    .form-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(21,101,192,0.1);background:var(--white)}
+    .form-input[readonly]{background:var(--gray-100)}
+    .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+    .type-btn{flex:1;padding:10px;border:2px solid var(--border);border-radius:var(--radius-md);font-weight:600;font-size:0.9rem;cursor:pointer;transition:all 0.2s;background:var(--white)}
+    .type-btn.deposit.active{border-color:var(--green);background:#F0FDF4;color:var(--green)}
+    .type-btn.withdrawal.active{border-color:#DC2626;background:#FEF2F2;color:#DC2626}
+  </style>
+</head>
+<body>
+<div class="dash-root">
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99" onclick="document.getElementById('sidebar').classList.remove('mobile-open');this.style.display='none'"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="dash-main" id="dash-main">
+    <header class="dash-topbar">
+      <div class="topbar-left">
+        <button class="mobile-menu-btn" onclick="document.getElementById('sidebar').classList.toggle('mobile-open');document.getElementById('sidebar-overlay').style.display='block'">☰</button>
+        <span class="topbar-title" id="topbar-title">Principal Cashflow</span>
+      </div>
+      <div class="topbar-right"><span class="topbar-date" id="topbar-date"></span></div>
+    </header>
+    <div class="dash-content">
+      <div class="page-header">
+        <div class="breadcrumb"><a href="../../index.html">ZY-Invest</a><span>›</span><span>Admin</span><span>›</span><span>Principal Cashflow</span></div>
+        <h1>Principal Cashflow</h1>
+        <p>Record investor deposits and withdrawals. Units are auto-calculated as Cash ÷ NTA at the transaction date.</p>
+      </div>
+
+      <!-- Summary per investor -->
+      <div class="panel" style="margin-bottom:20px">
+        <div class="panel-header"><h3>Investor Unit Summary</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Investor</th><th class="td-right">Total Deposited</th><th class="td-right">Total Withdrawn</th><th class="td-right">Net Investment</th><th class="td-right">Units Held</th><th class="td-right">Market Value</th></tr></thead>
+            <tbody id="summary-table">
+              <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Add cashflow form -->
+      <div class="panel" style="margin-bottom:20px">
+        <div class="panel-header"><h3>Record Transaction</h3></div>
+        <div class="panel-body">
+          <div style="display:flex;gap:10px;margin-bottom:20px">
+            <button class="type-btn deposit active" id="btn-deposit" onclick="setFlowType('deposit')">↓ DEPOSIT</button>
+            <button class="type-btn withdrawal" id="btn-withdrawal" onclick="setFlowType('withdrawal')">↑ WITHDRAWAL</button>
+          </div>
+          <input type="hidden" id="flow-type" value="deposit">
+
+          <form id="cashflow-form" onsubmit="addCashflow(event)">
+            <div class="grid-3">
+              <div class="form-group">
+                <label class="form-label">Date</label>
+                <input type="date" id="cf-date" class="form-input" required oninput="fetchNTA()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Investor</label>
+                <select id="cf-investor" class="form-input" required>
+                  <option value="">Select investor</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Cash Amount (RM)</label>
+                <input type="number" step="0.01" id="cf-amount" class="form-input" placeholder="e.g. 10000.00" required oninput="calcUnits()">
+              </div>
+            </div>
+            <div class="grid-3">
+              <div class="form-group">
+                <label class="form-label">NTA at Date <span style="font-weight:400;color:var(--text-muted)">(auto-fetched)</span></label>
+                <input type="number" step="0.0001" id="cf-nta" class="form-input" placeholder="e.g. 1.0245" required oninput="calcUnits()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Units <span style="font-weight:400;color:var(--text-muted)">(auto = cash ÷ NTA)</span></label>
+                <input type="number" step="0.0001" id="cf-units" class="form-input" readonly>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Notes</label>
+                <input type="text" id="cf-notes" class="form-input" placeholder="Optional">
+              </div>
+            </div>
+            <div id="cf-preview" style="display:none;margin-bottom:16px;padding:12px 16px;border-radius:var(--radius-md);font-size:0.88rem"></div>
+            <button type="submit" class="btn btn-primary" id="cf-btn">Record Transaction</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- History table -->
+      <div class="panel">
+        <div class="panel-header"><h3>Cashflow History</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Investor</th><th>Type</th><th class="td-right">Cash (RM)</th><th class="td-right">NTA</th><th class="td-right">Units</th><th>Notes</th></tr></thead>
+            <tbody id="cashflow-table">
+              <tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-muted)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/dashboard.js"></script>
+<script>
+let investors = [];
+
+document.addEventListener('DOMContentLoaded', async () => {
+  initDashboard('admin-principal', 'Principal Cashflow');
+  document.getElementById('cf-date').value = new Date().toISOString().slice(0,10);
+  await loadInvestors();
+  await Promise.all([loadSummary(), loadHistory()]);
+  fetchNTA();
+});
+
+function setFlowType(type) {
+  document.getElementById('flow-type').value = type;
+  document.getElementById('btn-deposit').classList.toggle('active', type === 'deposit');
+  document.getElementById('btn-withdrawal').classList.toggle('active', type === 'withdrawal');
+  updatePreview();
+}
+
+async function loadInvestors() {
+  try {
+    investors = await api.get('/api/admin/investors') || [];
+    const sel = document.getElementById('cf-investor');
+    investors.forEach(i => {
+      const opt = document.createElement('option');
+      opt.value = i.id; opt.textContent = i.name;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+async function fetchNTA() {
+  const d = document.getElementById('cf-date').value;
+  if (!d) return;
+  try {
+    const data = await api.get(`/api/admin/nta/at-date?date=${d}`);
+    if (data?.nta) {
+      document.getElementById('cf-nta').value = Number(data.nta).toFixed(4);
+      calcUnits();
+    }
+  } catch(e) {}
+}
+
+function calcUnits() {
+  const amount = parseFloat(document.getElementById('cf-amount').value) || 0;
+  const nta    = parseFloat(document.getElementById('cf-nta').value) || 0;
+  if (nta > 0 && amount > 0) {
+    const units = amount / nta;
+    document.getElementById('cf-units').value = units.toFixed(4);
+    updatePreview();
+  }
+}
+
+function updatePreview() {
+  const amount = parseFloat(document.getElementById('cf-amount').value) || 0;
+  const nta    = parseFloat(document.getElementById('cf-nta').value) || 0;
+  const units  = parseFloat(document.getElementById('cf-units').value) || 0;
+  const type   = document.getElementById('flow-type').value;
+  const inv    = document.getElementById('cf-investor');
+  const invName = inv.options[inv.selectedIndex]?.text || '';
+  if (!amount || !nta || !invName || invName === 'Select investor') { document.getElementById('cf-preview').style.display='none'; return; }
+  const color = type === 'deposit' ? '#166534' : '#991B1B';
+  const bg    = type === 'deposit' ? '#F0FDF4' : '#FEF2F2';
+  const border= type === 'deposit' ? '#BBF7D0' : '#FECACA';
+  document.getElementById('cf-preview').style.cssText = `display:block;background:${bg};border:1px solid ${border};border-radius:var(--radius-md);padding:12px 16px;font-size:0.85rem;color:${color};margin-bottom:16px`;
+  document.getElementById('cf-preview').innerHTML = `
+    <strong>${type === 'deposit' ? '↓ DEPOSIT' : '↑ WITHDRAWAL'}</strong> for <strong>${invName}</strong><br>
+    RM ${fmtNum(amount, 2)} ÷ NTA ${nta.toFixed(4)} = <strong>${fmtNum(units, 4)} units ${type === 'deposit' ? 'issued' : 'redeemed'}</strong>
+  `;
+}
+
+async function loadSummary() {
+  try {
+    const data = await api.get('/api/admin/investors') || [];
+    document.getElementById('summary-table').innerHTML = data.map(r => `
+      <tr>
+        <td style="font-weight:600">${r.name}</td>
+        <td class="td-right">${fmtRM(r.total_deposited || r.total_costs)}</td>
+        <td class="td-right">${fmtRM(r.total_withdrawn || 0)}</td>
+        <td class="td-right">${fmtRM((r.total_deposited || r.total_costs) - (r.total_withdrawn || 0))}</td>
+        <td class="td-right">${fmtUnits(r.units)}</td>
+        <td class="td-right">${fmtRM(r.market_value)}</td>
+      </tr>`).join('');
+  } catch(e) {}
+}
+
+async function loadHistory() {
+  try {
+    const data = await api.get('/api/admin/principal') || [];
+    const tbody = document.getElementById('cashflow-table');
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-muted)">No records yet</td></tr>'; return; }
+    const invMap = {};
+    investors.forEach(i => invMap[i.id] = i.name);
+    tbody.innerHTML = data.map(r => `
+      <tr>
+        <td>${fmtDate(r.date)}</td>
+        <td style="font-weight:500">${invMap[r.investor_id] || '—'}</td>
+        <td><span class="pill ${r.flow_type==='deposit'?'pill-green':'pill-red'}">${r.flow_type}</span></td>
+        <td class="td-right">${fmtRM(r.amount)}</td>
+        <td class="td-right">RM ${Number(r.nta_at_date||0).toFixed(4)}</td>
+        <td class="td-right">${fmtUnits(r.units)}</td>
+        <td style="color:var(--text-muted);font-size:0.82rem">${r.notes||'—'}</td>
+      </tr>`).join('');
+  } catch(e) {}
+}
+
+async function addCashflow(e) {
+  e.preventDefault();
+  const btn = document.getElementById('cf-btn');
+  btn.disabled = true; btn.textContent = 'Recording...';
+  try {
+    await api.post('/api/admin/principal', {
+      date:        document.getElementById('cf-date').value,
+      investor_id: document.getElementById('cf-investor').value,
+      flow_type:   document.getElementById('flow-type').value,
+      amount:      parseFloat(document.getElementById('cf-amount').value),
+      nta_at_date: parseFloat(document.getElementById('cf-nta').value),
+      units:       parseFloat(document.getElementById('cf-units').value),
+      notes:       document.getElementById('cf-notes').value.trim(),
+    });
+    showToast('Transaction recorded. Investor units updated.', 'success');
+    document.getElementById('cashflow-form').reset();
+    document.getElementById('cf-date').value = new Date().toISOString().slice(0,10);
+    document.getElementById('cf-preview').style.display = 'none';
+    await Promise.all([loadSummary(), loadHistory()]);
+  } catch(err) { showToast('Failed: ' + err.message, 'error'); }
+  btn.disabled = false; btn.textContent = 'Record Transaction';
+}
+</script>
+</body>
+</html>

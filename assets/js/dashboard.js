@@ -82,11 +82,23 @@ function renderSidebar(activePage) {
   const adminNav = isAdmin ? `
     <div class="nav-section">
       <div class="nav-section-label">Admin</div>
-      <a href="${base}dashboard/admin/index.html" class="nav-item ${activePage==='admin-dashboard'?'active':''}" data-tooltip="Account Management">
+      <a href="${base}dashboard/admin/index.html" class="nav-item ${activePage==='admin-dashboard'?'active':''}" data-tooltip="Admin Dashboard">
+        <span class="nav-icon">🏠</span><span class="nav-label">Admin Dashboard</span>
+      </a>
+      <a href="${base}dashboard/admin/investors.html" class="nav-item ${activePage==='admin-investors'?'active':''}" data-tooltip="Account Management">
         <span class="nav-icon">👥</span><span class="nav-label">Account Management</span>
       </a>
-      <a href="${base}dashboard/admin/transactions.html" class="nav-item ${activePage==='admin-transactions'?'active':''}" data-tooltip="Transactions">
-        <span class="nav-icon">⇄</span><span class="nav-label">Transactions</span>
+      <a href="${base}dashboard/admin/principal.html" class="nav-item ${activePage==='admin-principal'?'active':''}" data-tooltip="Principal Cashflow">
+        <span class="nav-icon">💵</span><span class="nav-label">Principal Cashflow</span>
+      </a>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-label">Fund Input</div>
+      <a href="${base}dashboard/admin/transactions.html" class="nav-item ${activePage==='admin-transactions'?'active':''}" data-tooltip="Trade Transactions">
+        <span class="nav-icon">⇄</span><span class="nav-label">Trade Transactions</span>
+      </a>
+      <a href="${base}dashboard/admin/holdings.html" class="nav-item ${activePage==='admin-holdings'?'active':''}" data-tooltip="Holdings">
+        <span class="nav-icon">📦</span><span class="nav-label">Holdings</span>
       </a>
       <a href="${base}dashboard/admin/settlement.html" class="nav-item ${activePage==='admin-settlement'?'active':''}" data-tooltip="Settlement">
         <span class="nav-icon">✓</span><span class="nav-label">Settlement</span>
@@ -100,6 +112,9 @@ function renderSidebar(activePage) {
       <a href="${base}dashboard/admin/others.html" class="nav-item ${activePage==='admin-others'?'active':''}" data-tooltip="Others">
         <span class="nav-icon">⚙</span><span class="nav-label">Others</span>
       </a>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-label">System</div>
       <a href="${base}dashboard/admin/fee-schedule.html" class="nav-item ${activePage==='fee-schedule'?'active':''}" data-tooltip="Fee Schedule">
         <span class="nav-icon">🗓</span><span class="nav-label">Fee Schedule</span>
       </a>
