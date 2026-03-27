@@ -428,24 +428,29 @@ async def compute_holdings_and_settlement(
             net_proceeds      = abs(net_amount)
             sell_net_per_unit = net_proceeds / sell_units if sell_units > 0 else D(row['price'] or 0)
 
-            if pos['units'] >= sell_units - Decimal('0.01'):  # 0.01 unit tolerance for CSV rounding
-                avg_cost = pos['avg_cost']
-                pl       = (sell_net_per_unit - avg_cost) * sell_units
-                ret_pct  = ((sell_net_per_unit - avg_cost) / avg_cost * 100) if avg_cost > 0 else Decimal('0')
-                cost_basis = avg_cost * sell_units
+            if pos['units'] >= sell_units - Decimal('0.01'):
+                avg_cost   = pos['avg_cost']
+                proceeds   = abs(net_amount)          # exact from transaction
+                cost_basis = avg_cost * sell_units     # exact Decimal
+                pl         = proceeds - cost_basis     # ALWAYS proceeds - cost_basis
+                ret_pct    = (pl / cost_basis * 100) if cost_basis > 0 else Decimal('0')
+                sell_net_per_unit = proceeds / sell_units if sell_units > 0 else D(row['price'] or 0)
 
                 try:
                     await db.execute("""
                         INSERT INTO settlement
                         (date, region, asset_class, sector, instrument,
-                         units, bought_price, sale_price, profit_loss, return_pct, remark)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                         units, bought_price, sale_price, cost_basis, proceeds,
+                         profit_loss, return_pct, remark)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                     """,
                         row['date'],
                         region, asset_class, sector, instr,
                         float(sell_units),
                         float(avg_cost.quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
                         float(sell_net_per_unit.quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
+                        float(cost_basis.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
+                        float(proceeds.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
                         float(pl.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
                         float(ret_pct.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
                         'auto-computed VWAP'
