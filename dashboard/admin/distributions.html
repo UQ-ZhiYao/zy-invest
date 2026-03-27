@@ -2,48 +2,241 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>distributions — ZY-Invest Admin</title>
+  <title>Distributions — ZY-Invest Admin</title>
   <link rel="icon" href="../../assets/img/logo.png">
   <link rel="stylesheet" href="../../assets/css/main.css">
   <link rel="stylesheet" href="../../assets/css/dashboard.css">
+  <style>
+    .form-group{margin-bottom:14px}
+    .form-label{display:block;font-size:0.83rem;font-weight:600;color:var(--gray-700,#374151);margin-bottom:6px}
+    .form-input{width:100%;padding:9px 12px;font-family:var(--font-body);font-size:0.88rem;background:var(--gray-50);border:1.5px solid var(--border);border-radius:var(--radius-md);color:var(--text);outline:none}
+    .form-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(21,101,192,0.1);background:var(--white)}
+    .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .breakdown-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--gray-100)}
+    .breakdown-row:last-child{border-bottom:none}
+  </style>
 </head>
 <body>
 <div class="dash-root">
-  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99"></div>
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99" onclick="document.getElementById('sidebar').classList.remove('mobile-open');this.style.display='none'"></div>
   <aside class="sidebar" id="sidebar"></aside>
   <div class="dash-main" id="dash-main">
     <header class="dash-topbar">
       <div class="topbar-left">
         <button class="mobile-menu-btn" onclick="document.getElementById('sidebar').classList.toggle('mobile-open');document.getElementById('sidebar-overlay').style.display='block'">☰</button>
-        <span class="topbar-title" id="topbar-title">distributions</span>
+        <span class="topbar-title" id="topbar-title">Distributions</span>
       </div>
       <div class="topbar-right"><span class="topbar-date" id="topbar-date"></span></div>
     </header>
     <div class="dash-content">
       <div class="page-header">
-        <div class="breadcrumb"><a href="../../index.html">ZY-Invest</a><span>&rsaquo;</span><span>Admin</span><span>&rsaquo;</span><span>distributions</span></div>
-        <h1>distributions</h1>
-        <p>Manage distributions records. Import from Excel or add manually.</p>
+        <div class="breadcrumb"><a href="../../index.html">ZY-Invest</a><span>›</span><span>Admin</span><span>›</span><span>Distributions</span></div>
+        <h1>Distributions</h1>
+        <p>Declare fund distributions. System auto-calculates each investor's entitlement: DPS × units held at ex-date.</p>
       </div>
-      <div class="panel">
+
+      <!-- Declare distribution -->
+      <div class="panel" style="margin-bottom:20px">
+        <div class="panel-header"><h3>Declare Distribution</h3></div>
         <div class="panel-body">
-          <div style="text-align:center;padding:48px">
-            <div style="font-size:2.5rem;margin-bottom:12px">📥</div>
-            <h3 style="margin-bottom:8px">Import from Excel</h3>
-            <p style="margin-bottom:20px">Use the Excel Upload feature to bulk import distributions data from your spreadsheet.</p>
-            <a href="upload.html" class="btn btn-primary">Go to Upload</a>
-          </div>
+          <form id="dist-form" onsubmit="declareDistribution(event)">
+            <div class="grid-3">
+              <div class="form-group">
+                <label class="form-label">Financial Year</label>
+                <select id="d-fy" class="form-input">
+                  <option>FY22</option><option>FY23</option><option>FY24</option>
+                  <option selected>FY25</option><option>FY26</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Distribution Type</label>
+                <select id="d-type" class="form-input">
+                  <option value="interim">Interim Dividend</option>
+                  <option value="final">Final Dividend</option>
+                  <option value="special">Special Dividend</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Title</label>
+                <input type="text" id="d-title" class="form-input" placeholder="e.g. Interim Dividend FY25">
+              </div>
+            </div>
+            <div class="grid-3">
+              <div class="form-group">
+                <label class="form-label">Announcement Date</label>
+                <input type="date" id="d-ann" class="form-input" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Ex-Date <span style="color:var(--text-muted);font-weight:400">(units snapshot)</span></label>
+                <input type="date" id="d-ex" class="form-input" required oninput="previewBreakdown()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Payment Date</label>
+                <input type="date" id="d-pmt" class="form-input" required>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="form-group">
+                <label class="form-label">DPS — Distribution Per Share (sen)</label>
+                <input type="number" step="0.0001" id="d-dps" class="form-input" placeholder="e.g. 2.10" required oninput="previewBreakdown()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Payout Ratio (%)</label>
+                <input type="number" step="0.01" id="d-payout" class="form-input" placeholder="e.g. 80.00">
+              </div>
+            </div>
+
+            <!-- Live preview of breakdown -->
+            <div id="breakdown-preview" style="display:none;margin-bottom:16px">
+              <div style="font-size:0.83rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px">Distribution Breakdown Preview</div>
+              <div id="breakdown-rows"></div>
+              <div style="display:flex;justify-content:space-between;font-weight:700;padding-top:10px;margin-top:4px;border-top:2px solid var(--border)">
+                <span>Total Distribution</span>
+                <span id="breakdown-total" style="color:var(--blue)">—</span>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="dist-btn">Declare Distribution</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Distribution history -->
+      <div class="panel">
+        <div class="panel-header"><h3>Distribution History</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>FY</th><th>Title</th><th>Type</th><th>Ex-Date</th><th>Pmt Date</th><th class="td-right">DPS (sen)</th><th class="td-right">Total Units</th><th class="td-right">Total Paid</th><th>Status</th><th>Breakdown</th></tr></thead>
+            <tbody id="dist-table">
+              <tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   </div>
 </div>
+
+<!-- Breakdown modal -->
+<div id="breakdown-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;align-items:center;justify-content:center">
+  <div style="background:var(--white);border-radius:var(--radius-xl);padding:32px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h3 id="modal-title">Distribution Breakdown</h3>
+      <span style="cursor:pointer;font-size:1.2rem;color:var(--text-muted);padding:4px 8px" onclick="document.getElementById('breakdown-modal').style.display='none'">✕</span>
+    </div>
+    <div id="modal-breakdown"></div>
+  </div>
+</div>
+
 <script src="../../assets/js/api.js"></script>
 <script src="../../assets/js/dashboard.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-  initDashboard('admin-distributions', 'distributions');
+let investors = [];
+
+document.addEventListener('DOMContentLoaded', async () => {
+  initDashboard('admin-distributions', 'Distributions');
+  const today = new Date().toISOString().slice(0,10);
+  ['d-ann','d-ex','d-pmt'].forEach(id => document.getElementById(id).value = today);
+  investors = await api.get('/api/admin/investors') || [];
+  await loadDistributions();
 });
+
+async function previewBreakdown() {
+  const dps    = parseFloat(document.getElementById('d-dps').value) || 0;
+  const exDate = document.getElementById('d-ex').value;
+  if (!dps || !exDate || !investors.length) { document.getElementById('breakdown-preview').style.display='none'; return; }
+  // Use current investor units as approximation
+  const rows = investors.map(inv => ({
+    name:   inv.name,
+    units:  Number(inv.units),
+    amount: Number(inv.units) * dps / 100,
+  }));
+  const total = rows.reduce((s,r) => s + r.amount, 0);
+  document.getElementById('breakdown-preview').style.display = 'block';
+  document.getElementById('breakdown-rows').innerHTML = rows.map(r => `
+    <div class="breakdown-row">
+      <span style="font-weight:500">${r.name}</span>
+      <div style="text-align:right">
+        <span style="font-size:0.82rem;color:var(--text-muted)">${fmtUnits(r.units)} units × ${dps} sen</span>
+        <span style="font-weight:700;color:var(--gray-900);margin-left:12px">${fmtRM(r.amount)}</span>
+      </div>
+    </div>`).join('');
+  document.getElementById('breakdown-total').textContent = fmtRM(total);
+}
+
+async function declareDistribution(e) {
+  e.preventDefault();
+  const btn = document.getElementById('dist-btn');
+  btn.disabled = true; btn.textContent = 'Declaring...';
+  try {
+    const result = await api.post('/api/admin/distributions', {
+      financial_year: document.getElementById('d-fy').value,
+      dist_type:      document.getElementById('d-type').value,
+      title:          document.getElementById('d-title').value || `${document.getElementById('d-type').value} ${document.getElementById('d-fy').value}`,
+      ann_date:       document.getElementById('d-ann').value,
+      ex_date:        document.getElementById('d-ex').value,
+      pmt_date:       document.getElementById('d-pmt').value,
+      dps_sen:        parseFloat(document.getElementById('d-dps').value),
+      payout_ratio:   parseFloat(document.getElementById('d-payout').value) || null,
+    });
+    showToast(`Distribution declared. ${result.investors_count} investor entitlements computed.`, 'success');
+    document.getElementById('dist-form').reset();
+    document.getElementById('breakdown-preview').style.display = 'none';
+    await loadDistributions();
+  } catch(err) { showToast('Failed: ' + err.message, 'error'); }
+  btn.disabled = false; btn.textContent = 'Declare Distribution';
+}
+
+async function loadDistributions() {
+  try {
+    const data = await api.get('/api/admin/distributions') || [];
+    const tbody = document.getElementById('dist-table');
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No distributions declared yet</td></tr>'; return; }
+    tbody.innerHTML = data.map(r => `
+      <tr>
+        <td style="font-weight:600">${r.financial_year}</td>
+        <td>${r.title}</td>
+        <td><span class="pill pill-blue">${r.dist_type}</span></td>
+        <td>${fmtDate(r.ex_date)}</td>
+        <td>${fmtDate(r.pmt_date)}</td>
+        <td class="td-right">${Number(r.dps_sen).toFixed(4)}</td>
+        <td class="td-right">${r.total_units ? fmtUnits(r.total_units) : '—'}</td>
+        <td class="td-right" style="font-weight:600;color:var(--blue)">${r.total_dividend ? fmtRM(r.total_dividend) : '—'}</td>
+        <td><span class="pill ${r.is_paid?'pill-green':'pill-orange'}">${r.is_paid?'Paid':'Pending'}</span></td>
+        <td><button class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="showBreakdown('${r.id}','${r.title}')">View</button></td>
+      </tr>`).join('');
+  } catch(e) {}
+}
+
+async function showBreakdown(distId, title) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-breakdown').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Loading...</div>';
+  document.getElementById('breakdown-modal').style.display = 'flex';
+  try {
+    const data = await api.get(`/api/admin/distributions/${distId}/breakdown`);
+    if (!data?.length) { document.getElementById('modal-breakdown').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">No breakdown available</div>'; return; }
+    const total = data.reduce((s,r) => s + Number(r.amount||0), 0);
+    document.getElementById('modal-breakdown').innerHTML = `
+      <table style="width:100%">
+        <thead><tr><th style="text-align:left;padding:8px 0;border-bottom:1px solid var(--border)">Investor</th><th style="text-align:right;padding:8px 0;border-bottom:1px solid var(--border)">Units at Ex-Date</th><th style="text-align:right;padding:8px 0;border-bottom:1px solid var(--border)">DPS (sen)</th><th style="text-align:right;padding:8px 0;border-bottom:1px solid var(--border)">Amount</th><th style="text-align:right;padding:8px 0;border-bottom:1px solid var(--border)">Status</th></tr></thead>
+        <tbody>${data.map(r=>`
+          <tr>
+            <td style="padding:10px 0;font-weight:500">${r.investor_name||'—'}</td>
+            <td style="text-align:right;padding:10px 0">${fmtUnits(r.units_at_ex_date)}</td>
+            <td style="text-align:right;padding:10px 0">${Number(r.dps_sen||0).toFixed(4)}</td>
+            <td style="text-align:right;padding:10px 0;font-weight:700;color:var(--blue)">${fmtRM(r.amount)}</td>
+            <td style="text-align:right;padding:10px 0"><span class="pill ${r.paid?'pill-green':'pill-orange'}">${r.paid?'Paid':'Pending'}</span></td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr style="border-top:2px solid var(--border)">
+          <td colspan="3" style="padding:10px 0;font-weight:700">Total</td>
+          <td style="text-align:right;padding:10px 0;font-weight:700;color:var(--blue)">${fmtRM(total)}</td>
+          <td></td>
+        </tr></tfoot>
+      </table>`;
+  } catch(e) { document.getElementById('modal-breakdown').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Failed to load breakdown</div>'; }
+}
 </script>
 </body>
 </html>

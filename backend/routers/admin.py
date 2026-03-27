@@ -324,3 +324,382 @@ async def create_transaction(
         str(admin["id"]), "INSERT", "transactions"
     )
     return {"message": "Transaction added"}
+
+
+# ── Holdings — computed from transactions (VWAP) ─────────────
+@router.get("/holdings")
+async def get_holdings(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Compute current holdings from all buy/sell transactions using VWAP."""
+    rows = await db.fetch("""
+        SELECT instrument, asset_class, sector, region,
+               SUM(units) as net_units,
+               SUM(CASE WHEN units > 0 THEN units ELSE 0 END) as total_bought,
+               SUM(CASE WHEN units > 0 THEN units * price ELSE 0 END) as total_cost
+        FROM transactions
+        WHERE investor_id IS NULL OR TRUE
+        GROUP BY instrument, asset_class, sector, region
+        HAVING SUM(units) > 0.001
+        ORDER BY instrument
+    """)
+    holdings = []
+    for r in rows:
+        avg_cost = float(r['total_cost']) / float(r['total_bought']) if r['total_bought'] else 0
+        # Get latest price
+        price_row = await db.fetchrow(
+            "SELECT last_price FROM price_data WHERE instrument=$1 ORDER BY price_date DESC LIMIT 1",
+            r['instrument']
+        )
+        last_price = float(price_row['last_price']) if price_row else None
+        holdings.append({
+            'instrument': r['instrument'],
+            'asset_class': r['asset_class'],
+            'sector': r['sector'],
+            'region': r['region'],
+            'units': float(r['net_units']),
+            'avg_cost': round(avg_cost, 6),
+            'last_price': last_price,
+        })
+    return holdings
+
+
+@router.post("/holdings/compute")
+async def compute_holdings_and_settlement(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Recompute all holdings and auto-generate settlement records for sells."""
+    # Get all transactions ordered by date
+    rows = await db.fetch("""
+        SELECT * FROM transactions ORDER BY date ASC, created_at ASC
+    """)
+
+    # Build holdings with VWAP, detect sells → generate settlement
+    positions = {}  # instrument -> {units, total_cost, avg_cost}
+    settlement_count = 0
+
+    for row in rows:
+        instr = row['instrument']
+        units = float(row['units'])
+        price = float(row['price'])
+
+        if instr not in positions:
+            positions[instr] = {'units': 0, 'total_cost': 0, 'avg_cost': 0}
+
+        pos = positions[instr]
+
+        if units > 0:
+            # BUY — update VWAP
+            new_total_cost = pos['total_cost'] + (units * price)
+            new_units      = pos['units'] + units
+            pos['avg_cost']    = new_total_cost / new_units if new_units > 0 else price
+            pos['total_cost']  = new_total_cost
+            pos['units']       = new_units
+        else:
+            # SELL — compute realised P&L using VWAP
+            sell_units = abs(units)
+            if pos['units'] > 0:
+                bought_price = pos['avg_cost']
+                pl = (price - bought_price) * sell_units
+                ret_pct = ((price - bought_price) / bought_price * 100) if bought_price > 0 else 0
+                # Insert settlement record
+                try:
+                    await db.execute("""
+                        INSERT INTO settlement
+                        (date, investor_id, region, asset_class, sector, instrument,
+                         units, bought_price, sale_price, profit_loss, return_pct, remark)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                        ON CONFLICT DO NOTHING
+                    """,
+                        row['date'],
+                        row.get('investor_id'),
+                        row.get('region', 'MY'),
+                        row.get('asset_class', ''),
+                        row.get('sector'),
+                        instr,
+                        sell_units,
+                        round(bought_price, 6),
+                        price,
+                        round(pl, 4),
+                        round(ret_pct, 4),
+                        'auto-computed VWAP'
+                    )
+                    settlement_count += 1
+                except Exception:
+                    pass
+                # Deduct from position
+                pos['units']      -= sell_units
+                pos['total_cost']  = pos['units'] * pos['avg_cost']
+
+    return {
+        "message": "Holdings and settlement recomputed",
+        "positions": len([p for p in positions.values() if p['units'] > 0.001]),
+        "settlement_records": settlement_count
+    }
+
+
+# ── Principal cashflow ────────────────────────────────────────
+@router.get("/principal")
+async def get_principal(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    rows = await db.fetch("""
+        SELECT p.*, i.name as investor_name
+        FROM principal_cashflow p
+        LEFT JOIN investors i ON i.id = p.investor_id
+        ORDER BY p.date DESC
+    """)
+    return [dict(r) for r in rows]
+
+
+@router.post("/principal")
+async def add_principal(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    from datetime import date as date_type
+    await db.execute("""
+        INSERT INTO principal_cashflow
+        (date, investor_id, flow_type, amount, nta_at_date, units, notes)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+    """,
+        date_type.fromisoformat(body['date']),
+        body['investor_id'],
+        body['flow_type'],
+        body['amount'],
+        body['nta_at_date'],
+        body['units'],
+        body.get('notes'),
+    )
+    # Update investor units
+    sign = 1 if body['flow_type'] == 'deposit' else -1
+    await db.execute("""
+        UPDATE investors SET units = units + $1 WHERE id = $2
+    """, sign * body['units'], body['investor_id'])
+    return {"message": "Principal cashflow recorded"}
+
+
+# ── NTA at date ───────────────────────────────────────────────
+@router.get("/nta/at-date")
+async def get_nta_at_date(
+    date: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    from datetime import date as date_type
+    row = await db.fetchrow("""
+        SELECT nta, date FROM historical
+        WHERE date <= $1
+        ORDER BY date DESC LIMIT 1
+    """, date_type.fromisoformat(date))
+    if row:
+        return {"nta": float(row['nta']), "date": str(row['date'])}
+    return {"nta": 1.0, "date": date}
+
+
+# ── Dividends admin ───────────────────────────────────────────
+@router.get("/dividends")
+async def get_dividends(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    rows = await db.fetch("SELECT * FROM dividends ORDER BY ex_date DESC")
+    return [dict(r) for r in rows]
+
+
+@router.post("/dividends")
+async def add_dividend(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    from datetime import date as date_type
+    await db.execute("""
+        INSERT INTO dividends
+        (ann_date, ex_date, pmt_date, asset_class, instrument,
+         units, dps_sen, amount, entitlement)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    """,
+        date_type.fromisoformat(body['ann_date']),
+        date_type.fromisoformat(body['ex_date']),
+        date_type.fromisoformat(body['pmt_date']) if body.get('pmt_date') else None,
+        body.get('asset_class'),
+        body['instrument'],
+        body['units'],
+        body['dps_sen'],
+        body['amount'],
+        body.get('entitlement', 'cash'),
+    )
+    return {"message": "Dividend recorded"}
+
+
+# ── Others admin ──────────────────────────────────────────────
+@router.get("/others")
+async def get_others(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    rows = await db.fetch("SELECT * FROM others ORDER BY record_date DESC")
+    return [dict(r) for r in rows]
+
+
+@router.post("/others")
+async def add_other(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    from datetime import date as date_type
+    await db.execute("""
+        INSERT INTO others
+        (record_date, title, income_type, amount, platform, description)
+        VALUES ($1,$2,$3,$4,$5,$6)
+    """,
+        date_type.fromisoformat(body['record_date']),
+        body['title'],
+        body.get('income_type', 'Others'),
+        body['amount'],
+        body.get('platform'),
+        body.get('description'),
+    )
+    return {"message": "Record added"}
+
+
+# ── Distributions admin ───────────────────────────────────────
+@router.get("/distributions")
+async def get_distributions(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    rows = await db.fetch("SELECT * FROM distributions ORDER BY ex_date DESC")
+    return [dict(r) for r in rows]
+
+
+@router.post("/distributions")
+async def declare_distribution(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    from datetime import date as date_type
+    ex_date = date_type.fromisoformat(body['ex_date'])
+    dps     = float(body['dps_sen'])
+
+    # Get all investors and their units
+    investors = await db.fetch("SELECT id, name, units FROM investors WHERE units > 0")
+    total_units = sum(float(r['units']) for r in investors)
+    total_div   = total_units * dps / 100
+
+    # Insert distribution header
+    dist_id = await db.fetchval("""
+        INSERT INTO distributions
+        (ann_date, ex_date, pmt_date, financial_year, title, dist_type,
+         dps_sen, total_units, total_dividend, payout_ratio)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        RETURNING id
+    """,
+        date_type.fromisoformat(body['ann_date']),
+        ex_date,
+        date_type.fromisoformat(body['pmt_date']) if body.get('pmt_date') else None,
+        body.get('financial_year', 'FY?'),
+        body['title'],
+        body['dist_type'],
+        dps,
+        total_units,
+        total_div,
+        body.get('payout_ratio'),
+    )
+
+    # Insert per-investor entitlements
+    for inv in investors:
+        amount = float(inv['units']) * dps / 100
+        await db.execute("""
+            INSERT INTO distribution_investors
+            (distribution_id, investor_id, units_at_ex_date, dps_sen, amount, paid)
+            VALUES ($1,$2,$3,$4,$5,FALSE)
+            ON CONFLICT DO NOTHING
+        """, dist_id, str(inv['id']), float(inv['units']), dps, amount)
+
+    return {
+        "message": "Distribution declared",
+        "investors_count": len(investors),
+        "total_dividend": total_div
+    }
+
+
+@router.get("/distributions/{dist_id}/breakdown")
+async def get_distribution_breakdown(
+    dist_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    rows = await db.fetch("""
+        SELECT di.*, i.name as investor_name
+        FROM distribution_investors di
+        LEFT JOIN investors i ON i.id = di.investor_id
+        WHERE di.distribution_id = $1
+        ORDER BY di.amount DESC
+    """, dist_id)
+    return [dict(r) for r in rows]
+
+
+# ── Settlement admin ──────────────────────────────────────────
+@router.get("/settlement")
+async def get_settlement(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    rows = await db.fetch("SELECT * FROM settlement ORDER BY date DESC")
+    return [dict(r) for r in rows]
+
+
+# ── Users admin ───────────────────────────────────────────────
+@router.post("/users")
+async def create_user(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    import bcrypt
+    pw_hash = bcrypt.hashpw(body['new_password'].encode(), bcrypt.gensalt()).decode()
+    await db.execute("""
+        INSERT INTO users (name, email, phone, role, password_hash, is_active, investor_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+    """,
+        body['name'], body['email'], body.get('phone'),
+        body.get('role','member'), pw_hash,
+        body.get('is_active', True),
+        body.get('investor_id'),
+    )
+    return {"message": "User created"}
+
+
+@router.put("/users/{user_id}")
+async def update_user(
+    user_id: str,
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    import bcrypt
+    await db.execute("""
+        UPDATE users SET name=$1, email=$2, phone=$3, role=$4,
+               is_active=$5, investor_id=$6, updated_at=NOW()
+        WHERE id=$7
+    """,
+        body['name'], body['email'], body.get('phone'),
+        body.get('role','member'), body.get('is_active', True),
+        body.get('investor_id'), user_id,
+    )
+    # Reset password if provided
+    if body.get('new_password'):
+        pw_hash = bcrypt.hashpw(body['new_password'].encode(), bcrypt.gensalt()).decode()
+        await db.execute(
+            "UPDATE users SET password_hash=$1 WHERE id=$2",
+            pw_hash, user_id
+        )
+    return {"message": "User updated"}
