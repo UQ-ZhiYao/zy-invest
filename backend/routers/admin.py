@@ -334,14 +334,20 @@ async def get_holdings(
 ):
     """Get current holdings from holdings table. Run /compute first to populate."""
     rows = await db.fetch("""
-        SELECT h.*, ph.price as last_price
+        SELECT h.*,
+               ph.price as last_price,
+               CASE
+                 WHEN ph.price IS NOT NULL THEN h.units * ph.price
+                 ELSE h.total_cost
+               END as market_value
         FROM holdings h
         LEFT JOIN (
             SELECT DISTINCT ON (instrument) instrument, price
             FROM price_history
             ORDER BY instrument, date DESC
         ) ph ON ph.instrument = h.instrument
-        ORDER BY h.units * COALESCE(ph.price, h.avg_cost) DESC
+        WHERE h.units > 0.00000001
+        ORDER BY COALESCE(h.units * ph.price, h.total_cost) DESC NULLS LAST
     """)
     return [dict(r) for r in rows]
 
@@ -422,7 +428,7 @@ async def compute_holdings_and_settlement(
             net_proceeds      = abs(net_amount)
             sell_net_per_unit = net_proceeds / sell_units if sell_units > 0 else D(row['price'] or 0)
 
-            if pos['units'] >= sell_units - Decimal('0.00000001'):
+            if pos['units'] >= sell_units - Decimal('0.01'):  # 0.01 unit tolerance for CSV rounding
                 avg_cost = pos['avg_cost']
                 pl       = (sell_net_per_unit - avg_cost) * sell_units
                 ret_pct  = ((sell_net_per_unit - avg_cost) / avg_cost * 100) if avg_cost > 0 else Decimal('0')
