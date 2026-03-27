@@ -83,16 +83,27 @@ async def get_profile(
     db: Database = Depends(get_db)
 ):
     user = await db.fetchrow(
-        "SELECT id, name, email, phone, avatar_url, created_at FROM users WHERE id = $1",
+        """SELECT id, name, email, phone, avatar_url, created_at,
+                  bank_name, bank_account_no,
+                  address_line1, address_line2, city, state, postcode, country
+           FROM users WHERE id = $1""",
         str(current_user["id"])
     )
     return dict(user)
 
 
 class ProfileUpdate(BaseModel):
-    name: Optional[str]
-    email: Optional[str]
-    phone: Optional[str]
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_account_no: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    postcode: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
 
 
 @router.put("/account/profile")
