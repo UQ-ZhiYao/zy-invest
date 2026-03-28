@@ -206,10 +206,25 @@ async function loadDistributions() {
         <td class="td-right">${Number(r.dps_sen).toFixed(4)}</td>
         <td class="td-right">${r.total_units ? fmtUnits(r.total_units) : '—'}</td>
         <td class="td-right" style="font-weight:600;color:var(--blue)">${r.total_dividend ? fmtRM(r.total_dividend) : '—'}</td>
-        <td><span class="pill ${r.is_paid?'pill-green':'pill-orange'}">${r.is_paid?'Paid':'Pending'}</span></td>
+        <td>${distStatus(r.ex_date, r.pmt_date)}</td>
         <td><button class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="showBreakdown('${r.id}','${r.title}')">View</button></td>
       </tr>`).join('');
   } catch(e) {}
+}
+
+function distStatus(ex_date, pmt_date) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const ex  = ex_date  ? new Date(ex_date)  : null;
+  const pmt = pmt_date ? new Date(pmt_date) : null;
+  if (ex) { ex.setHours(0,0,0,0); }
+  if (pmt){ pmt.setHours(0,0,0,0); }
+  if (!ex || today < ex) {
+    return '<span class="pill pill-blue">Upcoming</span>';
+  } else if (!pmt || today <= pmt) {
+    return '<span class="pill pill-orange">Entitled</span>';
+  } else {
+    return '<span class="pill pill-green">Paid</span>';
+  }
 }
 
 let currentDistId = null;
