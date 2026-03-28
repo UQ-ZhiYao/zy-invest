@@ -15,13 +15,14 @@ Endpoints included in v1.0.0:
   POST                 /api/admin/upload/excel
   GET                  /api/admin/audit-log
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date
 import io
 
-from database import Database, get_db, serialise
+from database import Database, get_db
 from routers.auth import require_admin
 from services.price_fetcher import run_daily_price_fetch, update_manual_price
 from services.nta_engine import compute_daily_nta
@@ -36,7 +37,7 @@ async def list_investors(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM v_investor_profile ORDER BY name")
-    return [serialise(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 @router.get("/investors/{investor_id}")
@@ -48,7 +49,7 @@ async def get_investor(
     row = await db.fetchrow("SELECT * FROM v_investor_profile WHERE id = $1", investor_id)
     if not row:
         raise HTTPException(status_code=404, detail="Investor not found")
-    return serialise(row)
+    return dict(row)
 
 
 # ── User / Account Management ─────────────────────────────────
@@ -58,31 +59,44 @@ async def list_users(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch(
-        """SELECT id, name, email, phone, role, is_active, investor_id,
-                  bank_name, bank_account_no,
-                  address_line1, address_line2, city, postcode, state, country,
-                  created_at
-           FROM users ORDER BY name"""
+        "SELECT id, name, email, phone, role, is_active, investor_id, created_at FROM users ORDER BY name"
     )
-    return [serialise(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 class UserUpdate(BaseModel):
-    name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    role: Optional[str] = None
-    is_active: Optional[bool] = None
-    investor_id: Optional[str] = None
-    new_password: Optional[str] = None
-    bank_name: Optional[str] = None
-    bank_account_no: Optional[str] = None
-    address_line1: Optional[str] = None
-    address_line2: Optional[str] = None
-    city: Optional[str] = None
-    postcode: Optional[str] = None
-    state: Optional[str] = None
-    country: Optional[str] = None
+    name: Optional[str]
+    email: Optional[str]
+    phone: Optional[str]
+    role: Optional[str]
+    is_active: Optional[bool]
+    investor_id: Optional[str]
+
+
+@router.put("/users/{user_id}")
+async def update_user(
+    user_id: str,
+    body: UserUpdate,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    fields, vals, idx = [], [], 1
+    for field, val in body.model_dump(exclude_none=True).items():
+        fields.append(f"{field} = ${idx}")
+        vals.append(val)
+        idx += 1
+    if not fields:
+        return {"message": "Nothing to update"}
+    vals.append(user_id)
+    await db.execute(
+        f"UPDATE users SET {', '.join(fields)}, updated_at = NOW() WHERE id = ${idx}",
+        *vals
+    )
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, table_name, record_id) VALUES ($1,$2,$3,$4)",
+        str(admin["id"]), "UPDATE", "users", user_id
+    )
+    return {"message": "User updated"}
 
 
 # ── Fee Schedules ─────────────────────────────────────────────
@@ -92,7 +106,7 @@ async def list_fee_schedules(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM v_active_fee_schedule")
-    return [serialise(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 class FeeScheduleCreate(BaseModel):
@@ -158,7 +172,7 @@ async def price_status(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM v_price_status")
-    return [serialise(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 @router.post("/prices/fetch-now")
@@ -218,7 +232,7 @@ async def audit_log(
         """,
         limit
     )
-    return [serialise(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 # ── Ticker Map ────────────────────────────────────────────────
@@ -228,7 +242,7 @@ async def get_ticker_map(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM ticker_map ORDER BY instrument")
-    return [serialise(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 class TickerUpdate(BaseModel):
@@ -246,7 +260,7 @@ async def update_ticker(
     db: Database = Depends(get_db)
 ):
     fields, vals, idx = [], [], 1
-    for field, val in body.dict(exclude_none=True).items():
+    for field, val in body.model_dump(exclude_none=True).items():
         fields.append(f"{field} = ${idx}")
         vals.append(val)
         idx += 1
@@ -277,7 +291,7 @@ async def list_all_transactions(
         limit, offset
     )
     total = await db.fetchval("SELECT COUNT(*) FROM transactions")
-    return {"data": [serialise(r) for r in rows], "total": total, "page": page}
+    return {"data": [dict(r) for r in rows], "total": total, "page": page}
 
 
 @router.post("/transactions")
@@ -336,7 +350,7 @@ async def get_holdings(
         WHERE h.units > 0.001
         ORDER BY COALESCE(h.units * ph.price, h.total_cost) DESC NULLS LAST
     """)
-    return [serialise(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 @router.post("/holdings/compute")
@@ -499,13 +513,13 @@ async def get_principal(
 ):
     rows = await db.fetch("""
         SELECT p.*,
-               p.cashflow_type,
+               COALESCE(p.flow_type, p.cashflow_type) as flow_type,
                i.name as investor_name
         FROM principal_cashflows p
         LEFT JOIN investors i ON i.id = p.investor_id
         ORDER BY p.date DESC
     """)
-    return [serialise(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 @router.post("/principal")
@@ -515,33 +529,23 @@ async def add_principal(
     db: Database = Depends(get_db)
 ):
     from datetime import date as date_type
-    # cashflow_type must be 'subscription', 'redemption', or 'transfer'
-    cashflow_type = body.get('cashflow_type', body.get('flow_type', 'subscription'))
-    # Map legacy values if any
-    legacy_map = {'deposit': 'subscription', 'withdrawal': 'redemption'}
-    cashflow_type = legacy_map.get(cashflow_type, cashflow_type)
-
-    units  = float(body['units'])
-    amount = float(body['amount'])
-
     await db.execute("""
         INSERT INTO principal_cashflows
-        (date, investor_id, cashflow_type, amount, nta_at_date, units, notes)
+        (date, investor_id, flow_type, amount, nta_at_date, units, notes)
         VALUES ($1,$2,$3,$4,$5,$6,$7)
     """,
         date_type.fromisoformat(body['date']),
         body['investor_id'],
-        cashflow_type,
-        amount,
-        body.get('nta_at_date'),
-        units,
+        body['flow_type'],
+        body['amount'],
+        body['nta_at_date'],
+        body['units'],
         body.get('notes'),
     )
-    # Update investor's running unit total
-    sign = 1 if cashflow_type in ('subscription', 'transfer') else -1
+    sign = 1 if body['flow_type'] == 'deposit' else -1
     await db.execute(
-        "UPDATE investors SET units = units + $1, updated_at = NOW() WHERE id = $2",
-        sign * units, body['investor_id']
+        "UPDATE investors SET units = units + $1 WHERE id = $2",
+        sign * body['units'], body['investor_id']
     )
     return {"message": "Principal cashflow recorded"}
 
@@ -580,8 +584,7 @@ async def get_dividends(
                instrument, units, dps_sen, amount, entitlement, created_at
         FROM dividends ORDER BY ex_date DESC
     """)
-    # Serialise date/UUID fields to str for JSON compatibility
-    return [serialise(r) for r in rows]
+    return jsonable_encoder([dict(r) for r in rows])
 
 
 @router.post("/dividends")
@@ -617,7 +620,7 @@ async def get_others(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM others ORDER BY record_date DESC")
-    return [serialise(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 @router.post("/others")
@@ -649,7 +652,7 @@ async def get_distributions(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM distributions ORDER BY ex_date DESC")
-    return [serialise(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 @router.post("/distributions")
@@ -662,33 +665,10 @@ async def declare_distribution(
     ex_date = date_type.fromisoformat(body['ex_date'])
     dps     = float(body['dps_sen'])
 
-    # FIX v1.6.0: Compute each investor's units AT the ex-date by summing
-    # principal_cashflows up to and including the ex-date — NOT current units.
-    # This ensures correct entitlements for historical distributions.
-    investor_units = await db.fetch("""
-        SELECT
-            p.investor_id,
-            i.name AS investor_name,
-            SUM(p.units) AS units_at_ex_date
-        FROM principal_cashflows p
-        JOIN investors i ON i.id = p.investor_id
-        WHERE p.date <= $1
-          AND p.investor_id IS NOT NULL
-        GROUP BY p.investor_id, i.name
-        HAVING SUM(p.units) > 0.0001
-        ORDER BY SUM(p.units) DESC
-    """, ex_date)
-
-    if not investor_units:
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=400,
-            detail="No investor units found at the specified ex-date. "
-                   "Ensure principal_cashflows records exist before this date."
-        )
-
-    total_units = sum(float(r['units_at_ex_date']) for r in investor_units)
-    total_div   = sum(float(r['units_at_ex_date']) * dps / 100 for r in investor_units)
+    # Get all investors and their units
+    investors = await db.fetch("SELECT id, name, units FROM investors WHERE units > 0")
+    total_units = sum(float(r['units']) for r in investors)
+    total_div   = total_units * dps / 100
 
     # Insert distribution header
     dist_id = await db.fetchval("""
@@ -706,25 +686,24 @@ async def declare_distribution(
         body['dist_type'],
         dps,
         total_units,
-        round(total_div, 4),
+        total_div,
         body.get('payout_ratio'),
     )
 
-    # Insert per-investor entitlements into distribution_ledger (correct table name)
-    for inv in investor_units:
-        units  = float(inv['units_at_ex_date'])
-        amount = round(units * dps / 100, 4)
+    # Insert per-investor entitlements
+    for inv in investors:
+        amount = float(inv['units']) * dps / 100
         await db.execute("""
-            INSERT INTO distribution_ledger
-            (distribution_id, investor_id, units_at_ex_date, amount, paid)
-            VALUES ($1,$2,$3,$4,FALSE)
-            ON CONFLICT (distribution_id, investor_id) DO NOTHING
-        """, dist_id, str(inv['investor_id']), units, amount)
+            INSERT INTO distribution_investors
+            (distribution_id, investor_id, units_at_ex_date, dps_sen, amount, paid)
+            VALUES ($1,$2,$3,$4,$5,FALSE)
+            ON CONFLICT DO NOTHING
+        """, dist_id, str(inv['id']), float(inv['units']), dps, amount)
 
     return {
         "message": "Distribution declared",
-        "investors_count": len(investor_units),
-        "total_dividend": round(total_div, 4)
+        "investors_count": len(investors),
+        "total_dividend": total_div
     }
 
 
@@ -736,17 +715,17 @@ async def get_distribution_breakdown(
 ):
     from fastapi import HTTPException
     try:
-        # Check if pre-computed breakdown exists in distribution_ledger
+        # First check if pre-computed breakdown exists
         rows = await db.fetch("""
-            SELECT dl.*, i.name as investor_name
-            FROM distribution_ledger dl
-            LEFT JOIN investors i ON i.id = dl.investor_id
-            WHERE dl.distribution_id = $1
-            ORDER BY dl.amount DESC
+            SELECT di.*, i.name as investor_name
+            FROM distribution_investors di
+            LEFT JOIN investors i ON i.id = di.investor_id
+            WHERE di.distribution_id = $1
+            ORDER BY di.amount DESC
         """, dist_id)
 
         if rows:
-            return [serialise(r) for r in rows]
+            return [dict(r) for r in rows]
 
         # No pre-computed data — compute on-the-fly from principal_cashflows
         dist = await db.fetchrow("SELECT * FROM distributions WHERE id = $1", dist_id)
@@ -756,7 +735,8 @@ async def get_distribution_breakdown(
         ex_date = dist['ex_date']
         dps     = float(dist['dps_sen'])
 
-        # FIX v1.6.0: sum principal_cashflows up to ex_date per investor
+        # Get each investor's cumulative units at ex-date from principal_cashflows
+        # NOTE: units column is already signed — negative for withdrawals, positive for deposits
         investor_units = await db.fetch("""
             SELECT
                 p.investor_id,
@@ -767,43 +747,40 @@ async def get_distribution_breakdown(
             WHERE p.date <= $1
               AND p.investor_id IS NOT NULL
             GROUP BY p.investor_id, i.name
-            HAVING SUM(p.units) > 0.0001
+            HAVING SUM(p.units) > 0
             ORDER BY SUM(p.units) DESC
         """, ex_date)
 
         if not investor_units:
-            raise HTTPException(
-                status_code=404,
-                detail="No investor units found at ex-date. Check principal_cashflows has investor_id linked."
-            )
+            raise HTTPException(status_code=404, detail="No investor units found at ex-date. Check principal_cashflows has investor_id linked.")
 
         result = []
         total_units = sum(float(r['units_at_ex_date']) for r in investor_units)
 
         for inv in investor_units:
             units  = float(inv['units_at_ex_date'])
-            amount = round(units * dps / 100, 4)
+            amount = units * dps / 100
             result.append({
-                'investor_id':      str(inv['investor_id']),
-                'investor_name':    inv['investor_name'] or '—',
-                'units_at_ex_date': units,
-                'dps_sen':          dps,
-                'amount':           amount,
-                'paid':             False,
+                'investor_id':       str(inv['investor_id']),
+                'investor_name':     inv['investor_name'] or '—',
+                'units_at_ex_date':  units,
+                'dps_sen':           dps,
+                'amount':            round(amount, 4),
+                'paid':              False,
             })
             try:
                 await db.execute("""
-                    INSERT INTO distribution_ledger
-                    (distribution_id, investor_id, units_at_ex_date, amount, paid)
-                    VALUES ($1,$2,$3,$4,FALSE)
+                    INSERT INTO distribution_investors
+                    (distribution_id, investor_id, units_at_ex_date, dps_sen, amount, paid)
+                    VALUES ($1,$2,$3,$4,$5,FALSE)
                     ON CONFLICT (distribution_id, investor_id) DO UPDATE SET
                         units_at_ex_date = EXCLUDED.units_at_ex_date,
                         amount = EXCLUDED.amount
-                """, dist_id, str(inv['investor_id']), units, amount)
-            except Exception:
+                """, dist_id, str(inv['investor_id']), units, dps, round(amount, 4))
+            except Exception as e:
                 pass  # Don't fail if save fails
 
-        # Update distribution header totals if still zero
+        # Update distribution total only if it was 0 (never set)
         try:
             existing = await db.fetchrow(
                 "SELECT total_units, total_dividend FROM distributions WHERE id = $1", dist_id
@@ -832,8 +809,8 @@ async def compute_distribution_breakdown(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    """Force recompute breakdown from principal_cashflows at ex-date."""
-    await db.execute("DELETE FROM distribution_ledger WHERE distribution_id = $1", dist_id)
+    """Force recompute breakdown from principal_cashflows."""
+    await db.execute("DELETE FROM distribution_investors WHERE distribution_id = $1", dist_id)
     return await get_distribution_breakdown(dist_id, admin, db)
 
 
@@ -844,7 +821,7 @@ async def get_settlement(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM settlement ORDER BY date DESC")
-    return [serialise(r) for r in rows]
+    return [dict(r) for r in rows]
 
 
 # ── Users admin ───────────────────────────────────────────────
@@ -871,42 +848,25 @@ async def create_user(
 @router.put("/users/{user_id}")
 async def update_user(
     user_id: str,
-    body: UserUpdate,
+    body: dict,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    """Update user profile including bank, address, role, and optionally reset password."""
-    import bcrypt as _bcrypt
+    import bcrypt
     await db.execute("""
-        UPDATE users
-        SET name=$1, email=$2, phone=$3, role=$4,
-            is_active=$5, investor_id=$6,
-            bank_name=$7, bank_account_no=$8,
-            address_line1=$9, address_line2=$10,
-            city=$11, postcode=$12, state=$13, country=$14,
-            updated_at=NOW()
-        WHERE id=$15
+        UPDATE users SET name=$1, email=$2, phone=$3, role=$4,
+               is_active=$5, investor_id=$6, updated_at=NOW()
+        WHERE id=$7
     """,
-        body.name, body.email, body.phone,
-        body.role or 'member', body.is_active if body.is_active is not None else True,
-        body.investor_id or None,
-        body.bank_name, body.bank_account_no,
-        body.address_line1, body.address_line2,
-        body.city, body.postcode,
-        body.state, body.country,
-        user_id,
+        body['name'], body['email'], body.get('phone'),
+        body.get('role','member'), body.get('is_active', True),
+        body.get('investor_id'), user_id,
     )
-    if body.new_password:
-        if len(body.new_password) < 8:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-        pw_hash = _bcrypt.hashpw(body.new_password.encode(), _bcrypt.gensalt()).decode()
+    # Reset password if provided
+    if body.get('new_password'):
+        pw_hash = bcrypt.hashpw(body['new_password'].encode(), bcrypt.gensalt()).decode()
         await db.execute(
             "UPDATE users SET password_hash=$1 WHERE id=$2",
             pw_hash, user_id
         )
-    await db.execute(
-        "INSERT INTO audit_log (user_id, action, table_name, record_id) VALUES ($1,$2,$3,$4)",
-        str(admin["id"]), "UPDATE", "users", user_id
-    )
     return {"message": "User updated"}
