@@ -511,8 +511,10 @@ async def get_principal(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("""
-        SELECT p.*, i.name as investor_name
-        FROM principal_cashflow p
+        SELECT p.*,
+               COALESCE(p.flow_type, p.cashflow_type) as flow_type,
+               i.name as investor_name
+        FROM principal_cashflows p
         LEFT JOIN investors i ON i.id = p.investor_id
         ORDER BY p.date DESC
     """)
@@ -527,7 +529,7 @@ async def add_principal(
 ):
     from datetime import date as date_type
     await db.execute("""
-        INSERT INTO principal_cashflow
+        INSERT INTO principal_cashflows
         (date, investor_id, flow_type, amount, nta_at_date, units, notes)
         VALUES ($1,$2,$3,$4,$5,$6,$7)
     """,
@@ -539,11 +541,11 @@ async def add_principal(
         body['units'],
         body.get('notes'),
     )
-    # Update investor units
     sign = 1 if body['flow_type'] == 'deposit' else -1
-    await db.execute("""
-        UPDATE investors SET units = units + $1 WHERE id = $2
-    """, sign * body['units'], body['investor_id'])
+    await db.execute(
+        "UPDATE investors SET units = units + $1 WHERE id = $2",
+        sign * body['units'], body['investor_id']
+    )
     return {"message": "Principal cashflow recorded"}
 
 
@@ -555,13 +557,18 @@ async def get_nta_at_date(
     db: Database = Depends(get_db)
 ):
     from datetime import date as date_type
+    d = date_type.fromisoformat(date)
     row = await db.fetchrow("""
         SELECT nta, date FROM historical
-        WHERE date <= $1
+        WHERE date <= $1 AND nta > 0.5
         ORDER BY date DESC LIMIT 1
-    """, date_type.fromisoformat(date))
+    """, d)
     if row:
         return {"nta": float(row['nta']), "date": str(row['date'])}
+    # Fallback to fund settings
+    setting = await db.fetchrow("SELECT current_nta FROM fund_settings LIMIT 1")
+    if setting:
+        return {"nta": float(setting['current_nta']), "date": date}
     return {"nta": 1.0, "date": date}
 
 

@@ -206,16 +206,19 @@ async function loadHistory() {
     if (!data.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-muted)">No records yet</td></tr>'; return; }
     const invMap = {};
     investors.forEach(i => invMap[i.id] = i.name);
-    tbody.innerHTML = data.map(r => `
-      <tr>
+    tbody.innerHTML = data.map(r => {
+      const ft = r.flow_type || r.cashflow_type || 'deposit';
+      const isDeposit = ft.toLowerCase().includes('deposit') || ft.toLowerCase().includes('paid') || ft.toLowerCase().includes('capital');
+      return `<tr>
         <td>${fmtDate(r.date)}</td>
-        <td style="font-weight:500">${invMap[r.investor_id] || '—'}</td>
-        <td><span class="pill ${r.flow_type==='deposit'?'pill-green':'pill-red'}">${r.flow_type}</span></td>
+        <td style="font-weight:500">${r.investor_name || '—'}</td>
+        <td><span class="pill ${isDeposit?'pill-green':'pill-red'}">${ft}</span></td>
         <td class="td-right">${fmtRM(r.amount)}</td>
         <td class="td-right">RM ${Number(r.nta_at_date||0).toFixed(4)}</td>
         <td class="td-right">${fmtUnits(r.units)}</td>
-        <td style="color:var(--text-muted);font-size:0.82rem">${r.notes||'—'}</td>
-      </tr>`).join('');
+        <td style="color:var(--text-muted);font-size:0.82rem">${r.notes||r.remark||'—'}</td>
+      </tr>`;
+    }).join('');
   } catch(e) {}
 }
 
