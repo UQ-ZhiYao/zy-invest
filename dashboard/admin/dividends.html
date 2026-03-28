@@ -128,7 +128,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   initDashboard('admin-dividends', 'Dividends');
   const today = new Date().toISOString().slice(0,10);
   ['dv-ann','dv-ex','dv-pmt'].forEach(id => document.getElementById(id).value = today);
-  holdings = await api.get('/api/admin/holdings') || [];
+  // Run independently so a holdings failure never blocks dividend records
+  api.get('/api/admin/holdings').then(h => { holdings = h || []; }).catch(() => {});
   await loadDividends();
 });
 
