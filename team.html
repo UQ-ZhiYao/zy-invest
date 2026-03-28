@@ -20,9 +20,10 @@
     /* Team grid */
     .team-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: 360px;
       gap: 28px;
       margin-top: 56px;
+      justify-content: center;
     }
     .team-card {
       text-align: center;
@@ -84,9 +85,6 @@
     .value-item h4 { margin-bottom: 6px; }
     .value-item p { font-size: 0.9rem; }
 
-    @media (max-width: 900px) {
-      .team-grid { grid-template-columns: 1fr 1fr; }
-    }
     @media (max-width: 600px) {
       .team-grid { grid-template-columns: 1fr; }
       .values-grid { grid-template-columns: 1fr; }
@@ -130,23 +128,6 @@
         <div class="team-detail">MSc Finance · University of Queensland</div>
       </div>
 
-      <div class="card team-card">
-        <div class="team-avatar avatar-green">SKT</div>
-        <h3>Siah Kim Teck</h3>
-        <div class="team-role">Senior Advisor</div>
-        <p>Provides strategic oversight and governance guidance. Brings decades of business and financial management experience to support sound decision-making and investor relations.</p>
-        <div class="team-divider"></div>
-        <div class="team-detail">Senior Business Advisor</div>
-      </div>
-
-      <div class="card team-card">
-        <div class="team-avatar avatar-orange">SLL</div>
-        <h3>Siah Lih Ling</h3>
-        <div class="team-role">Operations & Compliance</div>
-        <p>Oversees fund administration, investor communications, and compliance matters. Ensures all operational processes meet the fund's standards for accuracy and transparency.</p>
-        <div class="team-divider"></div>
-        <div class="team-detail">Fund Operations</div>
-      </div>
     </div>
   </div>
 </section>
