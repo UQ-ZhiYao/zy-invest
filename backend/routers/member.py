@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import date
 
-from database import Database, get_db
+from database import Database, get_db, serialise
 from routers.auth import get_current_user
 from services.irr import compute_irr
 
@@ -71,9 +71,8 @@ async def account_summary(
     )
 
     # Serialise UUID/datetime to str to prevent FastAPI 500 with Pydantic v1
-    inv_data = {k: str(v) if v is not None else None for k, v in dict(investor).items()}
     return {
-        **inv_data,
+        **serialise(investor),
         "irr": round(irr * 100, 4) if irr is not None else None,
     }
 
@@ -102,7 +101,7 @@ async def get_profile(
         raise HTTPException(status_code=404, detail="User not found")
     # Explicitly serialise UUID and datetime to str — prevents FastAPI 500
     row = dict(user)
-    return {k: str(v) if v is not None else None for k, v in row.items()}
+    return serialise(row)
 
 
 class ProfileUpdate(BaseModel):
@@ -155,7 +154,7 @@ async def my_distributions(
         "SELECT * FROM v_distribution_breakdown WHERE investor_id = $1 ORDER BY pmt_date DESC",
         inv_id
     )
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 # ── My Transactions ───────────────────────────────────────────
@@ -182,7 +181,7 @@ async def my_transactions(
     total = await db.fetchval(
         "SELECT COUNT(*) FROM transactions WHERE investor_id = $1", inv_id
     )
-    return {"data": [dict(r) for r in rows], "total": total, "page": page}
+    return {"data": [serialise(r) for r in rows], "total": total, "page": page}
 
 
 # ── Fund Performance ─────────────────────────────────────────
@@ -241,7 +240,7 @@ async def fund_statement(
     _: dict = Depends(get_current_user)
 ):
     rows = await db.fetch("SELECT * FROM v_fund_statement ORDER BY financial_year")
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 # ── Data Analysis (aggregate only — no stock names) ───────────
@@ -284,7 +283,7 @@ async def my_documents(
         """,
         inv_id
     )
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 # ── Document download (signed URL via Supabase Storage) ───────

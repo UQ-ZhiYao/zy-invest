@@ -21,7 +21,7 @@ from typing import Optional, List
 from datetime import date
 import io
 
-from database import Database, get_db
+from database import Database, get_db, serialise
 from routers.auth import require_admin
 from services.price_fetcher import run_daily_price_fetch, update_manual_price
 from services.nta_engine import compute_daily_nta
@@ -36,7 +36,7 @@ async def list_investors(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM v_investor_profile ORDER BY name")
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 @router.get("/investors/{investor_id}")
@@ -48,7 +48,7 @@ async def get_investor(
     row = await db.fetchrow("SELECT * FROM v_investor_profile WHERE id = $1", investor_id)
     if not row:
         raise HTTPException(status_code=404, detail="Investor not found")
-    return dict(row)
+    return serialise(row)
 
 
 # ── User / Account Management ─────────────────────────────────
@@ -64,7 +64,7 @@ async def list_users(
                   created_at
            FROM users ORDER BY name"""
     )
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 class UserUpdate(BaseModel):
@@ -92,7 +92,7 @@ async def list_fee_schedules(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM v_active_fee_schedule")
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 class FeeScheduleCreate(BaseModel):
@@ -158,7 +158,7 @@ async def price_status(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM v_price_status")
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 @router.post("/prices/fetch-now")
@@ -218,7 +218,7 @@ async def audit_log(
         """,
         limit
     )
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 # ── Ticker Map ────────────────────────────────────────────────
@@ -228,7 +228,7 @@ async def get_ticker_map(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM ticker_map ORDER BY instrument")
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 class TickerUpdate(BaseModel):
@@ -277,7 +277,7 @@ async def list_all_transactions(
         limit, offset
     )
     total = await db.fetchval("SELECT COUNT(*) FROM transactions")
-    return {"data": [dict(r) for r in rows], "total": total, "page": page}
+    return {"data": [serialise(r) for r in rows], "total": total, "page": page}
 
 
 @router.post("/transactions")
@@ -336,7 +336,7 @@ async def get_holdings(
         WHERE h.units > 0.001
         ORDER BY COALESCE(h.units * ph.price, h.total_cost) DESC NULLS LAST
     """)
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 @router.post("/holdings/compute")
@@ -505,7 +505,7 @@ async def get_principal(
         LEFT JOIN investors i ON i.id = p.investor_id
         ORDER BY p.date DESC
     """)
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 @router.post("/principal")
@@ -581,7 +581,7 @@ async def get_dividends(
         FROM dividends ORDER BY ex_date DESC
     """)
     # Serialise date/UUID fields to str for JSON compatibility
-    return [{k: str(v) if v is not None else None for k, v in dict(r).items()} for r in rows]
+    return [serialise(r) for r in rows]
 
 
 @router.post("/dividends")
@@ -617,7 +617,7 @@ async def get_others(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM others ORDER BY record_date DESC")
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 @router.post("/others")
@@ -649,7 +649,7 @@ async def get_distributions(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM distributions ORDER BY ex_date DESC")
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 @router.post("/distributions")
@@ -746,7 +746,7 @@ async def get_distribution_breakdown(
         """, dist_id)
 
         if rows:
-            return [dict(r) for r in rows]
+            return [serialise(r) for r in rows]
 
         # No pre-computed data — compute on-the-fly from principal_cashflows
         dist = await db.fetchrow("SELECT * FROM distributions WHERE id = $1", dist_id)
@@ -844,7 +844,7 @@ async def get_settlement(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch("SELECT * FROM settlement ORDER BY date DESC")
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 # ── Users admin ───────────────────────────────────────────────
