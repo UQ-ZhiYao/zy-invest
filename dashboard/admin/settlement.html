@@ -38,15 +38,15 @@
         <div class="panel-header">
           <h3>Settlement Records</h3>
           <div style="display:flex;gap:8px;align-items:center">
-            <select id="filter-year" class="form-input" style="padding:6px 10px;font-size:0.82rem;border:1px solid var(--border);border-radius:var(--radius-md);width:140px" onchange="filterSettlement()">
+            <select id="filter-year" style="padding:6px 10px;font-size:0.82rem;border:1px solid var(--border);border-radius:var(--radius-md);width:175px;background:var(--white)" onchange="filterSettlement()">
               <option value="">All FY</option>
-              <option value="FY22">FY22 (Dec21–Nov22)</option>
-              <option value="FY23">FY23 (Dec22–Nov23)</option>
-              <option value="FY24">FY24 (Dec23–Nov24)</option>
-              <option value="FY25">FY25 (Dec24–Nov25)</option>
-              <option value="FY26">FY26 (Dec25–Nov26)</option>
+              <option value="FY22">FY22 | 30 Nov 2022</option>
+              <option value="FY23">FY23 | 30 Nov 2023</option>
+              <option value="FY24">FY24 | 30 Nov 2024</option>
+              <option value="FY25">FY25 | 30 Nov 2025</option>
+              <option value="FY26">FY26 | 30 Nov 2026</option>
             </select>
-            <input type="text" id="filter-instrument" placeholder="Filter instrument..." style="padding:6px 10px;font-size:0.82rem;border:1px solid var(--border);border-radius:var(--radius-md);width:160px" oninput="filterSettlement()">
+            <input type="text" id="filter-instrument" placeholder="Search instrument, class, sector..." style="padding:6px 10px;font-size:0.82rem;border:1px solid var(--border);border-radius:var(--radius-md);width:260px" oninput="filterSettlement()">
           </div>
         </div>
         <div class="table-wrap">
@@ -127,13 +127,20 @@ const FY_RANGES = {
 
 function filterSettlement() {
   const fy    = document.getElementById('filter-year').value;
-  const instr = document.getElementById('filter-instrument').value.toLowerCase();
+  const q     = document.getElementById('filter-instrument').value.toLowerCase().trim();
   let data = allSettlements;
   if (fy && FY_RANGES[fy]) {
     const [from, to] = FY_RANGES[fy];
     data = data.filter(r => r.date >= from && r.date <= to);
   }
-  if (instr) data = data.filter(r => r.instrument.toLowerCase().includes(instr));
+  if (q) {
+    data = data.filter(r =>
+      (r.instrument||'').toLowerCase().includes(q) ||
+      (r.asset_class||'').toLowerCase().includes(q) ||
+      (r.sector||'').toLowerCase().includes(q) ||
+      (r.region||'').toLowerCase().includes(q)
+    );
+  }
   updateSummary(data);
   renderTable(data);
 }
