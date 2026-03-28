@@ -55,10 +55,10 @@
         <div class="panel-header"><h3>Record Transaction</h3></div>
         <div class="panel-body">
           <div style="display:flex;gap:10px;margin-bottom:20px">
-            <button class="type-btn deposit active" id="btn-deposit" onclick="setFlowType('deposit')">↓ DEPOSIT</button>
-            <button class="type-btn withdrawal" id="btn-withdrawal" onclick="setFlowType('withdrawal')">↑ WITHDRAWAL</button>
+            <button class="type-btn deposit active" id="btn-deposit" onclick="setFlowType('subscription')">↓ DEPOSIT</button>
+            <button class="type-btn withdrawal" id="btn-withdrawal" onclick="setFlowType('redemption')">↑ WITHDRAWAL</button>
           </div>
-          <input type="hidden" id="flow-type" value="deposit">
+          <input type="hidden" id="flow-type" value="subscription">
 
           <form id="cashflow-form" onsubmit="addCashflow(event)">
             <div class="grid-3">
@@ -127,8 +127,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function setFlowType(type) {
   document.getElementById('flow-type').value = type;
-  document.getElementById('btn-deposit').classList.toggle('active', type === 'deposit');
-  document.getElementById('btn-withdrawal').classList.toggle('active', type === 'withdrawal');
+  document.getElementById('btn-deposit').classList.toggle('active', type === 'subscription');
+  document.getElementById('btn-withdrawal').classList.toggle('active', type === 'redemption');
   updatePreview();
 }
 
@@ -174,13 +174,14 @@ function updatePreview() {
   const inv    = document.getElementById('cf-investor');
   const invName = inv.options[inv.selectedIndex]?.text || '';
   if (!amount || !nta || !invName || invName === 'Select investor') { document.getElementById('cf-preview').style.display='none'; return; }
-  const color = type === 'deposit' ? '#166534' : '#991B1B';
-  const bg    = type === 'deposit' ? '#F0FDF4' : '#FEF2F2';
-  const border= type === 'deposit' ? '#BBF7D0' : '#FECACA';
+  const isDeposit = type === 'subscription' || type === 'transfer';
+  const color = isDeposit ? '#166534' : '#991B1B';
+  const bg    = isDeposit ? '#F0FDF4' : '#FEF2F2';
+  const border= isDeposit ? '#BBF7D0' : '#FECACA';
   document.getElementById('cf-preview').style.cssText = `display:block;background:${bg};border:1px solid ${border};border-radius:var(--radius-md);padding:12px 16px;font-size:0.85rem;color:${color};margin-bottom:16px`;
   document.getElementById('cf-preview').innerHTML = `
-    <strong>${type === 'deposit' ? '↓ DEPOSIT' : '↑ WITHDRAWAL'}</strong> for <strong>${invName}</strong><br>
-    RM ${fmtNum(amount, 2)} ÷ NTA ${nta.toFixed(4)} = <strong>${fmtNum(units, 4)} units ${type === 'deposit' ? 'issued' : 'redeemed'}</strong>
+    <strong>${isDeposit ? '↓ DEPOSIT' : '↑ WITHDRAWAL'}</strong> for <strong>${invName}</strong><br>
+    RM ${fmtNum(amount, 2)} ÷ NTA ${nta.toFixed(4)} = <strong>${fmtNum(units, 4)} units ${isDeposit ? 'issued' : 'redeemed'}</strong>
   `;
 }
 
@@ -207,16 +208,16 @@ async function loadHistory() {
     const invMap = {};
     investors.forEach(i => invMap[i.id] = i.name);
     tbody.innerHTML = data.map(r => {
-      const ft = r.flow_type || r.cashflow_type || 'deposit';
-      const isDeposit = ft.toLowerCase().includes('deposit') || ft.toLowerCase().includes('paid') || ft.toLowerCase().includes('capital');
+      const ft = r.cashflow_type || 'subscription';
+      const isDeposit = ft === 'subscription' || ft === 'transfer';
       return `<tr>
         <td>${fmtDate(r.date)}</td>
         <td style="font-weight:500">${r.investor_name || '—'}</td>
-        <td><span class="pill ${isDeposit?'pill-green':'pill-red'}">${ft}</span></td>
+        <td><span class="pill ${isDeposit?'pill-green':'pill-red'}">${isDeposit ? 'Deposit' : 'Withdrawal'}</span></td>
         <td class="td-right">${fmtRM(r.amount)}</td>
         <td class="td-right">RM ${Number(r.nta_at_date||0).toFixed(4)}</td>
         <td class="td-right">${fmtUnits(r.units)}</td>
-        <td style="color:var(--text-muted);font-size:0.82rem">${r.notes||r.remark||'—'}</td>
+        <td style="color:var(--text-muted);font-size:0.82rem">${r.notes||'—'}</td>
       </tr>`;
     }).join('');
   } catch(e) {}
@@ -228,13 +229,13 @@ async function addCashflow(e) {
   btn.disabled = true; btn.textContent = 'Recording...';
   try {
     await api.post('/api/admin/principal', {
-      date:        document.getElementById('cf-date').value,
-      investor_id: document.getElementById('cf-investor').value,
-      flow_type:   document.getElementById('flow-type').value,
-      amount:      parseFloat(document.getElementById('cf-amount').value),
-      nta_at_date: parseFloat(document.getElementById('cf-nta').value),
-      units:       parseFloat(document.getElementById('cf-units').value),
-      notes:       document.getElementById('cf-notes').value.trim(),
+      date:          document.getElementById('cf-date').value,
+      investor_id:   document.getElementById('cf-investor').value,
+      cashflow_type: document.getElementById('flow-type').value,
+      amount:        parseFloat(document.getElementById('cf-amount').value),
+      nta_at_date:   parseFloat(document.getElementById('cf-nta').value),
+      units:         parseFloat(document.getElementById('cf-units').value),
+      notes:         document.getElementById('cf-notes').value.trim(),
     });
     showToast('Transaction recorded. Investor units updated.', 'success');
     document.getElementById('cashflow-form').reset();
