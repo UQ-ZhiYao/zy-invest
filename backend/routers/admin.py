@@ -731,24 +731,19 @@ async def get_distribution_breakdown(
         dps     = float(dist['dps_sen'])
 
         # Get each investor's cumulative units at ex-date from principal_cashflows
+        # NOTE: units column is already signed — negative for withdrawals, positive for deposits
         investor_units = await db.fetch("""
             SELECT
                 p.investor_id,
                 i.name as investor_name,
-                SUM(CASE
-                    WHEN p.flow_type = 'Withdrawal' THEN -p.units
-                    ELSE p.units
-                END) as units_at_ex_date
+                SUM(p.units) as units_at_ex_date
             FROM principal_cashflows p
             LEFT JOIN investors i ON i.id = p.investor_id
             WHERE p.date <= $1
               AND p.investor_id IS NOT NULL
             GROUP BY p.investor_id, i.name
-            HAVING SUM(CASE
-                    WHEN p.flow_type = 'Withdrawal' THEN -p.units
-                    ELSE p.units
-                END) > 0
-            ORDER BY units_at_ex_date DESC
+            HAVING SUM(p.units) > 0
+            ORDER BY SUM(p.units) DESC
         """, ex_date)
 
         if not investor_units:
