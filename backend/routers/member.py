@@ -252,16 +252,43 @@ async def fund_analysis(
     by_class  = await db.fetch("SELECT * FROM v_holdings_by_class")
     by_sector = await db.fetch("SELECT * FROM v_holdings_by_sector")
     by_region = await db.fetch("SELECT * FROM v_holdings_by_region")
-    cashflow  = await db.fetch("SELECT * FROM v_cashflow_18m ORDER BY month")
     overview  = await db.fetchrow("SELECT * FROM v_fund_overview")
 
+    # Principal cashflow — quarterly subscriptions vs redemptions
+    principal_qtr = await db.fetch("""
+        SELECT
+            TO_CHAR(DATE_TRUNC('quarter', date), 'YYYY "Q"Q') AS quarter,
+            DATE_TRUNC('quarter', date)                         AS quarter_date,
+            SUM(CASE WHEN cashflow_type = 'subscription' THEN  amount ELSE 0 END) AS inflow,
+            SUM(CASE WHEN cashflow_type = 'redemption'   THEN  ABS(amount) ELSE 0 END) AS outflow,
+            SUM(amount) AS net
+        FROM principal_cashflows
+        GROUP BY DATE_TRUNC('quarter', date)
+        ORDER BY DATE_TRUNC('quarter', date)
+    """)
+
+    # Investment cashflow — quarterly buys (deployed) vs sells (proceeds)
+    investment_qtr = await db.fetch("""
+        SELECT
+            TO_CHAR(DATE_TRUNC('quarter', date), 'YYYY "Q"Q') AS quarter,
+            DATE_TRUNC('quarter', date)                         AS quarter_date,
+            SUM(CASE WHEN units > 0 THEN ABS(net_amount) ELSE 0 END) AS deployed,
+            SUM(CASE WHEN units < 0 THEN ABS(net_amount) ELSE 0 END) AS proceeds,
+            SUM(CASE WHEN units > 0 THEN -ABS(net_amount)
+                     WHEN units < 0 THEN  ABS(net_amount) ELSE 0 END) AS net_deployed
+        FROM transactions
+        GROUP BY DATE_TRUNC('quarter', date)
+        ORDER BY DATE_TRUNC('quarter', date)
+    """)
+
     return {
-        "by_class":  [dict(r) for r in by_class],
-        "by_sector": [dict(r) for r in by_sector],
-        "by_region": [dict(r) for r in by_region],
-        "cashflow_18m": [dict(r) for r in cashflow],
-        "aum":    float(overview["aum"])    if overview else None,
-        "nta":    float(overview["current_nta"]) if overview else None,
+        "by_class":  [serialise(r) for r in by_class],
+        "by_sector": [serialise(r) for r in by_sector],
+        "by_region": [serialise(r) for r in by_region],
+        "aum": float(overview["aum"])        if overview else None,
+        "nta": float(overview["current_nta"]) if overview else None,
+        "principal_quarterly":  [serialise(r) for r in principal_qtr],
+        "investment_quarterly": [serialise(r) for r in investment_qtr],
     }
 
 

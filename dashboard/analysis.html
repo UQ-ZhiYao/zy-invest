@@ -24,11 +24,11 @@
       <div class="page-header">
         <div class="breadcrumb"><a href="../index.html">ZY-Invest</a><span>›</span><span>Fund</span><span>›</span><span>Data Analysis</span></div>
         <h1>Data Analysis</h1>
-        <p>Portfolio composition breakdown by asset class, sector, and region.</p>
+        <p>Portfolio composition and cashflow analysis.</p>
       </div>
 
+      <!-- Assets by Class + Region -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
-        <!-- By class -->
         <div class="panel">
           <div class="panel-header"><h3>Assets by Class</h3></div>
           <div class="panel-body">
@@ -38,7 +38,6 @@
             </div>
           </div>
         </div>
-        <!-- By region -->
         <div class="panel">
           <div class="panel-header"><h3>Assets by Region</h3></div>
           <div class="panel-body">
@@ -50,7 +49,7 @@
         </div>
       </div>
 
-      <!-- By sector -->
+      <!-- Assets by Sector -->
       <div class="panel" style="margin-bottom:20px">
         <div class="panel-header"><h3>Assets by Sector</h3></div>
         <div class="panel-body">
@@ -58,13 +57,22 @@
         </div>
       </div>
 
-      <!-- 18m cashflow -->
-      <div class="panel">
-        <div class="panel-header"><h3>18-Month Cashflow</h3></div>
+      <!-- Principal Cashflow Quarterly -->
+      <div class="panel" style="margin-bottom:20px">
+        <div class="panel-header"><h3>Principal Cashflow (Quarterly)</h3></div>
         <div class="panel-body">
-          <div class="chart-container" style="height:240px"><canvas id="cashflow-chart"></canvas></div>
+          <div class="chart-container" style="height:280px"><canvas id="principal-chart"></canvas></div>
         </div>
-        <div class="panel-footer">Monthly subscription inflows and redemption outflows over the past 18 months.</div>
+        <div class="panel-footer">Quarterly investor subscriptions (inflows) and redemptions (outflows) with cumulative net position.</div>
+      </div>
+
+      <!-- Investment Cashflow Quarterly -->
+      <div class="panel">
+        <div class="panel-header"><h3>Investment Cashflow (Quarterly)</h3></div>
+        <div class="panel-body">
+          <div class="chart-container" style="height:280px"><canvas id="investment-chart"></canvas></div>
+        </div>
+        <div class="panel-footer">Quarterly trade outflows (buys) and inflows (sells/proceeds) with cumulative net deployed capital.</div>
       </div>
     </div>
   </div>
@@ -75,6 +83,7 @@
 const COLORS = ['#1565C0','#2E7D32','#E65100','#7B1FA2','#00838F','#558B2F','#BF360C','#4527A0'];
 
 function makeDoughnut(canvasId, legendId, labels, vals) {
+  if (!labels.length) return;
   const ctx = document.getElementById(canvasId).getContext('2d');
   new Chart(ctx, {
     type: 'doughnut',
@@ -89,21 +98,98 @@ function makeDoughnut(canvasId, legendId, labels, vals) {
     </div>`).join('');
 }
 
+function makeQtrCashflow(canvasId, quarters, inflow, outflow, cumulative, inflowLabel, outflowLabel, cumulLabel) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: quarters,
+      datasets: [
+        {
+          label: inflowLabel,
+          data: inflow,
+          backgroundColor: 'rgba(46,125,50,0.75)',
+          borderRadius: 4,
+          order: 2,
+          yAxisID: 'y'
+        },
+        {
+          label: outflowLabel,
+          data: outflow,
+          backgroundColor: 'rgba(220,38,38,0.65)',
+          borderRadius: 4,
+          order: 2,
+          yAxisID: 'y'
+        },
+        {
+          label: cumulLabel,
+          data: cumulative,
+          type: 'line',
+          borderColor: '#1565C0',
+          backgroundColor: 'rgba(21,101,192,0.08)',
+          borderWidth: 2.5,
+          pointRadius: 3,
+          pointBackgroundColor: '#1565C0',
+          fill: false,
+          tension: 0.3,
+          order: 1,
+          yAxisID: 'y2'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 11 }, usePointStyle: true } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const v = ctx.parsed.y;
+              return ' ' + ctx.dataset.label + ': RM ' + Math.abs(v/1000).toFixed(1) + 'K';
+            }
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: {
+          position: 'left',
+          grid: { color: '#F3F4F6' },
+          ticks: { font: { size: 10 }, callback: v => 'RM ' + Math.abs(v/1000).toFixed(0) + 'K' },
+          title: { display: true, text: 'Quarterly (RM)', font: { size: 10 } }
+        },
+        y2: {
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: { font: { size: 10 }, callback: v => 'RM ' + (v/1000).toFixed(0) + 'K' },
+          title: { display: true, text: 'Cumulative (RM)', font: { size: 10 } }
+        }
+      }
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   initDashboard('analysis', 'Data Analysis');
   try {
     const data = await api.get('/api/member/fund/analysis');
     if (!data) return;
 
-    // By class
+    // Assets by Class
     if (data.by_class?.length) {
-      makeDoughnut('class-chart','class-legend', data.by_class.map(r=>r.asset_class), data.by_class.map(r=>Number(r.weight_pct)));
+      makeDoughnut('class-chart','class-legend',
+        data.by_class.map(r=>r.asset_class),
+        data.by_class.map(r=>Number(r.weight_pct)));
     }
-    // By region
+    // Assets by Region
     if (data.by_region?.length) {
-      makeDoughnut('region-chart','region-legend', data.by_region.map(r=>r.region), data.by_region.map(r=>Number(r.weight_pct)));
+      makeDoughnut('region-chart','region-legend',
+        data.by_region.map(r=>r.region),
+        data.by_region.map(r=>Number(r.weight_pct)));
     }
-    // By sector bars
+    // Assets by Sector
     if (data.by_sector?.length) {
       document.getElementById('sector-bars').innerHTML = data.by_sector.map((r,i) => `
         <div style="margin-bottom:12px">
@@ -112,33 +198,36 @@ document.addEventListener('DOMContentLoaded', async () => {
             <span style="font-weight:700;color:var(--gray-900)">${Number(r.weight_pct).toFixed(1)}%</span>
           </div>
           <div style="height:8px;background:var(--gray-100);border-radius:99px;overflow:hidden">
-            <div style="height:100%;width:${r.weight_pct}%;background:${COLORS[i%COLORS.length]};border-radius:99px"></div>
+            <div style="height:100%;width:${Math.min(r.weight_pct,100)}%;background:${COLORS[i%COLORS.length]};border-radius:99px"></div>
           </div>
         </div>`).join('');
     }
-    // 18m cashflow
-    if (data.cashflow_18m?.length) {
-      const ctx = document.getElementById('cashflow-chart').getContext('2d');
-      new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: data.cashflow_18m.map(r => r.month?.slice(0,7)),
-          datasets: [
-            { label: 'Inflow', data: data.cashflow_18m.map(r=>Number(r.inflow||0)), backgroundColor: 'rgba(46,125,50,0.7)', borderRadius: 4 },
-            { label: 'Outflow', data: data.cashflow_18m.map(r=>-Math.abs(Number(r.outflow||0))), backgroundColor: 'rgba(220,38,38,0.6)', borderRadius: 4 }
-          ]
-        },
-        options: {
-          responsive:true, maintainAspectRatio:false,
-          plugins: { legend:{ position:'top', labels:{font:{size:11}} } },
-          scales: {
-            x: { stacked:true, grid:{display:false}, ticks:{font:{size:10}} },
-            y: { stacked:true, grid:{color:'#F3F4F6'}, ticks:{font:{size:10}, callback:v=>'RM '+Math.abs(v/1000).toFixed(0)+'K'} }
-          }
-        }
-      });
+
+    // Principal Cashflow Quarterly
+    if (data.principal_quarterly?.length) {
+      const pq = data.principal_quarterly;
+      const qtrs   = pq.map(r => r.quarter);
+      const inflow  = pq.map(r =>  Number(r.inflow  || 0));
+      const outflow = pq.map(r => -Number(r.outflow || 0));  // negative for chart
+      let cum = 0;
+      const cumPrincipal = pq.map(r => { cum += Number(r.net || 0); return cum; });
+      makeQtrCashflow('principal-chart', qtrs, inflow, outflow, cumPrincipal,
+        'Subscription', 'Redemption', 'Cumulative Net');
     }
-  } catch(e) { showToast('Failed to load analysis data','error'); }
+
+    // Investment Cashflow Quarterly
+    if (data.investment_quarterly?.length) {
+      const iq = data.investment_quarterly;
+      const qtrs    = iq.map(r => r.quarter);
+      const buys    = iq.map(r => -Number(r.deployed || 0));  // negative (cash out)
+      const sells   = iq.map(r =>  Number(r.proceeds || 0));  // positive (cash in)
+      let cum = 0;
+      const cumInv  = iq.map(r => { cum += Number(r.net_deployed || 0); return cum; });
+      makeQtrCashflow('investment-chart', qtrs, sells, buys, cumInv,
+        'Sale Proceeds', 'Deployed Capital', 'Cumulative Net Deployed');
+    }
+
+  } catch(e) { showToast('Failed to load analysis data', 'error'); }
 });
 </script>
 </body>
