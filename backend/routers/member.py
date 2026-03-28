@@ -126,7 +126,7 @@ async def update_profile(
     db: Database = Depends(get_db)
 ):
     fields, vals, idx = [], [], 1
-    for field, val in body.model_dump(exclude_none=True).items():
+    for field, val in body.dict(exclude_none=True).items():
         if field == "email":
             val = val.lower().strip()
         fields.append(f"{field} = ${idx}")
