@@ -123,7 +123,10 @@
   <div style="background:var(--white);border-radius:var(--radius-xl);padding:32px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <h3 id="modal-title">Distribution Breakdown</h3>
-      <span style="cursor:pointer;font-size:1.2rem;color:var(--text-muted);padding:4px 8px" onclick="document.getElementById('breakdown-modal').style.display='none'">✕</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-outline" style="padding:6px 14px;font-size:0.82rem" onclick="recomputeBreakdown()" id="recompute-btn">↻ Recompute</button>
+        <span style="cursor:pointer;font-size:1.2rem;color:var(--text-muted);padding:4px 8px" onclick="document.getElementById('breakdown-modal').style.display='none'">✕</span>
+      </div>
     </div>
     <div id="modal-breakdown"></div>
   </div>
@@ -209,7 +212,10 @@ async function loadDistributions() {
   } catch(e) {}
 }
 
+let currentDistId = null;
+
 async function showBreakdown(distId, title) {
+  currentDistId = distId;
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-breakdown').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Loading...</div>';
   document.getElementById('breakdown-modal').style.display = 'flex';
@@ -236,6 +242,19 @@ async function showBreakdown(distId, title) {
         </tr></tfoot>
       </table>`;
   } catch(e) { document.getElementById('modal-breakdown').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Failed to load breakdown</div>'; }
+}
+
+async function recomputeBreakdown() {
+  if (!currentDistId) return;
+  const btn = document.getElementById('recompute-btn');
+  btn.textContent = 'Computing...'; btn.disabled = true;
+  try {
+    await api.post(`/api/admin/distributions/${currentDistId}/compute-breakdown`, {});
+    showToast('Breakdown recomputed from principal cashflows', 'success');
+    const title = document.getElementById('modal-title').textContent;
+    await showBreakdown(currentDistId, title);
+  } catch(e) { showToast('Failed: ' + e.message, 'error'); }
+  btn.textContent = '↻ Recompute'; btn.disabled = false;
 }
 </script>
 </body>
