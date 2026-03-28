@@ -196,7 +196,7 @@ async function loadDividends() {
         <td class="td-right" style="font-weight:600;color:var(--green)">${fmtRM(r.amount)}</td>
         <td><span class="pill pill-blue" style="font-size:0.72rem">${r.entitlement||'cash'}</span></td>
       </tr>`).join('');
-  } catch(e) {}
+  } catch(e) { showToast('Failed to load dividends: ' + e.message, 'error'); }
 }
 </script>
 </body>
