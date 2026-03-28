@@ -70,8 +70,10 @@ async def account_summary(
         today=date.today()
     )
 
+    # Serialise UUID/datetime to str to prevent FastAPI 500 with Pydantic v1
+    inv_data = {k: str(v) if v is not None else None for k, v in dict(investor).items()}
     return {
-        **dict(investor),
+        **inv_data,
         "irr": round(irr * 100, 4) if irr is not None else None,
     }
 
@@ -92,12 +94,15 @@ async def get_profile(
             str(current_user["id"])
         )
     except Exception:
-        # Fallback if bank/address columns not yet migrated
         user = await db.fetchrow(
             "SELECT id, name, email, phone, created_at FROM users WHERE id = $1",
             str(current_user["id"])
         )
-    return dict(user)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Explicitly serialise UUID and datetime to str — prevents FastAPI 500
+    row = dict(user)
+    return {k: str(v) if v is not None else None for k, v in row.items()}
 
 
 class ProfileUpdate(BaseModel):
