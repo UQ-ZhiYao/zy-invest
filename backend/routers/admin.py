@@ -734,11 +734,8 @@ async def get_distribution_breakdown(
             p.investor_id,
             i.name as investor_name,
             SUM(CASE
-                WHEN LOWER(COALESCE(p.flow_type, p.cashflow_type)) LIKE '%deposit%'
-                  OR LOWER(COALESCE(p.flow_type, p.cashflow_type)) LIKE '%paid%'
-                  OR LOWER(COALESCE(p.flow_type, p.cashflow_type)) LIKE '%capital%'
-                THEN p.units
-                ELSE -p.units
+                WHEN p.flow_type = 'Withdrawal' THEN -p.units
+                ELSE p.units
             END) as units_at_ex_date
         FROM principal_cashflows p
         LEFT JOIN investors i ON i.id = p.investor_id
@@ -746,11 +743,8 @@ async def get_distribution_breakdown(
           AND p.investor_id IS NOT NULL
         GROUP BY p.investor_id, i.name
         HAVING SUM(CASE
-                WHEN LOWER(COALESCE(p.flow_type, p.cashflow_type)) LIKE '%deposit%'
-                  OR LOWER(COALESCE(p.flow_type, p.cashflow_type)) LIKE '%paid%'
-                  OR LOWER(COALESCE(p.flow_type, p.cashflow_type)) LIKE '%capital%'
-                THEN p.units
-                ELSE -p.units
+                WHEN p.flow_type = 'Withdrawal' THEN -p.units
+                ELSE p.units
             END) > 0
         ORDER BY units_at_ex_date DESC
     """, ex_date)
