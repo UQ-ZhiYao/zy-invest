@@ -58,7 +58,11 @@ async def list_users(
     db: Database = Depends(get_db)
 ):
     rows = await db.fetch(
-        "SELECT id, name, email, phone, role, is_active, investor_id, created_at FROM users ORDER BY name"
+        """SELECT id, name, email, phone, role, is_active, investor_id,
+                  bank_name, bank_account_no,
+                  address_line1, address_line2, city, postcode, state, country,
+                  created_at
+           FROM users ORDER BY name"""
     )
     return [dict(r) for r in rows]
 
