@@ -74,7 +74,15 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     is_active: Optional[bool] = None
     investor_id: Optional[str] = None
-    new_password: Optional[str] = None  # if provided, also reset password
+    new_password: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_account_no: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    postcode: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
 
 
 # ── Fee Schedules ─────────────────────────────────────────────
@@ -862,17 +870,26 @@ async def update_user(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    """Update user profile, role, investor link, active status, and optionally reset password."""
+    """Update user profile including bank, address, role, and optionally reset password."""
     import bcrypt as _bcrypt
     await db.execute("""
         UPDATE users
         SET name=$1, email=$2, phone=$3, role=$4,
-            is_active=$5, investor_id=$6, updated_at=NOW()
-        WHERE id=$7
+            is_active=$5, investor_id=$6,
+            bank_name=$7, bank_account_no=$8,
+            address_line1=$9, address_line2=$10,
+            city=$11, postcode=$12, state=$13, country=$14,
+            updated_at=NOW()
+        WHERE id=$15
     """,
-        body['name'], body['email'], body.get('phone'),
+        body.get('name'), body.get('email'), body.get('phone'),
         body.get('role', 'member'), body.get('is_active', True),
-        body.get('investor_id') or None, user_id,
+        body.get('investor_id') or None,
+        body.get('bank_name'), body.get('bank_account_no'),
+        body.get('address_line1'), body.get('address_line2'),
+        body.get('city'), body.get('postcode'),
+        body.get('state'), body.get('country'),
+        user_id,
     )
     if body.get('new_password'):
         if len(body['new_password']) < 8:
