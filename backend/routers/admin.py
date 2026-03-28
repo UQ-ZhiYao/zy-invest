@@ -775,14 +775,18 @@ async def get_distribution_breakdown(
             except Exception as e:
                 pass  # Don't fail if save fails
 
-        # Update distribution total
-        total_div = sum(r['amount'] for r in result)
+        # Update distribution total only if it was 0 (never set)
         try:
-            await db.execute("""
-                UPDATE distributions
-                SET total_units = $1, total_dividend = $2
-                WHERE id = $3
-            """, total_units, round(total_div, 4), dist_id)
+            existing = await db.fetchrow(
+                "SELECT total_units, total_dividend FROM distributions WHERE id = $1", dist_id
+            )
+            if not existing['total_units'] or float(existing['total_units']) == 0:
+                total_div = sum(r['amount'] for r in result)
+                await db.execute("""
+                    UPDATE distributions
+                    SET total_units = $1, total_dividend = $2
+                    WHERE id = $3
+                """, total_units, round(total_div, 4), dist_id)
         except Exception:
             pass
 
