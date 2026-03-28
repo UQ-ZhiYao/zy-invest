@@ -207,7 +207,7 @@ async function loadDistributions() {
         <td class="td-right">${r.total_units ? fmtUnits(r.total_units) : '—'}</td>
         <td class="td-right" style="font-weight:600;color:var(--blue)">${r.total_dividend ? fmtRM(r.total_dividend) : '—'}</td>
         <td>${distStatus(r.ex_date, r.pmt_date)}</td>
-        <td><button class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="showBreakdown('${r.id}','${r.title}')">View</button></td>
+        <td><button class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="showBreakdown('${r.id}','${r.title}','${r.ex_date}','${r.pmt_date}')">View</button></td>
       </tr>`).join('');
   } catch(e) {}
 }
@@ -229,7 +229,9 @@ function distStatus(ex_date, pmt_date) {
 
 let currentDistId = null;
 
-async function showBreakdown(distId, title) {
+let currentExDate = null, currentPmtDate = null;
+async function showBreakdown(distId, title, exDate, pmtDate) {
+  currentExDate = exDate; currentPmtDate = pmtDate;
   currentDistId = distId;
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-breakdown').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Loading...</div>';
@@ -247,7 +249,7 @@ async function showBreakdown(distId, title) {
             <td style="text-align:right;padding:10px 0">${fmtUnits(r.units_at_ex_date)}</td>
             <td style="text-align:right;padding:10px 0">${Number(r.dps_sen||0).toFixed(4)}</td>
             <td style="text-align:right;padding:10px 0;font-weight:700;color:var(--blue)">${fmtRM(r.amount)}</td>
-            <td style="text-align:right;padding:10px 0"><span class="pill ${r.paid?'pill-green':'pill-orange'}">${r.paid?'Paid':'Pending'}</span></td>
+            <td style="text-align:right;padding:10px 0">${distStatus(exDate, pmtDate)}</td>
           </tr>`).join('')}
         </tbody>
         <tfoot><tr style="border-top:2px solid var(--border)">
@@ -267,7 +269,7 @@ async function recomputeBreakdown() {
     await api.post(`/api/admin/distributions/${currentDistId}/compute-breakdown`, {});
     showToast('Breakdown recomputed from principal cashflows', 'success');
     const title = document.getElementById('modal-title').textContent;
-    await showBreakdown(currentDistId, title);
+    await showBreakdown(currentDistId, title, currentExDate, currentPmtDate);
   } catch(e) { showToast('Failed: ' + e.message, 'error'); }
   btn.textContent = '↻ Recompute'; btn.disabled = false;
 }
