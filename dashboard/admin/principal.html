@@ -208,13 +208,14 @@ async function loadHistory() {
     const invMap = {};
     investors.forEach(i => invMap[i.id] = i.name);
     tbody.innerHTML = data.map(r => {
-      // Use units sign as ground truth: positive = deposit, negative = withdrawal
-      const isDeposit = Number(r.units) >= 0;
+      // Use cash amount sign as source of truth: positive = deposit, negative = withdrawal
+      const isDeposit = Number(r.amount) >= 0;
+      const amtColor  = isDeposit ? '' : 'color:#DC2626;font-weight:600';
       return `<tr>
         <td>${fmtDate(r.date)}</td>
         <td style="font-weight:500">${r.investor_name || '—'}</td>
         <td><span class="pill ${isDeposit?'pill-green':'pill-red'}">${isDeposit ? 'Deposit' : 'Withdrawal'}</span></td>
-        <td class="td-right">${fmtRM(Math.abs(r.amount))}</td>
+        <td class="td-right" style="${amtColor}">${isDeposit ? '' : '−'}${fmtRM(Math.abs(r.amount))}</td>
         <td class="td-right">RM ${Number(r.nta_at_date||0).toFixed(4)}</td>
         <td class="td-right">${fmtUnits(Math.abs(r.units))}</td>
         <td style="color:var(--text-muted);font-size:0.82rem">${r.notes||'—'}</td>
