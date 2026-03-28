@@ -866,7 +866,7 @@ async def create_user(
 @router.put("/users/{user_id}")
 async def update_user(
     user_id: str,
-    body: dict,
+    body: UserUpdate,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
@@ -882,20 +882,20 @@ async def update_user(
             updated_at=NOW()
         WHERE id=$15
     """,
-        body.get('name'), body.get('email'), body.get('phone'),
-        body.get('role', 'member'), body.get('is_active', True),
-        body.get('investor_id') or None,
-        body.get('bank_name'), body.get('bank_account_no'),
-        body.get('address_line1'), body.get('address_line2'),
-        body.get('city'), body.get('postcode'),
-        body.get('state'), body.get('country'),
+        body.name, body.email, body.phone,
+        body.role or 'member', body.is_active if body.is_active is not None else True,
+        body.investor_id or None,
+        body.bank_name, body.bank_account_no,
+        body.address_line1, body.address_line2,
+        body.city, body.postcode,
+        body.state, body.country,
         user_id,
     )
-    if body.get('new_password'):
-        if len(body['new_password']) < 8:
+    if body.new_password:
+        if len(body.new_password) < 8:
             from fastapi import HTTPException
             raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-        pw_hash = _bcrypt.hashpw(body['new_password'].encode(), _bcrypt.gensalt()).decode()
+        pw_hash = _bcrypt.hashpw(body.new_password.encode(), _bcrypt.gensalt()).decode()
         await db.execute(
             "UPDATE users SET password_hash=$1 WHERE id=$2",
             pw_hash, user_id

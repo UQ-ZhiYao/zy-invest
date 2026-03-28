@@ -82,14 +82,21 @@ async def get_profile(
     current_user: dict = Depends(get_current_user),
     db: Database = Depends(get_db)
 ):
-    user = await db.fetchrow(
-        """SELECT id, name, email, phone,
-                  bank_name, bank_account_no,
-                  address_line1, address_line2, city, postcode, state, country,
-                  created_at
-           FROM users WHERE id = $1""",
-        str(current_user["id"])
-    )
+    try:
+        user = await db.fetchrow(
+            """SELECT id, name, email, phone,
+                      bank_name, bank_account_no,
+                      address_line1, address_line2, city, postcode, state, country,
+                      created_at
+               FROM users WHERE id = $1""",
+            str(current_user["id"])
+        )
+    except Exception:
+        # Fallback if bank/address columns not yet migrated
+        user = await db.fetchrow(
+            "SELECT id, name, email, phone, created_at FROM users WHERE id = $1",
+            str(current_user["id"])
+        )
     return dict(user)
 
 
