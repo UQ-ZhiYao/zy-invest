@@ -708,84 +708,95 @@ async def get_distribution_breakdown(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    # First check if pre-computed breakdown exists
-    rows = await db.fetch("""
-        SELECT di.*, i.name as investor_name
-        FROM distribution_investors di
-        LEFT JOIN investors i ON i.id = di.investor_id
-        WHERE di.distribution_id = $1
-        ORDER BY di.amount DESC
-    """, dist_id)
+    from fastapi import HTTPException
+    try:
+        # First check if pre-computed breakdown exists
+        rows = await db.fetch("""
+            SELECT di.*, i.name as investor_name
+            FROM distribution_investors di
+            LEFT JOIN investors i ON i.id = di.investor_id
+            WHERE di.distribution_id = $1
+            ORDER BY di.amount DESC
+        """, dist_id)
 
-    if rows:
-        return [dict(r) for r in rows]
+        if rows:
+            return [dict(r) for r in rows]
 
-    # No pre-computed data — compute on-the-fly from principal_cashflows
-    dist = await db.fetchrow("SELECT * FROM distributions WHERE id = $1", dist_id)
-    if not dist:
-        return []
+        # No pre-computed data — compute on-the-fly from principal_cashflows
+        dist = await db.fetchrow("SELECT * FROM distributions WHERE id = $1", dist_id)
+        if not dist:
+            return []
 
-    ex_date = dist['ex_date']
-    dps     = float(dist['dps_sen'])
+        ex_date = dist['ex_date']
+        dps     = float(dist['dps_sen'])
 
-    # Get each investor's cumulative units at ex-date from principal_cashflows
-    investor_units = await db.fetch("""
-        SELECT
-            p.investor_id,
-            i.name as investor_name,
-            SUM(CASE
-                WHEN p.flow_type = 'Withdrawal' THEN -p.units
-                ELSE p.units
-            END) as units_at_ex_date
-        FROM principal_cashflows p
-        LEFT JOIN investors i ON i.id = p.investor_id
-        WHERE p.date <= $1
-          AND p.investor_id IS NOT NULL
-        GROUP BY p.investor_id, i.name
-        HAVING SUM(CASE
-                WHEN p.flow_type = 'Withdrawal' THEN -p.units
-                ELSE p.units
-            END) > 0
-        ORDER BY units_at_ex_date DESC
-    """, ex_date)
+        # Get each investor's cumulative units at ex-date from principal_cashflows
+        investor_units = await db.fetch("""
+            SELECT
+                p.investor_id,
+                i.name as investor_name,
+                SUM(CASE
+                    WHEN p.flow_type = 'Withdrawal' THEN -p.units
+                    ELSE p.units
+                END) as units_at_ex_date
+            FROM principal_cashflows p
+            LEFT JOIN investors i ON i.id = p.investor_id
+            WHERE p.date <= $1
+              AND p.investor_id IS NOT NULL
+            GROUP BY p.investor_id, i.name
+            HAVING SUM(CASE
+                    WHEN p.flow_type = 'Withdrawal' THEN -p.units
+                    ELSE p.units
+                END) > 0
+            ORDER BY units_at_ex_date DESC
+        """, ex_date)
 
-    # Save to distribution_investors for future use
-    result = []
-    total_units = sum(float(r['units_at_ex_date']) for r in investor_units)
+        if not investor_units:
+            raise HTTPException(status_code=404, detail="No investor units found at ex-date. Check principal_cashflows has investor_id linked.")
 
-    for inv in investor_units:
-        units  = float(inv['units_at_ex_date'])
-        amount = units * dps / 100
-        result.append({
-            'investor_id':       str(inv['investor_id']),
-            'investor_name':     inv['investor_name'] or '—',
-            'units_at_ex_date':  units,
-            'dps_sen':           dps,
-            'amount':            round(amount, 4),
-            'paid':              False,
-        })
-        # Save to DB
+        result = []
+        total_units = sum(float(r['units_at_ex_date']) for r in investor_units)
+
+        for inv in investor_units:
+            units  = float(inv['units_at_ex_date'])
+            amount = units * dps / 100
+            result.append({
+                'investor_id':       str(inv['investor_id']),
+                'investor_name':     inv['investor_name'] or '—',
+                'units_at_ex_date':  units,
+                'dps_sen':           dps,
+                'amount':            round(amount, 4),
+                'paid':              False,
+            })
+            try:
+                await db.execute("""
+                    INSERT INTO distribution_investors
+                    (distribution_id, investor_id, units_at_ex_date, dps_sen, amount, paid)
+                    VALUES ($1,$2,$3,$4,$5,FALSE)
+                    ON CONFLICT (distribution_id, investor_id) DO UPDATE SET
+                        units_at_ex_date = EXCLUDED.units_at_ex_date,
+                        amount = EXCLUDED.amount
+                """, dist_id, str(inv['investor_id']), units, dps, round(amount, 4))
+            except Exception as e:
+                pass  # Don't fail if save fails
+
+        # Update distribution total
+        total_div = sum(r['amount'] for r in result)
         try:
             await db.execute("""
-                INSERT INTO distribution_investors
-                (distribution_id, investor_id, units_at_ex_date, dps_sen, amount, paid)
-                VALUES ($1,$2,$3,$4,$5,FALSE)
-                ON CONFLICT (distribution_id, investor_id) DO UPDATE SET
-                    units_at_ex_date = EXCLUDED.units_at_ex_date,
-                    amount = EXCLUDED.amount
-            """, dist_id, str(inv['investor_id']), units, dps, round(amount, 4))
+                UPDATE distributions
+                SET total_units = $1, total_dividend = $2
+                WHERE id = $3
+            """, total_units, round(total_div, 4), dist_id)
         except Exception:
             pass
 
-    # Update distribution total
-    total_div = sum(r['amount'] for r in result)
-    await db.execute("""
-        UPDATE distributions
-        SET total_units = $1, total_dividend = $2
-        WHERE id = $3
-    """, total_units, round(total_div, 4), dist_id)
+        return result
 
-    return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Breakdown error: {str(e)}")
 
 
 @router.post("/distributions/{dist_id}/compute-breakdown")
@@ -795,9 +806,7 @@ async def compute_distribution_breakdown(
     db: Database = Depends(get_db)
 ):
     """Force recompute breakdown from principal_cashflows."""
-    # Delete existing
     await db.execute("DELETE FROM distribution_investors WHERE distribution_id = $1", dist_id)
-    # Trigger recompute via GET
     return await get_distribution_breakdown(dist_id, admin, db)
 
 
