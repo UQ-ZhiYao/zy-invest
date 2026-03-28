@@ -98,7 +98,7 @@ function makeDoughnut(canvasId, legendId, labels, vals) {
     </div>`).join('');
 }
 
-function makeQtrCashflow(canvasId, quarters, inflow, outflow, cumulative, inflowLabel, outflowLabel, cumulLabel) {
+function makeQtrCashflow(canvasId, quarters, netBars, cumulative, barLabel, cumulLabel, barColor) {
   const ctx = document.getElementById(canvasId).getContext('2d');
   new Chart(ctx, {
     type: 'bar',
@@ -106,17 +106,9 @@ function makeQtrCashflow(canvasId, quarters, inflow, outflow, cumulative, inflow
       labels: quarters,
       datasets: [
         {
-          label: inflowLabel,
-          data: inflow,
-          backgroundColor: 'rgba(46,125,50,0.75)',
-          borderRadius: 4,
-          order: 2,
-          yAxisID: 'y'
-        },
-        {
-          label: outflowLabel,
-          data: outflow,
-          backgroundColor: 'rgba(220,38,38,0.65)',
+          label: barLabel,
+          data: netBars,
+          backgroundColor: netBars.map(v => v >= 0 ? 'rgba(46,125,50,0.75)' : 'rgba(220,38,38,0.65)'),
           borderRadius: 4,
           order: 2,
           yAxisID: 'y'
@@ -126,7 +118,7 @@ function makeQtrCashflow(canvasId, quarters, inflow, outflow, cumulative, inflow
           data: cumulative,
           type: 'line',
           borderColor: '#1565C0',
-          backgroundColor: 'rgba(21,101,192,0.08)',
+          backgroundColor: 'rgba(21,101,192,0.06)',
           borderWidth: 2.5,
           pointRadius: 3,
           pointBackgroundColor: '#1565C0',
@@ -147,7 +139,8 @@ function makeQtrCashflow(canvasId, quarters, inflow, outflow, cumulative, inflow
           callbacks: {
             label: ctx => {
               const v = ctx.parsed.y;
-              return ' ' + ctx.dataset.label + ': RM ' + Math.abs(v/1000).toFixed(1) + 'K';
+              const sign = v < 0 ? '-' : '';
+              return ' ' + ctx.dataset.label + ': ' + sign + 'RM ' + Math.abs(v/1000).toFixed(1) + 'K';
             }
           }
         }
@@ -157,13 +150,13 @@ function makeQtrCashflow(canvasId, quarters, inflow, outflow, cumulative, inflow
         y: {
           position: 'left',
           grid: { color: '#F3F4F6' },
-          ticks: { font: { size: 10 }, callback: v => 'RM ' + Math.abs(v/1000).toFixed(0) + 'K' },
-          title: { display: true, text: 'Quarterly (RM)', font: { size: 10 } }
+          ticks: { font: { size: 10 }, callback: v => (v<0?'-':'')+'RM '+Math.abs(v/1000).toFixed(0)+'K' },
+          title: { display: true, text: 'Net Cashflow (RM)', font: { size: 10 } }
         },
         y2: {
           position: 'right',
           grid: { drawOnChartArea: false },
-          ticks: { font: { size: 10 }, callback: v => 'RM ' + (v/1000).toFixed(0) + 'K' },
+          ticks: { font: { size: 10 }, callback: v => 'RM '+(v/1000).toFixed(0)+'K' },
           title: { display: true, text: 'Cumulative (RM)', font: { size: 10 } }
         }
       }
@@ -206,25 +199,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Principal Cashflow Quarterly
     if (data.principal_quarterly?.length) {
       const pq = data.principal_quarterly;
-      const qtrs   = pq.map(r => r.quarter);
-      const inflow  = pq.map(r =>  Number(r.inflow  || 0));
-      const outflow = pq.map(r => -Number(r.outflow || 0));  // negative for chart
+      const qtrs = pq.map(r => r.quarter);
+      const net  = pq.map(r => Number(r.net || 0));
       let cum = 0;
-      const cumPrincipal = pq.map(r => { cum += Number(r.net || 0); return cum; });
-      makeQtrCashflow('principal-chart', qtrs, inflow, outflow, cumPrincipal,
-        'Subscription', 'Redemption', 'Cumulative Net');
+      const cumP = pq.map(r => { cum += Number(r.net || 0); return cum; });
+      makeQtrCashflow('principal-chart', qtrs, net, cumP, 'Net Cashflow', 'Cumulative');
     }
 
     // Investment Cashflow Quarterly
     if (data.investment_quarterly?.length) {
       const iq = data.investment_quarterly;
-      const qtrs    = iq.map(r => r.quarter);
-      const buys    = iq.map(r => -Number(r.deployed || 0));  // negative (cash out)
-      const sells   = iq.map(r =>  Number(r.proceeds || 0));  // positive (cash in)
+      const qtrs = iq.map(r => r.quarter);
+      const net  = iq.map(r => Number(r.net_deployed || 0));
       let cum = 0;
-      const cumInv  = iq.map(r => { cum += Number(r.net_deployed || 0); return cum; });
-      makeQtrCashflow('investment-chart', qtrs, sells, buys, cumInv,
-        'Sale Proceeds', 'Deployed Capital', 'Cumulative Net Deployed');
+      const cumI = iq.map(r => { cum += Number(r.net_deployed || 0); return cum; });
+      makeQtrCashflow('investment-chart', qtrs, net, cumI, 'Net Cashflow', 'Cumulative');
     }
 
   } catch(e) { showToast('Failed to load analysis data', 'error'); }
