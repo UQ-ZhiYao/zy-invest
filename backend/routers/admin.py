@@ -575,8 +575,13 @@ async def get_dividends(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    rows = await db.fetch("SELECT * FROM dividends ORDER BY ex_date DESC")
-    return [dict(r) for r in rows]
+    rows = await db.fetch("""
+        SELECT id, ann_date, ex_date, pmt_date, asset_class,
+               instrument, units, dps_sen, amount, entitlement, created_at
+        FROM dividends ORDER BY ex_date DESC
+    """)
+    # Serialise date/UUID fields to str for JSON compatibility
+    return [{k: str(v) if v is not None else None for k, v in dict(r).items()} for r in rows]
 
 
 @router.post("/dividends")
