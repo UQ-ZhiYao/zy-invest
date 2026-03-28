@@ -120,6 +120,71 @@
       </div>
 
       <hr class="sec-divider">
+      <div class="sec-label">Banking Information</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Bank Name</label>
+          <select id="edit-bank-name" class="form-input">
+            <option value="">Select bank</option>
+            <option>Maybank</option><option>CIMB Bank</option>
+            <option>Public Bank</option><option>RHB Bank</option>
+            <option>Hong Leong Bank</option><option>AmBank</option>
+            <option>Affin Bank</option><option>Alliance Bank</option>
+            <option>Bank Islam</option><option>Bank Rakyat</option>
+            <option>BSN</option><option>OCBC Bank</option>
+            <option>Standard Chartered</option><option>HSBC Bank</option>
+            <option>UOB Bank</option><option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Account Number</label>
+          <input type="text" id="edit-bank-acc" class="form-input" placeholder="e.g. 1234567890">
+        </div>
+      </div>
+
+      <hr class="sec-divider">
+      <div class="sec-label">Home Address</div>
+      <div class="form-group">
+        <label class="form-label">Address Line 1</label>
+        <input type="text" id="edit-addr1" class="form-input" placeholder="Street address, unit number">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Address Line 2 <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+        <input type="text" id="edit-addr2" class="form-input" placeholder="Apartment, suite, etc.">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">City</label>
+          <input type="text" id="edit-city" class="form-input" placeholder="e.g. Kuala Lumpur">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Postcode</label>
+          <input type="text" id="edit-postcode" class="form-input" placeholder="e.g. 50450">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">State</label>
+          <select id="edit-state" class="form-input">
+            <option value="">Select state</option>
+            <option>Johor</option><option>Kedah</option>
+            <option>Kelantan</option><option>Kuala Lumpur</option>
+            <option>Labuan</option><option>Melaka</option>
+            <option>Negeri Sembilan</option><option>Pahang</option>
+            <option>Penang</option><option>Perak</option>
+            <option>Perlis</option><option>Putrajaya</option>
+            <option>Sabah</option><option>Sarawak</option>
+            <option>Selangor</option><option>Terengganu</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Country</label>
+          <input type="text" id="edit-country" class="form-input" value="Malaysia">
+        </div>
+      </div>
+
+      <hr class="sec-divider">
       <div class="sec-label">Password Reset <span style="font-weight:400;color:var(--text-muted)">(leave blank to keep current)</span></div>
       <div class="form-group">
         <label class="form-label">New Password</label>
@@ -193,7 +258,17 @@ function editUser(u) {
   document.getElementById('edit-password').value = '';
   document.getElementById('edit-password-confirm').value = '';
   document.getElementById('pw-error').style.display = 'none';
-  // Populate investor dropdown
+  // Banking
+  document.getElementById('edit-bank-name').value = u.bank_name || '';
+  document.getElementById('edit-bank-acc').value  = u.bank_account_no || '';
+  // Address
+  document.getElementById('edit-addr1').value    = u.address_line1 || '';
+  document.getElementById('edit-addr2').value    = u.address_line2 || '';
+  document.getElementById('edit-city').value     = u.city || '';
+  document.getElementById('edit-postcode').value = u.postcode || '';
+  document.getElementById('edit-state').value    = u.state || '';
+  document.getElementById('edit-country').value  = u.country || 'Malaysia';
+  // Investor dropdown
   const sel = document.getElementById('edit-investor');
   sel.innerHTML = '<option value="">Not linked</option>' +
     allInvestors.map(i => `<option value="${i.id}" ${u.investor_id===i.id?'selected':''}>${i.name}</option>`).join('');
@@ -211,6 +286,16 @@ function openNewUserModal() {
   document.getElementById('edit-password').value = '';
   document.getElementById('edit-password-confirm').value = '';
   document.getElementById('pw-error').style.display = 'none';
+  // Clear banking
+  document.getElementById('edit-bank-name').value = '';
+  document.getElementById('edit-bank-acc').value  = '';
+  // Clear address
+  document.getElementById('edit-addr1').value    = '';
+  document.getElementById('edit-addr2').value    = '';
+  document.getElementById('edit-city').value     = '';
+  document.getElementById('edit-postcode').value = '';
+  document.getElementById('edit-state').value    = '';
+  document.getElementById('edit-country').value  = 'Malaysia';
   const sel = document.getElementById('edit-investor');
   sel.innerHTML = '<option value="">Not linked</option>' +
     allInvestors.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
@@ -241,12 +326,20 @@ async function saveUser(e) {
   btn.disabled = true; btn.textContent = 'Saving...';
   const userId = document.getElementById('edit-user-id').value;
   const body = {
-    name:        document.getElementById('edit-name').value.trim(),
-    email:       document.getElementById('edit-email').value.trim(),
-    phone:       document.getElementById('edit-phone').value.trim(),
-    role:        document.getElementById('edit-role').value,
-    is_active:   document.getElementById('edit-active').value === 'true',
-    investor_id: document.getElementById('edit-investor').value || null,
+    name:            document.getElementById('edit-name').value.trim(),
+    email:           document.getElementById('edit-email').value.trim(),
+    phone:           document.getElementById('edit-phone').value.trim(),
+    role:            document.getElementById('edit-role').value,
+    is_active:       document.getElementById('edit-active').value === 'true',
+    investor_id:     document.getElementById('edit-investor').value || null,
+    bank_name:       document.getElementById('edit-bank-name').value || null,
+    bank_account_no: document.getElementById('edit-bank-acc').value.trim() || null,
+    address_line1:   document.getElementById('edit-addr1').value.trim() || null,
+    address_line2:   document.getElementById('edit-addr2').value.trim() || null,
+    city:            document.getElementById('edit-city').value.trim() || null,
+    postcode:        document.getElementById('edit-postcode').value.trim() || null,
+    state:           document.getElementById('edit-state').value || null,
+    country:         document.getElementById('edit-country').value.trim() || null,
   };
   if (pw) body.new_password = pw;
   try {
