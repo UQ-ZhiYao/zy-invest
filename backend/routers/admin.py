@@ -64,38 +64,13 @@ async def list_users(
 
 
 class UserUpdate(BaseModel):
-    name: Optional[str]
-    email: Optional[str]
-    phone: Optional[str]
-    role: Optional[str]
-    is_active: Optional[bool]
-    investor_id: Optional[str]
-
-
-@router.put("/users/{user_id}")
-async def update_user(
-    user_id: str,
-    body: UserUpdate,
-    admin: dict = Depends(require_admin),
-    db: Database = Depends(get_db)
-):
-    fields, vals, idx = [], [], 1
-    for field, val in body.model_dump(exclude_none=True).items():
-        fields.append(f"{field} = ${idx}")
-        vals.append(val)
-        idx += 1
-    if not fields:
-        return {"message": "Nothing to update"}
-    vals.append(user_id)
-    await db.execute(
-        f"UPDATE users SET {', '.join(fields)}, updated_at = NOW() WHERE id = ${idx}",
-        *vals
-    )
-    await db.execute(
-        "INSERT INTO audit_log (user_id, action, table_name, record_id) VALUES ($1,$2,$3,$4)",
-        str(admin["id"]), "UPDATE", "users", user_id
-    )
-    return {"message": "User updated"}
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    investor_id: Optional[str] = None
+    new_password: Optional[str] = None  # if provided, also reset password
 
 
 # ── Fee Schedules ─────────────────────────────────────────────
@@ -512,7 +487,7 @@ async def get_principal(
 ):
     rows = await db.fetch("""
         SELECT p.*,
-               COALESCE(p.flow_type, p.cashflow_type) as flow_type,
+               p.cashflow_type,
                i.name as investor_name
         FROM principal_cashflows p
         LEFT JOIN investors i ON i.id = p.investor_id
@@ -528,23 +503,33 @@ async def add_principal(
     db: Database = Depends(get_db)
 ):
     from datetime import date as date_type
+    # cashflow_type must be 'subscription', 'redemption', or 'transfer'
+    cashflow_type = body.get('cashflow_type', body.get('flow_type', 'subscription'))
+    # Map legacy values if any
+    legacy_map = {'deposit': 'subscription', 'withdrawal': 'redemption'}
+    cashflow_type = legacy_map.get(cashflow_type, cashflow_type)
+
+    units  = float(body['units'])
+    amount = float(body['amount'])
+
     await db.execute("""
         INSERT INTO principal_cashflows
-        (date, investor_id, flow_type, amount, nta_at_date, units, notes)
+        (date, investor_id, cashflow_type, amount, nta_at_date, units, notes)
         VALUES ($1,$2,$3,$4,$5,$6,$7)
     """,
         date_type.fromisoformat(body['date']),
         body['investor_id'],
-        body['flow_type'],
-        body['amount'],
-        body['nta_at_date'],
-        body['units'],
+        cashflow_type,
+        amount,
+        body.get('nta_at_date'),
+        units,
         body.get('notes'),
     )
-    sign = 1 if body['flow_type'] == 'deposit' else -1
+    # Update investor's running unit total
+    sign = 1 if cashflow_type in ('subscription', 'transfer') else -1
     await db.execute(
-        "UPDATE investors SET units = units + $1 WHERE id = $2",
-        sign * body['units'], body['investor_id']
+        "UPDATE investors SET units = units + $1, updated_at = NOW() WHERE id = $2",
+        sign * units, body['investor_id']
     )
     return {"message": "Principal cashflow recorded"}
 
@@ -660,10 +645,33 @@ async def declare_distribution(
     ex_date = date_type.fromisoformat(body['ex_date'])
     dps     = float(body['dps_sen'])
 
-    # Get all investors and their units
-    investors = await db.fetch("SELECT id, name, units FROM investors WHERE units > 0")
-    total_units = sum(float(r['units']) for r in investors)
-    total_div   = total_units * dps / 100
+    # FIX v1.6.0: Compute each investor's units AT the ex-date by summing
+    # principal_cashflows up to and including the ex-date — NOT current units.
+    # This ensures correct entitlements for historical distributions.
+    investor_units = await db.fetch("""
+        SELECT
+            p.investor_id,
+            i.name AS investor_name,
+            SUM(p.units) AS units_at_ex_date
+        FROM principal_cashflows p
+        JOIN investors i ON i.id = p.investor_id
+        WHERE p.date <= $1
+          AND p.investor_id IS NOT NULL
+        GROUP BY p.investor_id, i.name
+        HAVING SUM(p.units) > 0.0001
+        ORDER BY SUM(p.units) DESC
+    """, ex_date)
+
+    if not investor_units:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail="No investor units found at the specified ex-date. "
+                   "Ensure principal_cashflows records exist before this date."
+        )
+
+    total_units = sum(float(r['units_at_ex_date']) for r in investor_units)
+    total_div   = sum(float(r['units_at_ex_date']) * dps / 100 for r in investor_units)
 
     # Insert distribution header
     dist_id = await db.fetchval("""
@@ -681,24 +689,25 @@ async def declare_distribution(
         body['dist_type'],
         dps,
         total_units,
-        total_div,
+        round(total_div, 4),
         body.get('payout_ratio'),
     )
 
-    # Insert per-investor entitlements
-    for inv in investors:
-        amount = float(inv['units']) * dps / 100
+    # Insert per-investor entitlements into distribution_ledger (correct table name)
+    for inv in investor_units:
+        units  = float(inv['units_at_ex_date'])
+        amount = round(units * dps / 100, 4)
         await db.execute("""
-            INSERT INTO distribution_investors
-            (distribution_id, investor_id, units_at_ex_date, dps_sen, amount, paid)
-            VALUES ($1,$2,$3,$4,$5,FALSE)
-            ON CONFLICT DO NOTHING
-        """, dist_id, str(inv['id']), float(inv['units']), dps, amount)
+            INSERT INTO distribution_ledger
+            (distribution_id, investor_id, units_at_ex_date, amount, paid)
+            VALUES ($1,$2,$3,$4,FALSE)
+            ON CONFLICT (distribution_id, investor_id) DO NOTHING
+        """, dist_id, str(inv['investor_id']), units, amount)
 
     return {
         "message": "Distribution declared",
-        "investors_count": len(investors),
-        "total_dividend": total_div
+        "investors_count": len(investor_units),
+        "total_dividend": round(total_div, 4)
     }
 
 
@@ -710,13 +719,13 @@ async def get_distribution_breakdown(
 ):
     from fastapi import HTTPException
     try:
-        # First check if pre-computed breakdown exists
+        # Check if pre-computed breakdown exists in distribution_ledger
         rows = await db.fetch("""
-            SELECT di.*, i.name as investor_name
-            FROM distribution_investors di
-            LEFT JOIN investors i ON i.id = di.investor_id
-            WHERE di.distribution_id = $1
-            ORDER BY di.amount DESC
+            SELECT dl.*, i.name as investor_name
+            FROM distribution_ledger dl
+            LEFT JOIN investors i ON i.id = dl.investor_id
+            WHERE dl.distribution_id = $1
+            ORDER BY dl.amount DESC
         """, dist_id)
 
         if rows:
@@ -730,8 +739,7 @@ async def get_distribution_breakdown(
         ex_date = dist['ex_date']
         dps     = float(dist['dps_sen'])
 
-        # Get each investor's cumulative units at ex-date from principal_cashflows
-        # NOTE: units column is already signed — negative for withdrawals, positive for deposits
+        # FIX v1.6.0: sum principal_cashflows up to ex_date per investor
         investor_units = await db.fetch("""
             SELECT
                 p.investor_id,
@@ -742,40 +750,43 @@ async def get_distribution_breakdown(
             WHERE p.date <= $1
               AND p.investor_id IS NOT NULL
             GROUP BY p.investor_id, i.name
-            HAVING SUM(p.units) > 0
+            HAVING SUM(p.units) > 0.0001
             ORDER BY SUM(p.units) DESC
         """, ex_date)
 
         if not investor_units:
-            raise HTTPException(status_code=404, detail="No investor units found at ex-date. Check principal_cashflows has investor_id linked.")
+            raise HTTPException(
+                status_code=404,
+                detail="No investor units found at ex-date. Check principal_cashflows has investor_id linked."
+            )
 
         result = []
         total_units = sum(float(r['units_at_ex_date']) for r in investor_units)
 
         for inv in investor_units:
             units  = float(inv['units_at_ex_date'])
-            amount = units * dps / 100
+            amount = round(units * dps / 100, 4)
             result.append({
-                'investor_id':       str(inv['investor_id']),
-                'investor_name':     inv['investor_name'] or '—',
-                'units_at_ex_date':  units,
-                'dps_sen':           dps,
-                'amount':            round(amount, 4),
-                'paid':              False,
+                'investor_id':      str(inv['investor_id']),
+                'investor_name':    inv['investor_name'] or '—',
+                'units_at_ex_date': units,
+                'dps_sen':          dps,
+                'amount':           amount,
+                'paid':             False,
             })
             try:
                 await db.execute("""
-                    INSERT INTO distribution_investors
-                    (distribution_id, investor_id, units_at_ex_date, dps_sen, amount, paid)
-                    VALUES ($1,$2,$3,$4,$5,FALSE)
+                    INSERT INTO distribution_ledger
+                    (distribution_id, investor_id, units_at_ex_date, amount, paid)
+                    VALUES ($1,$2,$3,$4,FALSE)
                     ON CONFLICT (distribution_id, investor_id) DO UPDATE SET
                         units_at_ex_date = EXCLUDED.units_at_ex_date,
                         amount = EXCLUDED.amount
-                """, dist_id, str(inv['investor_id']), units, dps, round(amount, 4))
-            except Exception as e:
+                """, dist_id, str(inv['investor_id']), units, amount)
+            except Exception:
                 pass  # Don't fail if save fails
 
-        # Update distribution total only if it was 0 (never set)
+        # Update distribution header totals if still zero
         try:
             existing = await db.fetchrow(
                 "SELECT total_units, total_dividend FROM distributions WHERE id = $1", dist_id
@@ -804,8 +815,8 @@ async def compute_distribution_breakdown(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    """Force recompute breakdown from principal_cashflows."""
-    await db.execute("DELETE FROM distribution_investors WHERE distribution_id = $1", dist_id)
+    """Force recompute breakdown from principal_cashflows at ex-date."""
+    await db.execute("DELETE FROM distribution_ledger WHERE distribution_id = $1", dist_id)
     return await get_distribution_breakdown(dist_id, admin, db)
 
 
@@ -847,21 +858,29 @@ async def update_user(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    import bcrypt
+    """Update user profile, role, investor link, active status, and optionally reset password."""
+    import bcrypt as _bcrypt
     await db.execute("""
-        UPDATE users SET name=$1, email=$2, phone=$3, role=$4,
-               is_active=$5, investor_id=$6, updated_at=NOW()
+        UPDATE users
+        SET name=$1, email=$2, phone=$3, role=$4,
+            is_active=$5, investor_id=$6, updated_at=NOW()
         WHERE id=$7
     """,
         body['name'], body['email'], body.get('phone'),
-        body.get('role','member'), body.get('is_active', True),
-        body.get('investor_id'), user_id,
+        body.get('role', 'member'), body.get('is_active', True),
+        body.get('investor_id') or None, user_id,
     )
-    # Reset password if provided
     if body.get('new_password'):
-        pw_hash = bcrypt.hashpw(body['new_password'].encode(), bcrypt.gensalt()).decode()
+        if len(body['new_password']) < 8:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        pw_hash = _bcrypt.hashpw(body['new_password'].encode(), _bcrypt.gensalt()).decode()
         await db.execute(
             "UPDATE users SET password_hash=$1 WHERE id=$2",
             pw_hash, user_id
         )
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, table_name, record_id) VALUES ($1,$2,$3,$4)",
+        str(admin["id"]), "UPDATE", "users", user_id
+    )
     return {"message": "User updated"}
