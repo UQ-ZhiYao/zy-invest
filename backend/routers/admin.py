@@ -602,7 +602,7 @@ async def add_principal(
         "UPDATE investors SET units = units + $1, updated_at = NOW() WHERE id = $2",
         sign * units, body['investor_id']
     )
-    # Auto-generate subscription or redemption statement
+    # Auto-generate daily subscription or redemption statement (per record)
     try:
         from services.pdf_statements import generate_subscription, generate_redemption
         import base64
@@ -612,42 +612,32 @@ async def add_principal(
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, body['investor_id'])
-        if inv_full:
-            is_redemption = cashflow_type in ('redemption', 'withdrawal')
-            all_cfs = await db.fetch("""
-                SELECT date, cashflow_type, amount, nta_at_date, units
-                FROM principal_cashflows WHERE investor_id=$1 ORDER BY date
-            """, body['investor_id'])
-            cfs_list = []
-            cum_u = cum_c = 0.0
-            for cf in all_cfs:
-                amt = float(cf['amount']); u = float(cf['units'])
-                if amt > 0: cum_c += abs(amt); cum_u += u
-                else: cum_u += u
-                avg = cum_c / cum_u if cum_u > 0 else 0
-                cfs_list.append({**dict(cf),
-                    'description': 'Fund Subscription' if amt > 0 else 'Fund Redemption',
-                    'avg_cost': avg})
-            if is_redemption:
-                red_cfs = [cf for cf in cfs_list if float(cf['amount']) < 0]
-                pdf_b = generate_redemption(investor=dict(inv_full),
-                    cashflows=red_cfs, statement_period=body.get('date',''))
-                stmt_label = 'Redemption'
+        # Get the most recently inserted record for this investor+date
+        cf_rec = await db.fetchrow("""
+            SELECT * FROM principal_cashflows
+            WHERE investor_id=$1 AND date=$2::date
+            ORDER BY created_at DESC LIMIT 1
+        """, body['investor_id'],
+            body['date'] if isinstance(body['date'], str) else str(body['date']))
+        if inv_full and cf_rec:
+            is_red = float(cf_rec['amount']) < 0
+            if is_red:
+                pdf_b = generate_redemption(dict(inv_full), dict(cf_rec))
+                lbl   = 'Redemption'
             else:
-                sub_cfs = [cf for cf in cfs_list if float(cf['amount']) > 0]
-                pdf_b = generate_subscription(investor=dict(inv_full),
-                    cashflows=sub_cfs, statement_period=body.get('date',''))
-                stmt_label = 'Subscription'
-            b64 = base64.b64encode(pdf_b).decode()
-            inv_name = inv_full['name']
-            file_name = f"{stmt_label}_{inv_name.replace(' ','_')}_{body.get('date','')}.pdf"
-            title = f"{stmt_label} Statement — {inv_name} ({body.get('date','')})"
+                pdf_b = generate_subscription(dict(inv_full), dict(cf_rec))
+                lbl   = 'Subscription'
+            b64  = base64.b64encode(pdf_b).decode()
+            nm   = inv_full['name']
+            dt   = str(body.get('date',''))
+            fname = f"{lbl}_{nm.replace(' ','_')}_{dt}.pdf"
+            title = f"{lbl} Statement — {nm} ({dt})"
             await db.execute("""
                 INSERT INTO documents (title,doc_type,file_url,file_name,file_size_kb,
                     visibility,investor_id,uploaded_by)
                 VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$8::uuid)
             """, title,'member_statement',f"data:application/pdf;base64,{b64}",
-                file_name, len(pdf_b)//1024,'member',str(body['investor_id']),str(admin['id']))
+                fname, len(pdf_b)//1024,'member',str(body['investor_id']),str(admin['id']))
     except Exception:
         pass
 
@@ -835,10 +825,11 @@ async def declare_distribution(
         "total_dividend": round(total_div, 4)
     }
 
-    # Auto-generate dividend payment statement for each investor
+    # Auto-generate per-investor dividend statement (one per distribution record)
     try:
         from services.pdf_statements import generate_dividend_statement
         import base64
+        fy = body.get('financial_year','FY?')
         for inv in investor_units:
             inv_full = await db.fetchrow("""
                 SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
@@ -847,35 +838,31 @@ async def declare_distribution(
                 WHERE i.id=$1
             """, str(inv['investor_id']))
             if not inv_full: continue
-            # Get all distributions for this investor's FY
-            dists_for_inv = await db.fetch("""
-                SELECT dl.units_at_ex_date, dl.amount, dl.paid,
+            dl = await db.fetchrow("""
+                SELECT dl.units_at_ex_date, dl.amount,
                        d.title, d.dist_type, d.dps_sen, d.ex_date, d.pmt_date,
                        d.financial_year, d.payout_ratio
                 FROM distribution_ledger dl
                 JOIN distributions d ON d.id=dl.distribution_id
-                WHERE dl.investor_id=$1 AND d.financial_year=$2
-                ORDER BY d.ex_date
-            """, str(inv['investor_id']), body.get('financial_year','FY?'))
-            if not dists_for_inv: continue
-            fy = body.get('financial_year','FY?')
+                WHERE dl.investor_id=$1 AND dl.distribution_id=(
+                    SELECT id FROM distributions ORDER BY created_at DESC LIMIT 1)
+            """, str(inv['investor_id']))
+            if not dl: continue
             pdf_b = generate_dividend_statement(
                 investor=dict(inv_full),
-                distributions=[dict(d) for d in dists_for_inv],
-                financial_year=fy
-            )
-            b64 = base64.b64encode(pdf_b).decode()
-            file_url  = f"data:application/pdf;base64,{b64}"
-            inv_name  = inv_full['name']
-            file_name = f"Dividend_{fy}_{inv_name.replace(' ','_')}.pdf"
-            title     = f"Dividend Statement {fy} — {inv_name}"
+                dist_record=dict(dl),
+                financial_year=fy)
+            b64  = base64.b64encode(pdf_b).decode()
+            nm   = inv_full['name']
+            t_lbl = dl.get('title', fy)
+            fname = f"Dividend_{t_lbl.replace(' ','_')}_{nm.replace(' ','_')}.pdf"
+            title = f"Dividend Statement — {t_lbl} — {nm}"
             await db.execute("""
                 INSERT INTO documents (title,doc_type,file_url,file_name,file_size_kb,
                     visibility,investor_id,financial_year,uploaded_by)
                 VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$8,$9::uuid)
-                ON CONFLICT DO NOTHING
-            """, title,'member_statement',file_url,file_name,
-                len(pdf_b)//1024,'member',str(inv['investor_id']),fy,str(admin['id']))
+            """, title,'member_statement',f"data:application/pdf;base64,{b64}",
+                fname,len(pdf_b)//1024,'member',str(inv['investor_id']),fy,str(admin['id']))
     except Exception:
         pass
 
@@ -1062,6 +1049,94 @@ async def update_user(
         str(admin["id"]), "UPDATE", "users", user_id
     )
     return {"message": "User updated"}
+
+
+# ── Admin Document Management ─────────────────────────────────
+@router.get("/documents")
+async def list_documents(
+    doc_type: str = None,
+    investor_id: str = None,
+    financial_year: str = None,
+    visibility: str = None,
+    search: str = None,
+    page: int = 1,
+    limit: int = 50,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """List all documents with filters. Admin only."""
+    where = ["1=1"]
+    params = []
+    i = 1
+    if doc_type:
+        where.append(f"d.doc_type = ${i}"); params.append(doc_type); i+=1
+    if investor_id:
+        where.append(f"d.investor_id = ${i}::uuid"); params.append(investor_id); i+=1
+    if financial_year:
+        where.append(f"d.financial_year = ${i}"); params.append(financial_year); i+=1
+    if visibility:
+        where.append(f"d.visibility = ${i}"); params.append(visibility); i+=1
+    if search:
+        where.append(f"(LOWER(d.title) LIKE ${i} OR LOWER(inv.name) LIKE ${i})")
+        params.append(f"%{search.lower()}%"); i+=1
+
+    where_sql = " AND ".join(where)
+    offset = (page-1)*limit
+    params.extend([limit, offset])
+
+    rows = await db.fetch(f"""
+        SELECT d.id, d.title, d.doc_type, d.file_name, d.file_size_kb,
+               d.visibility, d.financial_year, d.created_at,
+               inv.name AS investor_name,
+               u2.name AS uploaded_by_name
+        FROM documents d
+        LEFT JOIN investors inv ON inv.id = d.investor_id
+        LEFT JOIN users u2 ON u2.id = d.uploaded_by
+        WHERE {where_sql}
+        ORDER BY d.created_at DESC
+        LIMIT ${i} OFFSET ${i+1}
+    """, *params)
+
+    total = await db.fetchval(f"""
+        SELECT COUNT(*) FROM documents d
+        LEFT JOIN investors inv ON inv.id = d.investor_id
+        WHERE {where_sql}
+    """, *params[:-2])
+
+    return {"data": [serialise(r) for r in rows], "total": total, "page": page}
+
+
+@router.delete("/documents/{doc_id}")
+async def delete_document(
+    doc_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Delete a document. Admin only."""
+    doc = await db.fetchrow("SELECT id, title FROM documents WHERE id=$1::uuid", doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    await db.execute("DELETE FROM documents WHERE id=$1::uuid", doc_id)
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, table_name) VALUES ($1,$2,$3)",
+        str(admin['id']), f"DELETE doc:{doc['title']}", "documents"
+    )
+    return {"message": "Document deleted"}
+
+
+@router.get("/documents/{doc_id}/download")
+async def admin_download_document(
+    doc_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Get document file URL for download. Admin only."""
+    doc = await db.fetchrow(
+        "SELECT file_url, title, file_name FROM documents WHERE id=$1::uuid", doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    return {"url": doc["file_url"], "title": doc["title"], "file_name": doc["file_name"]}
+
 
 # ── Statement Generation ──────────────────────────────────────
 @router.post("/statements/generate")
