@@ -57,12 +57,13 @@ TITLE_Y  = HDR_LINE + HDR_H / 2 - 5 * mm   # ~middle of header zone
 FTR_LINE = 17 * mm
 FTR_TEXT = 10 * mm
 
-# Disclaimer zone (last page, sits between footer line and body bottom)
-DISC_H   = 34 * mm
-DISC_TOP = FTR_LINE + DISC_H  # top of disclaimer area
+# Disclaimer zone — computed exactly at draw time (see _draw_disclaimer)
+# Reserve 22mm above footer for disclaimer: separator + title + 3 notices
+DISC_H   = 22 * mm
+DISC_TOP = FTR_LINE + DISC_H
 
-# Body frame
-BODY_BOT = DISC_TOP + 1 * mm   # body stops just above disclaimer zone
+# Body frame — stops just above disclaimer zone
+BODY_BOT = DISC_TOP + 1 * mm
 BODY_TOP = HDR_LINE - 4 * mm
 BODY_H   = BODY_TOP - BODY_BOT
 CW       = W - LM - RM          # ≈ 527 pt
@@ -236,19 +237,9 @@ def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
         canvas.drawRightString(W - RM, FTR_TEXT, f'Page {pg}')
 
         # ════════════════════════════════════════════════════
-        # DISCLAIMER — last page only, above footer
+        # DISCLAIMER — last page only, anchored FROM footer UP
         # ════════════════════════════════════════════════════
         if pg == n_pages:
-            dy = FTR_LINE + 1*mm
-
-            canvas.setStrokeColor(G5)
-            canvas.setLineWidth(0.4)
-            canvas.line(LM, dy + DISC_H - 4*mm, W - RM, dy + DISC_H - 4*mm)
-
-            canvas.setFont('Helvetica-Bold', 7.5)
-            canvas.setFillColor(G1)
-            canvas.drawString(LM, dy + DISC_H - 7*mm, 'IMPORTANT NOTICES')
-
             notices = [
                 '1. Confidentiality: This statement contains personal data intended solely for '
                 'the recipient. Please do not share this document with any third parties.',
@@ -258,14 +249,60 @@ def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
                 '3. Digital Statements: Effective 1st January 2026, all future portfolio '
                 'statements will be provided exclusively via WhatsApp.',
             ]
-            canvas.setFont('Helvetica', 7)
+            lh     = 2.9 * mm
+            gap    = 0.8 * mm
+            fnt    = 'Helvetica'
+            fnt_sz = 7
+
+            # Measure exact total height of notices block
+            def _line_count(text):
+                words = text.split(); line = ''; n = 0
+                for w in words:
+                    test = (line + ' ' + w).strip()
+                    if pdfmetrics.stringWidth(test, fnt, fnt_sz) > CW and line:
+                        n += 1; line = w
+                    else: line = test
+                return n + (1 if line else 0)
+
+            notices_h = sum(_line_count(n) * lh for n in notices)
+            notices_h += gap * (len(notices) - 1)
+
+            # Disclaimer block height:
+            #  2mm above footer + 1.5mm separator gap + title 3mm + 1.5mm to notices
+            TITLE_SZ  = 7.5
+            above_ftr = 2 * mm      # gap above footer line
+            sep_gap   = 2.5 * mm   # gap: footer→separator
+            sep_title = 2.5 * mm   # gap: separator→title
+            title_h   = 3 * mm     # title text height
+            title_n   = 2 * mm     # gap: title→first notice
+
+            # Total = notices_h + title_n + title_h + sep_title + sep_gap + above_ftr
+            total_h = notices_h + title_n + title_h + sep_title + sep_gap + above_ftr
+
+            # Starting Y positions (bottom-up anchored)
+            base_y  = FTR_LINE + above_ftr          # just above footer line
+            sep_y   = base_y + notices_h + title_n + title_h + sep_title
+            title_y = sep_y - sep_title - title_h + 1*mm
+            first_y = title_y - title_n - lh        # top of first notice line
+
+            # Draw separator
+            canvas.setStrokeColor(G5)
+            canvas.setLineWidth(0.4)
+            canvas.line(LM, sep_y, W - RM, sep_y)
+
+            # Draw title
+            canvas.setFont('Helvetica-Bold', TITLE_SZ)
+            canvas.setFillColor(G1)
+            canvas.drawString(LM, title_y, 'IMPORTANT NOTICES')
+
+            # Draw notices top-down from first_y
+            canvas.setFont(fnt, fnt_sz)
             canvas.setFillColor(G2)
-            ny = dy + DISC_H - 11*mm
-            lh = 2.9*mm
+            ny = first_y
             for i, notice in enumerate(notices):
-                ny = _canvas_wrap(canvas, notice, LM, ny, 'Helvetica', 7, CW, lh)
+                ny = _canvas_wrap(canvas, notice, LM, ny, fnt, fnt_sz, CW, lh)
                 if i < len(notices) - 1:
-                    ny -= 0.8*mm  # tight gap between notices
+                    ny -= gap
 
         canvas.restoreState()
     return _draw
@@ -363,9 +400,21 @@ def _inv_grid(s, fields):
         ('TOPPADDING',(0,0),(-1,-1),5),
         ('BOTTOMPADDING',(0,0),(-1,-1),5),
         ('LEFTPADDING',(0,0),(-1,-1),6),
-        ('FONTSIZE',(0,0),(-1,-1),8),
+        ('RIGHTPADDING',(0,0),(-1,-1),6),
+        # Labels: small grey regular
+        ('FONTNAME',(0,0),(0,-1),'Helvetica'),
+        ('FONTNAME',(2,0),(2,-1),'Helvetica'),
+        ('FONTSIZE',(0,0),(0,-1),7.5),
+        ('FONTSIZE',(2,0),(2,-1),7.5),
         ('TEXTCOLOR',(0,0),(0,-1),G2),
         ('TEXTCOLOR',(2,0),(2,-1),G2),
+        # Values: bold black
+        ('FONTNAME',(1,0),(1,-1),'Helvetica-Bold'),
+        ('FONTNAME',(3,0),(3,-1),'Helvetica-Bold'),
+        ('FONTSIZE',(1,0),(1,-1),8),
+        ('FONTSIZE',(3,0),(3,-1),8),
+        ('TEXTCOLOR',(1,0),(1,-1),G1),
+        ('TEXTCOLOR',(3,0),(3,-1),G1),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
     ]))
     return t
