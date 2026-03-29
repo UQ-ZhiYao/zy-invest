@@ -58,7 +58,7 @@ FTR_LINE = 17 * mm
 FTR_TEXT = 10 * mm
 
 # Disclaimer zone (last page, sits between footer line and body bottom)
-DISC_H   = 40 * mm
+DISC_H   = 34 * mm
 DISC_TOP = FTR_LINE + DISC_H  # top of disclaimer area
 
 # Body frame
@@ -178,8 +178,8 @@ def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
         # LETTER BLOCK — only on page 1, drawn at body TOP
         # (below blue line, inside body frame top area)
         # ════════════════════════════════════════════════════
-        if pg == 1 and name:
-            # We use BODY_TOP as our starting Y (just below HDR_LINE gap)
+        if name:
+            # Draw letter block on every page (each page gets its own meta_rows via closure)
             LB_Y = BODY_TOP - 2*mm   # start 2mm below top of body
 
             # ── Left: Name + Address ─────────────────────────────
@@ -197,9 +197,9 @@ def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
 
             # ── Right: Meta rows ─────────────────────────────────
             meta_y   = BODY_TOP - 2*mm
-            label_x  = W - RM - 85*mm   # label starts 85mm from right
-            colon_x  = label_x + 32*mm  # colon position
-            value_x  = colon_x + 2*mm   # value starts after colon
+            label_x  = W - RM - 64*mm   # label: 64mm from right edge
+            colon_x  = label_x + 32*mm  # colon after label
+            value_x  = colon_x + 3*mm   # value: 29mm space to right margin
 
             canvas.setFont('Helvetica', 7.5)
             for label, value in meta_rows:
@@ -260,11 +260,11 @@ def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
             ]
             canvas.setFont('Helvetica', 7)
             canvas.setFillColor(G2)
-            ny = dy + DISC_H - 14*mm
-            lh = 3.2*mm
+            ny = dy + DISC_H - 13*mm
+            lh = 3.0*mm
             for notice in notices:
                 ny = _canvas_wrap(canvas, notice, LM, ny, 'Helvetica', 7, CW, lh)
-                ny -= 2*mm  # gap between notices
+                ny -= 1.5*mm  # gap between notices
 
         canvas.restoreState()
     return _draw
@@ -327,16 +327,17 @@ def _addr(inv):
 def _letter_height(name, addr, meta_rows):
     """Estimate height of letter block to reserve in frame."""
     addr_lines = [l for l in (addr or '').split('\n') if l.strip()]
-    name_h   = 4*mm
-    addr_h   = len(addr_lines) * 3.5*mm
-    meta_h   = len(meta_rows)  * 3.8*mm
+    name_h    = 4*mm
+    addr_h    = len(addr_lines) * 3.5*mm
+    meta_h    = len(meta_rows)  * 3.8*mm
     content_h = max(name_h + addr_h, meta_h)
-    return content_h + 6*mm  # +6mm for separator and gaps
+    return content_h + 4*mm  # +4mm for separator and gaps (tightened)
 
 
 # ── Shared table helpers ────────────────────────────────────────
 def _sec(s, txt):
-    return [Paragraph(txt, s['h3']),
+    return [Spacer(1, 6*mm),
+            Paragraph(txt, s['h3']),
             HRFlowable(width=CW, thickness=0.6, color=BLUE, spaceAfter=3)]
 
 
@@ -380,7 +381,7 @@ def _inv_block(s, inv):
             ["Nominee Name",    "—",
              "Total Days Held", f"{inv.get('days_held',0)} days"],
         ]),
-        Spacer(1, 5*mm),
+        Spacer(1, 2*mm),
     ]
 
 
@@ -863,7 +864,8 @@ def generate_account_statement(investor, summary, cashflows, dist_history,
                   for d in dist_history],
             col_w=[dc1,dc2,dc3,dc4,dc5,dc6]))
 
-    # Two-pass build — page 2 also needs letter block
+    # Two-pass build with per-page meta (page number changes per page)
+    from reportlab.platypus import NextPageTemplate
     n   = _count_pages(story, extra)
     buf = io.BytesIO()
     doc = BaseDocTemplate(buf, pagesize=A4, leftMargin=LM, rightMargin=RM,
@@ -871,22 +873,15 @@ def generate_account_statement(investor, summary, cashflows, dist_history,
     fr  = Frame(LM, BODY_BOT, CW, BODY_H - extra, id='b',
                 leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
 
-    def _cb_p1(canvas, doc):
-        _page_cb(n, title='INVESTMENT ACCOUNT STATEMENT',
-                 name=name, addr=addr, meta_rows=meta1)(canvas, doc)
-
-    def _cb_p2(canvas, doc):
-        _page_cb(n, title='INVESTMENT ACCOUNT STATEMENT',
-                 name=name, addr=addr, meta_rows=meta2)(canvas, doc)
-
-    # Use a single callback that picks meta based on page
-    meta_by_page = {1: meta1, 2: meta2}
-    def _cb_any(canvas, doc):
+    # Single callback: picks meta_rows by actual page number
+    meta_map = {1: meta1, 2: meta2}
+    def _cb_acct(canvas, doc):
         pg = doc.page
-        mr = meta_by_page.get(pg, meta2)
+        mr = meta_map.get(pg, _meta(f'{pg} of {n}',
+            today.strftime('%d-%m-%Y'), 'Annually', statement_period))
         _page_cb(n, title='INVESTMENT ACCOUNT STATEMENT',
                  name=name, addr=addr, meta_rows=mr)(canvas, doc)
 
-    doc.addPageTemplates([PageTemplate(id='m', frames=[fr], onPage=_cb_any)])
+    doc.addPageTemplates([PageTemplate(id='m', frames=[fr], onPage=_cb_acct)])
     doc.build(story)
     return buf.getvalue()
