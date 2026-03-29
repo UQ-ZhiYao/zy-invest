@@ -147,17 +147,30 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function loadAccountSummary() {
+  // Always load fund NTA from public endpoint — works for all users regardless of investor link
+  try {
+    const pub = await api.get('/api/public/fund-overview');
+    if (pub && pub.current_nta) {
+      document.getElementById('m-nta').textContent = 'RM ' + Number(pub.current_nta).toFixed(4);
+      document.getElementById('m-nta-date').textContent =
+        'Per unit · ' + (pub.last_nta_date ? pub.last_nta_date.slice(0,10) : 'latest');
+    }
+  } catch(e) { console.warn('Fund overview:', e.message); }
+
+  // Load personal account data — only works if investor_id is linked
   try {
     const data = await api.get('/api/member/account/summary');
     if (!data) return;
-    document.getElementById('m-nta').textContent = Number(data.fund_nta||data.current_nta||1).toFixed(4);
-    document.getElementById('m-nta-date').textContent = 'Per unit · as of today';
+    // Override NTA with personal account value if available
+    if (data.fund_nta || data.current_nta) {
+      document.getElementById('m-nta').textContent = 'RM ' + Number(data.fund_nta||data.current_nta).toFixed(4);
+    }
     document.getElementById('m-mv').textContent = fmtRM(data.market_value);
     document.getElementById('m-mv-sub').textContent = `${fmtUnits(data.units)} units`;
     const ret = data.simple_return_pct;
     const retEl = document.getElementById('m-return');
     retEl.textContent = fmtPct(ret);
-    retEl.className = 'metric-value ' + (ret >= 0 ? 'green' : 'red');
+    retEl.className = 'metric-value ' + (Number(ret) >= 0 ? 'green' : 'red');
     document.getElementById('m-return-sub').textContent = `P&L: ${fmtRM(data.total_pl)}`;
     document.getElementById('m-irr').textContent = data.irr ? fmtPct(data.irr) : '—';
   } catch(e) { console.warn('Account summary:', e.message); }
@@ -251,10 +264,21 @@ async function loadDistributions() {
         <td>${fmtDate(r.pmt_date)}</td>
         <td>${Number(r.dps_sen).toFixed(2)}</td>
         <td class="td-right">${fmtRM(r.amount)}</td>
-        <td>${r.paid ? '<span class="pill pill-green">Paid</span>' : '<span class="pill pill-orange">Pending</span>'}</td>
+        <td>${distStatus(r.ex_date, r.pmt_date)}</td>
       </tr>
     `).join('');
   } catch(e) { console.warn('Distributions:', e.message); }
+}
+
+function distStatus(ex_date, pmt_date) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const ex  = ex_date  ? new Date(ex_date)  : null;
+  const pmt = pmt_date ? new Date(pmt_date) : null;
+  if (ex) { ex.setHours(0,0,0,0); }
+  if (pmt){ pmt.setHours(0,0,0,0); }
+  if (!ex || today < ex)       return '<span class="pill pill-blue">Upcoming</span>';
+  else if (!pmt || today <= pmt) return '<span class="pill pill-orange">Entitled</span>';
+  else                           return '<span class="pill pill-green">Paid</span>';
 }
 </script>
 </body>

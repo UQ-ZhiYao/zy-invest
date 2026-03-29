@@ -154,10 +154,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         <td>${fmtDate(r.pmt_date)}</td>
         <td>${Number(r.dps_sen).toFixed(2)}</td>
         <td class="td-right">${fmtRM(r.amount)}</td>
-        <td>${r.paid?'<span class="pill pill-green">Paid</span>':'<span class="pill pill-orange">Pending</span>'}</td>
+        <td>${distStatus(r.ex_date, r.pmt_date)}</td>
       </tr>`).join('');
   } catch(e) {}
 });
+
+function distStatus(ex_date, pmt_date) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const ex  = ex_date  ? new Date(ex_date)  : null;
+  const pmt = pmt_date ? new Date(pmt_date) : null;
+  if (ex) { ex.setHours(0,0,0,0); }
+  if (pmt){ pmt.setHours(0,0,0,0); }
+  if (!ex || today < ex)       return '<span class="pill pill-blue">Upcoming</span>';
+  else if (!pmt || today <= pmt) return '<span class="pill pill-orange">Entitled</span>';
+  else                           return '<span class="pill pill-green">Paid</span>';
+}
 </script>
 </body>
 </html>
