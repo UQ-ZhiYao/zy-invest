@@ -62,7 +62,7 @@ DISC_H   = 34 * mm
 DISC_TOP = FTR_LINE + DISC_H  # top of disclaimer area
 
 # Body frame
-BODY_BOT = DISC_TOP + 3 * mm   # safe: body stops above disclaimer zone
+BODY_BOT = DISC_TOP + 2 * mm   # body stops just above disclaimer zone
 BODY_TOP = HDR_LINE - 4 * mm
 BODY_H   = BODY_TOP - BODY_BOT
 CW       = W - LM - RM          # ≈ 527 pt
@@ -239,7 +239,7 @@ def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
         # DISCLAIMER — last page only, above footer
         # ════════════════════════════════════════════════════
         if pg == n_pages:
-            dy = FTR_LINE + 2*mm
+            dy = FTR_LINE + 1*mm
 
             canvas.setStrokeColor(G5)
             canvas.setLineWidth(0.4)
@@ -247,7 +247,7 @@ def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
 
             canvas.setFont('Helvetica-Bold', 7.5)
             canvas.setFillColor(G1)
-            canvas.drawString(LM, dy + DISC_H - 8.5*mm, 'IMPORTANT NOTICES')
+            canvas.drawString(LM, dy + DISC_H - 7*mm, 'IMPORTANT NOTICES')
 
             notices = [
                 '1. Confidentiality: This statement contains personal data intended solely for '
@@ -260,12 +260,12 @@ def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
             ]
             canvas.setFont('Helvetica', 7)
             canvas.setFillColor(G2)
-            ny = dy + DISC_H - 13*mm
-            lh = 3.0*mm
+            ny = dy + DISC_H - 11*mm
+            lh = 2.9*mm
             for i, notice in enumerate(notices):
                 ny = _canvas_wrap(canvas, notice, LM, ny, 'Helvetica', 7, CW, lh)
                 if i < len(notices) - 1:
-                    ny -= 1.5*mm  # gap between notices (not after last)
+                    ny -= 0.8*mm  # tight gap between notices
 
         canvas.restoreState()
     return _draw
@@ -316,17 +316,16 @@ def _meta(page, issued, stmt_type='', stmt_period=''):
 
 
 def _addr(inv):
-    """Build address: line1, line2, postcode+city, state+country"""
-    postcode_city = ' '.join(filter(None, [
-        inv.get('postcode',''), inv.get('city','')]))
-    state_country = ' '.join(filter(None, [
-        inv.get('state',''), inv.get('country','')]))
-    return '\n'.join(filter(None, [
-        inv.get('address_line1',''),
-        inv.get('address_line2',''),
+    """Build address lines from DB fields. Filters out None and empty strings."""
+    def s(k): return (inv.get(k) or '').strip()
+    postcode_city = ' '.join(x for x in [s('postcode'), s('city')] if x)
+    state_country = ' '.join(x for x in [s('state'), s('country')] if x)
+    return '\n'.join(x for x in [
+        s('address_line1'),
+        s('address_line2'),
         postcode_city,
         state_country,
-    ]))
+    ] if x)
 
 
 # ── Letter block height estimator ──────────────────────────────
@@ -373,17 +372,20 @@ def _inv_grid(s, fields):
 
 
 def _inv_block(s, inv):
+    def g(k, default='—'):
+        v = inv.get(k)
+        return str(v).strip() if v not in (None, '', 'None') else default
     return [
         *_sec(s, "Investor's Information"),
         _inv_grid(s, [
-            ["Account Type",    inv.get('account_type','Nominee Account'),
-             "Account ID",      inv.get('account_id','—')],
-            ["Registered Name", inv.get('name','—'),
+            ["Account Type",    g('account_type','Nominee Account'),
+             "Account ID",      g('account_id')],
+            ["Registered Name", g('name'),
              "Settlement Type", "Banking"],
-            ["Phone No.",       inv.get('phone','—'),
-             "Bank Name",       inv.get('bank_name','—')],
-            ["Email Address",   inv.get('email','—'),
-             "Bank Account No.",inv.get('bank_account_no','—')],
+            ["Phone No.",       g('phone'),
+             "Bank Name",       g('bank_name')],
+            ["Email Address",   g('email'),
+             "Bank Account No.",g('bank_account_no')],
             ["Nominee Name",    "—",
              "Total Days Held", f"{inv.get('days_held',0)} days"],
         ]),
