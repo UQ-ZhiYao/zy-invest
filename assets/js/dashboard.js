@@ -121,6 +121,9 @@ function renderSidebar(activePage) {
       <a href="${base}dashboard/admin/price-override.html" class="nav-item ${activePage==='price-override'?'active':''}" data-tooltip="Price Override">
         <span class="nav-icon">💱</span><span class="nav-label">Price Override</span>
       </a>
+      <a href="${base}dashboard/admin/statements.html" class="nav-item ${activePage==='admin-statements'?'active':''}" data-tooltip="Generate Statements">
+        <span class="nav-icon">📋</span>
+      </a>
       <a href="${base}dashboard/admin/upload.html" class="nav-item ${activePage==='upload'?'active':''}" data-tooltip="Upload Excel">
         <span class="nav-icon">📥</span><span class="nav-label">Upload Excel</span>
       </a>

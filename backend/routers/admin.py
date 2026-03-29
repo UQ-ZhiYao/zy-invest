@@ -969,3 +969,250 @@ async def update_user(
         str(admin["id"]), "UPDATE", "users", user_id
     )
     return {"message": "User updated"}
+
+# ── Statement Generation ──────────────────────────────────────
+@router.post("/statements/generate")
+async def generate_statement(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Generate PDF statement and store in documents table."""
+    import io, base64
+    from services.pdf_statements import (
+        generate_factsheet, generate_subscription,
+        generate_dividend_statement, generate_account_statement
+    )
+
+    stmt_type   = body.get('statement_type')   # factsheet|subscription|dividend|account
+    investor_id = body.get('investor_id')       # None for factsheet
+    fin_year    = body.get('financial_year', '')
+    period      = body.get('period', '')
+
+    pdf_bytes = None
+    title     = ''
+    visibility = 'fund'
+    inv_id_for_doc = None
+
+    # ── Fetch common fund data ──────────────────────────────
+    overview = await db.fetchrow("SELECT * FROM v_fund_overview")
+    fund_data = dict(overview) if overview else {}
+
+    if stmt_type == 'factsheet':
+        holdings = await db.fetch("""
+            SELECT instrument, total_cost,
+                   CASE WHEN units > 0 THEN total_cost / NULLIF((SELECT SUM(total_cost) FROM holdings WHERE units > 0.001),0)*100
+                        ELSE 0 END AS weight_pct
+            FROM holdings WHERE units > 0.001 ORDER BY total_cost DESC LIMIT 10
+        """)
+        perf_row = await db.fetchrow("SELECT * FROM v_fund_overview")
+        perf_data = {'period_returns': {}, 'total_return_pct': float(perf_row['total_return_pct']) if perf_row else 0}
+        dists = await db.fetch("SELECT * FROM distributions ORDER BY ex_date DESC LIMIT 8")
+        pdf_bytes = generate_factsheet(
+            fund_data=fund_data,
+            holdings=[dict(h) for h in holdings],
+            performance=perf_data,
+            distributions=[dict(d) for d in dists]
+        )
+        title = f"ZY-Invest Factsheet {period or fund_data.get('last_nta_date','')}"
+        visibility = 'fund'
+
+    elif stmt_type == 'subscription':
+        if not investor_id:
+            raise HTTPException(400, "investor_id required")
+        # Get user + investor data
+        inv = await db.fetchrow("""
+            SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+            FROM investors i
+            LEFT JOIN users u ON u.investor_id = i.id
+            WHERE i.id = $1
+        """, investor_id)
+        if not inv:
+            raise HTTPException(404, "Investor not found")
+        cfs = await db.fetch("""
+            SELECT date, cashflow_type AS description, amount, nta_at_date, units
+            FROM principal_cashflows
+            WHERE investor_id = $1
+            ORDER BY date
+        """, investor_id)
+        # Running average cost
+        cfs_list = []
+        cum_units = cum_cost = 0
+        for cf in cfs:
+            amt = float(cf['amount'])
+            u   = float(cf['units'])
+            if amt > 0:
+                cum_cost  += abs(amt)
+                cum_units += u
+            else:
+                cum_units += u  # negative units on redemption
+            avg = cum_cost / cum_units if cum_units > 0 else 0
+            cfs_list.append({**dict(cf),
+                'description': 'Fund Subscription' if amt > 0 else 'Fund Redemption',
+                'avg_cost': avg})
+        pdf_bytes = generate_subscription(
+            investor=dict(inv),
+            cashflows=cfs_list,
+            statement_period=period
+        )
+        title = f"Subscription Statement — {inv['name']}"
+        visibility = 'member'
+        inv_id_for_doc = str(investor_id)
+
+    elif stmt_type == 'dividend':
+        if not investor_id:
+            raise HTTPException(400, "investor_id required")
+        inv = await db.fetchrow("""
+            SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+            FROM investors i
+            LEFT JOIN users u ON u.investor_id = i.id
+            WHERE i.id = $1
+        """, investor_id)
+        if not inv:
+            raise HTTPException(404, "Investor not found")
+        # Get distribution ledger for this investor
+        dists = await db.fetch("""
+            SELECT dl.units_at_ex_date, dl.amount, dl.paid,
+                   d.title, d.dist_type, d.dps_sen, d.ex_date, d.pmt_date,
+                   d.financial_year, d.payout_ratio
+            FROM distribution_ledger dl
+            JOIN distributions d ON d.id = dl.distribution_id
+            WHERE dl.investor_id = $1
+              AND ($2 = '' OR d.financial_year = $2)
+            ORDER BY d.ex_date
+        """, investor_id, fin_year)
+        pdf_bytes = generate_dividend_statement(
+            investor=dict(inv),
+            distributions=[dict(d) for d in dists],
+            financial_year=fin_year
+        )
+        title = f"Dividend Statement {fin_year} — {inv['name']}"
+        visibility = 'member'
+        inv_id_for_doc = str(investor_id)
+
+    elif stmt_type == 'account':
+        if not investor_id:
+            raise HTTPException(400, "investor_id required")
+        inv = await db.fetchrow("""
+            SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+            FROM investors i
+            LEFT JOIN users u ON u.investor_id = i.id
+            WHERE i.id = $1
+        """, investor_id)
+        if not inv:
+            raise HTTPException(404, "Investor not found")
+        summary = await db.fetchrow("SELECT * FROM v_investor_profile WHERE id = $1", investor_id)
+        if not summary:
+            raise HTTPException(404, "Investor profile not found")
+
+        # Parse FY period dates (Dec 1 - Nov 30)
+        if fin_year and fin_year.startswith('FY'):
+            yr = int(fin_year[2:]) + 2000
+            fy_start = date(yr-1, 12, 1)
+            fy_end   = date(yr,   11, 30)
+            period   = period or f"{fy_start.strftime('%d/%m/%Y')} - {fy_end.strftime('%d/%m/%Y')}"
+        else:
+            fy_start, fy_end = date(2000,1,1), date.today()
+
+        cfs = await db.fetch("""
+            SELECT date, cashflow_type, amount, nta_at_date, units
+            FROM principal_cashflows
+            WHERE investor_id = $1 AND date BETWEEN $2 AND $3
+            ORDER BY date
+        """, investor_id, fy_start, fy_end)
+
+        dists = await db.fetch("""
+            SELECT dl.units_at_ex_date, dl.amount,
+                   d.title, d.dps_sen, d.ex_date, d.pmt_date, d.financial_year
+            FROM distribution_ledger dl
+            JOIN distributions d ON d.id = dl.distribution_id
+            WHERE dl.investor_id = $1
+              AND d.ex_date BETWEEN $2 AND $3
+            ORDER BY d.ex_date
+        """, investor_id, fy_start, fy_end)
+
+        # Build cashflow rows with description
+        cfs_list = []
+        cum_units = 0
+        for cf in cfs:
+            u = float(cf['units'])
+            cum_units += u
+            cfs_list.append({
+                **dict(cf),
+                'description': ('Subscription' if float(cf['amount']) > 0 else 'Redemption')
+                              + (' @ Fund Switching' if cf.get('notes','').lower().find('switch') >= 0 else ''),
+            })
+
+        # Days held
+        first_cf = await db.fetchrow("""
+            SELECT date FROM principal_cashflows WHERE investor_id=$1 ORDER BY date ASC LIMIT 1
+        """, investor_id)
+        days_held = (date.today() - first_cf['date']).days if first_cf else 0
+
+        # Dividend received total
+        div_total = await db.fetchval("""
+            SELECT COALESCE(SUM(dl.amount),0)
+            FROM distribution_ledger dl
+            JOIN distributions d ON d.id = dl.distribution_id
+            WHERE dl.investor_id=$1 AND dl.paid=TRUE
+        """, investor_id) or 0
+
+        sum_data = {
+            **dict(summary),
+            'days_held': days_held,
+            'dividends_received': float(div_total),
+            'adjustment': 0,
+            'account_type': 'Nominee Account',
+        }
+
+        pdf_bytes = generate_account_statement(
+            investor=dict(inv),
+            summary=sum_data,
+            cashflows=cfs_list,
+            dist_history=[dict(d) for d in dists],
+            statement_period=period,
+            financial_year=fin_year
+        )
+        title = f"Account Statement {fin_year} — {inv['name']}"
+        visibility = 'member'
+        inv_id_for_doc = str(investor_id)
+
+    else:
+        raise HTTPException(400, f"Unknown statement_type: {stmt_type}")
+
+    if not pdf_bytes:
+        raise HTTPException(500, "PDF generation failed")
+
+    # Store in documents table (file_url = base64 data URI for now)
+    import base64
+    file_b64 = base64.b64encode(pdf_bytes).decode()
+    file_url  = f"data:application/pdf;base64,{file_b64}"
+    file_name = title.replace(' ','_').replace('—','').replace('/','_') + '.pdf'
+    file_size = len(pdf_bytes) // 1024
+
+    doc_id = await db.fetchval("""
+        INSERT INTO documents
+        (title, doc_type, file_url, file_name, file_size_kb,
+         visibility, investor_id, financial_year, uploaded_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$8,$9::uuid)
+        RETURNING id
+    """,
+        title, 'member_statement', file_url, file_name, file_size,
+        visibility,
+        inv_id_for_doc,
+        fin_year or None,
+        str(admin['id'])
+    )
+
+    return {
+        "message": "Statement generated",
+        "doc_id": str(doc_id),
+        "title": title,
+        "file_name": file_name,
+        "file_size_kb": file_size,
+        "pdf_b64": file_b64,      # frontend can trigger download directly
+    }
+
