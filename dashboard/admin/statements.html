@@ -23,13 +23,14 @@
     .form-input:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(21,101,192,0.1); background:var(--white); }
     .form-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
     .generated-list { display:flex; flex-direction:column; gap:10px; }
-    .gen-item  { display:flex; justify-content:space-between; align-items:center;
+    .gen-item  { display:flex; flex-direction:column; gap:8px;
                  padding:12px 16px; border:1px solid var(--border);
                  border-radius:var(--radius-md); background:var(--off-white); }
-    .gen-item-info { display:flex; flex-direction:column; gap:2px; }
-    .gen-item-name { font-weight:600; font-size:0.88rem; color:var(--gray-900); }
-    .gen-item-meta { font-size:0.78rem; color:var(--text-muted); }
-    .gen-item-actions { display:flex; gap:8px; }
+    .gen-item-info { display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .gen-item-name { font-weight:600; font-size:0.85rem; color:var(--gray-900);
+                     white-space:normal; word-break:break-word; }
+    .gen-item-meta { font-size:0.75rem; color:var(--text-muted); word-break:break-all; }
+    .gen-item-actions { display:flex; gap:8px; flex-shrink:0; }
     @media(max-width:680px){ .stmt-cards{grid-template-columns:1fr;} .form-row{grid-template-columns:1fr;} }
   </style>
 </head>
@@ -58,7 +59,7 @@
         <p>Generate PDF statements for individual members or fund-wide. Statements are stored in the Documents library and members can download them.</p>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 380px;gap:24px;align-items:start">
+      <div style="display:grid;grid-template-columns:1fr 360px;gap:24px;align-items:start">
 
         <!-- Left: form -->
         <div>
@@ -75,7 +76,12 @@
                 <div class="stmt-card" id="card-subscription" onclick="selectType('subscription')">
                   <div class="stmt-icon">💳</div>
                   <h4>Subscription Statement</h4>
-                  <p>Per investor. Shows all principal cashflows — subscriptions and redemptions with NTA and unit balances.</p>
+                  <p>Per investor. Shows all subscriptions with NTA price and unit balances.</p>
+                </div>
+                <div class="stmt-card" id="card-redemption" onclick="selectType('redemption')">
+                  <div class="stmt-icon">💸</div>
+                  <h4>Redemption Statement</h4>
+                  <p>Per investor. Shows all redemptions with NTA price and units redeemed.</p>
                 </div>
                 <div class="stmt-card" id="card-dividend" onclick="selectType('dividend')">
                   <div class="stmt-icon">💰</div>
@@ -167,6 +173,13 @@
             </div>
           </div>
           <div class="panel-footer">Statements are saved to the Documents library and visible to the relevant member.</div>
+        <div style="padding:12px 16px;border-top:1px solid var(--border)">
+          <button class="btn btn-outline" style="width:100%;font-size:0.82rem"
+            onclick="generateAllFY()">⚙ Auto-Generate All FY Account Statements</button>
+          <div style="font-size:0.75rem;color:var(--text-muted);margin-top:6px;text-align:center">
+            Generates FY22–FY25 for all active investors (skips already generated)
+          </div>
+        </div>
         </div>
 
       </div>
@@ -206,7 +219,7 @@ function selectType(type) {
   // Show/hide fields
   const isFactsheet    = type === 'factsheet';
   const needsFY        = type === 'dividend' || type === 'account';
-  const needsInvestor  = !isFactsheet;
+  const needsInvestor  = type !== 'factsheet';
 
   document.getElementById('investor-group').style.display  = needsInvestor  ? 'block' : 'none';
   document.getElementById('fy-group').style.display        = needsFY        ? 'grid'  : 'none';
@@ -294,6 +307,16 @@ function renderGenerated() {
           onclick="downloadPdf('${g.pdf_b64}','${g.file_name}')">↓ Download</button>
       </div>
     </div>`).join('') + '</div>';
+}
+
+async function generateAllFY() {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = '⏳ Generating...';
+  try {
+    const r = await api.post('/api/admin/statements/generate-fy-statements', {});
+    showToast(`Generated ${r.generated} account statements.${r.errors?.length ? ' Some errors: '+r.errors[0] : ''}`, 'success');
+  } catch(e) { showToast('Failed: ' + e.message, 'error'); }
+  btn.disabled = false; btn.textContent = '⚙ Auto-Generate All FY Account Statements';
 }
 
 function downloadPdf(b64, filename) {

@@ -602,9 +602,9 @@ async def add_principal(
         "UPDATE investors SET units = units + $1, updated_at = NOW() WHERE id = $2",
         sign * units, body['investor_id']
     )
-    # Auto-generate subscription statement for this investor
+    # Auto-generate subscription or redemption statement
     try:
-        from services.pdf_statements import generate_subscription
+        from services.pdf_statements import generate_subscription, generate_redemption
         import base64
         inv_full = await db.fetchrow("""
             SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
@@ -613,43 +613,43 @@ async def add_principal(
             WHERE i.id = $1
         """, body['investor_id'])
         if inv_full:
-            cfs = await db.fetch("""
+            is_redemption = cashflow_type in ('redemption', 'withdrawal')
+            all_cfs = await db.fetch("""
                 SELECT date, cashflow_type, amount, nta_at_date, units
                 FROM principal_cashflows WHERE investor_id=$1 ORDER BY date
             """, body['investor_id'])
-            from datetime import date as date_type2
-            from decimal import Decimal as D2
             cfs_list = []
             cum_u = cum_c = 0.0
-            for cf in cfs:
-                amt = float(cf['amount'])
-                u   = float(cf['units'])
-                if amt > 0:
-                    cum_c += abs(amt); cum_u += u
-                else:
-                    cum_u += u
+            for cf in all_cfs:
+                amt = float(cf['amount']); u = float(cf['units'])
+                if amt > 0: cum_c += abs(amt); cum_u += u
+                else: cum_u += u
                 avg = cum_c / cum_u if cum_u > 0 else 0
                 cfs_list.append({**dict(cf),
                     'description': 'Fund Subscription' if amt > 0 else 'Fund Redemption',
                     'avg_cost': avg})
-            pdf_b = generate_subscription(
-                investor=dict(inv_full),
-                cashflows=cfs_list,
-                statement_period=body.get('date','')
-            )
+            if is_redemption:
+                red_cfs = [cf for cf in cfs_list if float(cf['amount']) < 0]
+                pdf_b = generate_redemption(investor=dict(inv_full),
+                    cashflows=red_cfs, statement_period=body.get('date',''))
+                stmt_label = 'Redemption'
+            else:
+                sub_cfs = [cf for cf in cfs_list if float(cf['amount']) > 0]
+                pdf_b = generate_subscription(investor=dict(inv_full),
+                    cashflows=sub_cfs, statement_period=body.get('date',''))
+                stmt_label = 'Subscription'
             b64 = base64.b64encode(pdf_b).decode()
-            file_url  = f"data:application/pdf;base64,{b64}"
-            inv_name  = inv_full['name']
-            file_name = f"Subscription_{inv_name.replace(' ','_')}_{body.get('date','')}.pdf"
-            title     = f"Subscription Statement — {inv_name} ({body.get('date','')})"
+            inv_name = inv_full['name']
+            file_name = f"{stmt_label}_{inv_name.replace(' ','_')}_{body.get('date','')}.pdf"
+            title = f"{stmt_label} Statement — {inv_name} ({body.get('date','')})"
             await db.execute("""
                 INSERT INTO documents (title,doc_type,file_url,file_name,file_size_kb,
                     visibility,investor_id,uploaded_by)
                 VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$8::uuid)
-            """, title,'member_statement',file_url,file_name,
-                len(pdf_b)//1024,'member',str(body['investor_id']),str(admin['id']))
-    except Exception as e:
-        pass  # Auto-gen failure should not block the main operation
+            """, title,'member_statement',f"data:application/pdf;base64,{b64}",
+                file_name, len(pdf_b)//1024,'member',str(body['investor_id']),str(admin['id']))
+    except Exception:
+        pass
 
     return {"message": "Principal cashflow recorded"}
 
@@ -1073,7 +1073,7 @@ async def generate_statement(
     """Generate PDF statement and store in documents table."""
     import io, base64
     from services.pdf_statements import (
-        generate_factsheet, generate_subscription,
+        generate_factsheet, generate_subscription, generate_redemption,
         generate_dividend_statement, generate_account_statement
     )
 
@@ -1167,6 +1167,33 @@ async def generate_statement(
             statement_period=period
         )
         title = f"Subscription Statement — {inv['name']}"
+        visibility = 'member'
+        inv_id_for_doc = str(investor_id)
+
+    elif stmt_type == 'redemption':
+        if not investor_id:
+            raise HTTPException(400, "investor_id required")
+        inv = await db.fetchrow("""
+            SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+            FROM investors i
+            LEFT JOIN users u ON u.investor_id = i.id
+            WHERE i.id = $1
+        """, investor_id)
+        if not inv: raise HTTPException(404, "Investor not found")
+        cfs = await db.fetch("""
+            SELECT date, cashflow_type, amount, nta_at_date, units
+            FROM principal_cashflows
+            WHERE investor_id = $1 AND amount < 0
+            ORDER BY date
+        """, investor_id)
+        cfs_list = []
+        for cf in cfs:
+            cfs_list.append({**dict(cf), 'description': 'Fund Redemption',
+                'avg_cost': float(cf['nta_at_date']) if cf.get('nta_at_date') else None})
+        pdf_bytes = generate_redemption(
+            investor=dict(inv), cashflows=cfs_list, statement_period=period)
+        title = f"Redemption Statement — {inv['name']}"
         visibility = 'member'
         inv_id_for_doc = str(investor_id)
 
@@ -1326,3 +1353,113 @@ async def generate_statement(
         "pdf_b64": file_b64,      # frontend can trigger download directly
     }
 
+# ── Auto-generate Account Statements for completed FYs ────────
+@router.post("/statements/generate-fy-statements")
+async def generate_fy_statements(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Auto-generate Investment Account Statements for all investors for completed FYs."""
+    import base64
+    from services.pdf_statements import generate_account_statement
+    from datetime import date as date_t
+
+    today = date_t.today()
+    # Completed FYs: FY22=Dec21-Nov22, FY23=Dec22-Nov23, FY24=Dec23-Nov24, FY25=Dec24-Nov25
+    # FY26 not included as Nov 2026 hasn't passed
+    fy_ranges = []
+    for yr in range(22, 26):  # FY22 to FY25
+        fy_label = f"FY{yr}"
+        start = date_t(2000 + yr - 1, 12, 1)
+        end   = date_t(2000 + yr,     11, 30)
+        if today > end:
+            fy_ranges.append((fy_label, start, end))
+
+    specific_fy = body.get('financial_year')
+    if specific_fy:
+        yr = int(specific_fy[2:])
+        fy_ranges = [(specific_fy, date_t(2000+yr-1,12,1), date_t(2000+yr,11,30))]
+
+    investors = await db.fetch("SELECT id, name FROM investors WHERE is_active=TRUE")
+    generated = 0
+    errors = []
+
+    for inv in investors:
+        inv_id = str(inv['id'])
+        inv_full = await db.fetchrow("""
+            SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+            FROM investors i LEFT JOIN users u ON u.investor_id=i.id WHERE i.id=$1
+        """, inv_id)
+        if not inv_full: continue
+        summary = await db.fetchrow("SELECT * FROM v_investor_profile WHERE id=$1", inv_id)
+        if not summary: continue
+
+        for fy_label, fy_start, fy_end in fy_ranges:
+            # Skip if already generated
+            existing = await db.fetchval("""
+                SELECT id FROM documents WHERE investor_id=$1::uuid AND financial_year=$2
+                AND doc_type='member_statement' AND title LIKE '%Account Statement%'
+            """, inv_id, fy_label)
+            if existing: continue
+
+            cfs = await db.fetch("""
+                SELECT date, cashflow_type, amount, nta_at_date, units
+                FROM principal_cashflows
+                WHERE investor_id=$1 AND date BETWEEN $2 AND $3 ORDER BY date
+            """, inv_id, fy_start, fy_end)
+
+            dists = await db.fetch("""
+                SELECT dl.units_at_ex_date, dl.amount, d.title, d.dps_sen,
+                       d.ex_date, d.pmt_date, d.financial_year
+                FROM distribution_ledger dl
+                JOIN distributions d ON d.id=dl.distribution_id
+                WHERE dl.investor_id=$1 AND d.ex_date BETWEEN $2 AND $3
+                ORDER BY d.ex_date
+            """, inv_id, fy_start, fy_end)
+
+            first_cf = await db.fetchrow("""
+                SELECT date FROM principal_cashflows WHERE investor_id=$1 ORDER BY date ASC LIMIT 1
+            """, inv_id)
+            days_held = (date_t.today() - first_cf['date']).days if first_cf else 0
+            div_total = await db.fetchval("""
+                SELECT COALESCE(SUM(dl.amount),0) FROM distribution_ledger dl
+                JOIN distributions d ON d.id=dl.distribution_id
+                WHERE dl.investor_id=$1 AND dl.paid=TRUE AND d.ex_date BETWEEN $2 AND $3
+            """, inv_id, fy_start, fy_end) or 0
+
+            cfs_list = []
+            running = 0.0
+            for cf in cfs:
+                u = float(cf['units']); amt = float(cf['amount'])
+                running += u
+                cfs_list.append({**dict(cf),
+                    'description': 'Subscription' if amt > 0 else 'Redemption'})
+
+            sum_data = {
+                **dict(summary), 'days_held': days_held,
+                'dividends_received': float(div_total),
+                'adjustment': 0, 'account_type': 'Nominee Account',
+            }
+            period = f"{fy_start.strftime('%d/%m/%Y')} - {fy_end.strftime('%d/%m/%Y')}"
+
+            try:
+                pdf_b = generate_account_statement(
+                    investor=dict(inv_full), summary=sum_data,
+                    cashflows=cfs_list, dist_history=[dict(d) for d in dists],
+                    statement_period=period, financial_year=fy_label)
+                b64 = base64.b64encode(pdf_b).decode()
+                title = f"Account Statement {fy_label} — {inv['name']}"
+                fname = f"Account_{fy_label}_{inv['name'].replace(' ','_')}.pdf"
+                await db.execute("""
+                    INSERT INTO documents (title,doc_type,file_url,file_name,file_size_kb,
+                        visibility,investor_id,financial_year,uploaded_by)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$8,$9::uuid)
+                """, title,'member_statement',f"data:application/pdf;base64,{b64}",
+                    fname, len(pdf_b)//1024, 'member', inv_id, fy_label, str(admin['id']))
+                generated += 1
+            except Exception as e:
+                errors.append(f"{inv['name']} {fy_label}: {str(e)[:80]}")
+
+    return {"generated": generated, "errors": errors[:10]}

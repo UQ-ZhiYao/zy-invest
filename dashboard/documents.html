@@ -77,7 +77,29 @@ function filterDocs() {
 async function downloadDoc(id) {
   try {
     const data = await api.get(`/api/member/fund/documents/${id}/download`);
-    if (data?.url) window.open(data.url, '_blank');
+    if (!data?.url) return;
+    const url = data.url;
+    const filename = data.title ? data.title.replace(/[^a-z0-9_\-. ]/gi,'_') + '.pdf' : 'document.pdf';
+    // Handle base64 data URI (generated statements)
+    if (url.startsWith('data:')) {
+      const b64 = url.split(',')[1];
+      const bytes = atob(b64);
+      const buf = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+      const blob = new Blob([buf], { type: 'application/pdf' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } else {
+      // External URL (Supabase Storage)
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.target = '_blank';
+      a.click();
+    }
   } catch(e) { showToast('Failed to download document','error'); }
 }
 </script>
