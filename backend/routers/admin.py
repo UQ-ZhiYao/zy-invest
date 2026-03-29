@@ -333,8 +333,9 @@ async def get_holdings(
             FROM price_history
             ORDER BY instrument, date DESC
         ) ph ON ph.instrument = h.instrument
-        WHERE h.units > 0.001
-        ORDER BY COALESCE(h.units * ph.price, h.total_cost) DESC NULLS LAST
+        WHERE h.units > 0.001 OR h.instrument = 'CASH'
+        ORDER BY h.instrument = 'CASH' ASC,
+                 COALESCE(h.units * ph.price, h.total_cost) DESC NULLS LAST
     """)
     return [serialise(r) for r in rows]
 
@@ -515,7 +516,8 @@ async def compute_holdings_and_settlement(
     for row in rows:
         cash += D(row['net_amount'])  # already signed: buy=-ve, sell=+ve
 
-    # Save CASH as a holdings row
+    # Save CASH as a holdings row (always — even if negative)
+    cash_rounded = cash.quantize(Decimal('0.0001'), ROUND_HALF_UP)
     try:
         await db.execute("""
             INSERT INTO holdings
@@ -532,9 +534,9 @@ async def compute_holdings_and_settlement(
             'Money Market',
             'Cash & Equivalents',
             'MY',
-            float(cash.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
+            float(cash_rounded),
             float(Decimal('1')),
-            float(cash.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
+            float(cash_rounded),
         )
         holdings_saved += 1
     except Exception as e:
