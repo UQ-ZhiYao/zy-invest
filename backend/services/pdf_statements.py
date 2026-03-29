@@ -1,609 +1,756 @@
 """
-ZY-Invest PDF Statement Generator  v1.0.0
-Generates 4 statement types using ReportLab:
-  1. Factsheet          (fund-wide)
-  2. Subscription       (per investor)
-  3. Dividend Payment   (per investor)
-  4. Investment Account (per investor, annual)
+ZY-Invest PDF Statement Generator  v2.0.0
+Professional layout matching sample factsheet design.
 """
-import io
-import os
+import io, os
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import numpy as np
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    HRFlowable, Image, KeepTogether
+    HRFlowable, Image, KeepTogether, PageBreak
 )
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+from reportlab.platypus import Flowable
+from reportlab.lib.utils import ImageReader
 
-# ── Brand colours ─────────────────────────────────────────────
-BLUE        = colors.HexColor('#1565C0')
-BLUE_LIGHT  = colors.HexColor('#E3F0FF')
-GREEN       = colors.HexColor('#2E7D32')
-ORANGE      = colors.HexColor('#E65100')
-GRAY_DARK   = colors.HexColor('#1F2937')
-GRAY_MED    = colors.HexColor('#6B7280')
-GRAY_LIGHT  = colors.HexColor('#F3F4F6')
-BORDER      = colors.HexColor('#E5E7EB')
-WHITE       = colors.white
-RED         = colors.HexColor('#DC2626')
+# ── Brand ──────────────────────────────────────────────────────
+BLUE       = colors.HexColor('#1565C0')
+BLUE_LIGHT = colors.HexColor('#EBF4FF')
+BLUE_MED   = colors.HexColor('#1976D2')
+GREEN      = colors.HexColor('#2E7D32')
+ORANGE     = colors.HexColor('#E65100')
+RED        = colors.HexColor('#C62828')
+GRAY1      = colors.HexColor('#1F2937')
+GRAY2      = colors.HexColor('#4B5563')
+GRAY3      = colors.HexColor('#9CA3AF')
+GRAY4      = colors.HexColor('#F3F4F6')
+GRAY5      = colors.HexColor('#E5E7EB')
+WHITE      = colors.white
 
-W, H = A4  # 595 x 842 pts
+W, H       = A4
+LOGO_PATH  = os.path.join(os.path.dirname(__file__), '../../assets/img/logo_zy.png')
 
-LOGO_PATH = os.path.join(os.path.dirname(__file__), '../../assets/img/logo_zy.png')
+# ── Helpers ────────────────────────────────────────────────────
+def fm(v, dp=2):
+    if v is None: return '—'
+    try: return f"RM {float(v):,.{dp}f}"
+    except: return '—'
 
-def fmt_rm(val) -> str:
-    if val is None: return '—'
+def fn(v, dp=4):
+    if v is None: return '—'
+    try: return f"{float(v):,.{dp}f}"
+    except: return '—'
+
+def fd(v):
+    if v is None: return '—'
+    if isinstance(v, (date, datetime)): return v.strftime('%d %b %Y')
+    try: return datetime.fromisoformat(str(v)).strftime('%d %b %Y')
+    except: return str(v)
+
+def fp(v):
+    if v is None: return '—'
     try:
-        v = float(val)
-        return f"RM {v:,.2f}"
+        f = float(v)
+        return f"+{f:.2f}%" if f >= 0 else f"{f:.2f}%"
     except: return '—'
 
-def fmt_num(val, dp=4) -> str:
-    if val is None: return '—'
-    try: return f"{float(val):,.{dp}f}"
-    except: return '—'
+# ── Styles ─────────────────────────────────────────────────────
+def S():
+    def ps(name, **kw):
+        return ParagraphStyle(name, **kw)
+    return {
+        'h1':    ps('h1', fontName='Helvetica-Bold', fontSize=14, textColor=GRAY1, spaceAfter=2),
+        'h2':    ps('h2', fontName='Helvetica-Bold', fontSize=11, textColor=GRAY1, spaceAfter=2),
+        'h3':    ps('h3', fontName='Helvetica-Bold', fontSize=9,  textColor=BLUE,  spaceBefore=8, spaceAfter=3),
+        'body':  ps('body', fontName='Helvetica', fontSize=8.5, textColor=GRAY1, leading=13),
+        'small': ps('small', fontName='Helvetica', fontSize=7.5, textColor=GRAY2, leading=11),
+        'tiny':  ps('tiny',  fontName='Helvetica', fontSize=7,   textColor=GRAY3, leading=10),
+        'right': ps('right', fontName='Helvetica', fontSize=8.5, textColor=GRAY1, alignment=TA_RIGHT),
+        'right_b': ps('right_b', fontName='Helvetica-Bold', fontSize=8.5, textColor=GRAY1, alignment=TA_RIGHT),
+        'bold':  ps('bold', fontName='Helvetica-Bold', fontSize=8.5, textColor=GRAY1),
+        'blue_b': ps('blue_b', fontName='Helvetica-Bold', fontSize=8.5, textColor=BLUE),
+        'center': ps('center', fontName='Helvetica', fontSize=8.5, textColor=GRAY1, alignment=TA_CENTER),
+        'notice': ps('notice', fontName='Helvetica', fontSize=7.5, textColor=GRAY2, leading=11),
+        'green_b': ps('green_b', fontName='Helvetica-Bold', fontSize=8.5, textColor=GREEN),
+        'red_b':   ps('red_b',   fontName='Helvetica-Bold', fontSize=8.5, textColor=RED),
+    }
 
-def fmt_date(val) -> str:
-    if val is None: return '—'
-    if isinstance(val, (date, datetime)):
-        return val.strftime('%d %b %Y')
-    try:
-        return datetime.fromisoformat(str(val)).strftime('%d %b %Y')
-    except: return str(val)
-
-def fmt_pct(val) -> str:
-    if val is None: return '—'
-    try: return f"{float(val):+.2f}%"
-    except: return '—'
-
-
-# ── Shared styles ──────────────────────────────────────────────
-def get_styles():
-    base = getSampleStyleSheet()
-    s = {}
-    s['title'] = ParagraphStyle('title',
-        fontName='Helvetica-Bold', fontSize=16,
-        textColor=GRAY_DARK, spaceAfter=2)
-    s['subtitle'] = ParagraphStyle('subtitle',
-        fontName='Helvetica', fontSize=10,
-        textColor=GRAY_MED, spaceAfter=6)
-    s['section'] = ParagraphStyle('section',
-        fontName='Helvetica-Bold', fontSize=9,
-        textColor=BLUE, spaceBefore=10, spaceAfter=4,
-        borderPadding=(3,0,3,0))
-    s['body'] = ParagraphStyle('body',
-        fontName='Helvetica', fontSize=8.5,
-        textColor=GRAY_DARK, leading=13)
-    s['small'] = ParagraphStyle('small',
-        fontName='Helvetica', fontSize=7.5,
-        textColor=GRAY_MED, leading=11)
-    s['bold'] = ParagraphStyle('bold',
-        fontName='Helvetica-Bold', fontSize=8.5,
-        textColor=GRAY_DARK)
-    s['right'] = ParagraphStyle('right',
-        fontName='Helvetica', fontSize=8.5,
-        textColor=GRAY_DARK, alignment=TA_RIGHT)
-    s['right_bold'] = ParagraphStyle('right_bold',
-        fontName='Helvetica-Bold', fontSize=8.5,
-        textColor=GRAY_DARK, alignment=TA_RIGHT)
-    s['center'] = ParagraphStyle('center',
-        fontName='Helvetica', fontSize=8.5,
-        textColor=GRAY_DARK, alignment=TA_CENTER)
-    s['notice_title'] = ParagraphStyle('notice_title',
-        fontName='Helvetica-Bold', fontSize=8,
-        textColor=GRAY_DARK, spaceBefore=4)
-    s['notice'] = ParagraphStyle('notice',
-        fontName='Helvetica', fontSize=7.5,
-        textColor=GRAY_MED, leading=11)
-    return s
+# ── Chart helpers ──────────────────────────────────────────────
+def pie_chart_img(labels, values, size=(55*mm, 55*mm)):
+    """Donut pie chart → ReportLab Image."""
+    CHART_COLORS = ['#1565C0','#2E7D32','#E65100','#7B1FA2','#00838F','#BF360C','#4527A0','#558B2F']
+    fig, ax = plt.subplots(figsize=(2.5, 2.5), dpi=150)
+    wedges, _ = ax.pie(values,
+        colors=[CHART_COLORS[i % len(CHART_COLORS)] for i in range(len(values))],
+        startangle=90, wedgeprops=dict(width=0.55, edgecolor='white', linewidth=1.5))
+    ax.set_aspect('equal')
+    plt.tight_layout(pad=0.1)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=150)
+    plt.close(fig)
+    buf.seek(0)
+    return Image(buf, width=size[0], height=size[1])
 
 
-def build_header(story, s, title: str, issued_date: str,
-                 page_info: str = "Page 1 of 1",
-                 statement_type: str = "",
-                 statement_period: str = "",
-                 investor_name: str = "",
-                 investor_address: str = ""):
-    """Build the standard ZY-Invest statement header."""
+def bar_chart_img(labels, values, color='#1565C0', ylabel='NTA (RM)', width=160*mm, height=55*mm):
+    """Line chart for NTA history → ReportLab Image."""
+    fig, ax = plt.subplots(figsize=(width/mm/3.78, height/mm/3.78), dpi=150)
+    x = range(len(labels))
+    ax.plot(list(x), values, color=color, linewidth=1.5, zorder=3)
+    ax.fill_between(list(x), values, alpha=0.08, color=color)
+    ax.set_xticks(list(x)[::max(1, len(x)//8)])
+    ax.set_xticklabels([labels[i] for i in range(0, len(labels), max(1, len(labels)//8))],
+        fontsize=6, rotation=30, ha='right')
+    ax.tick_params(axis='y', labelsize=6)
+    ax.grid(axis='y', alpha=0.3, linewidth=0.5)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.set_ylabel(ylabel, fontsize=6)
+    plt.tight_layout(pad=0.3)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=150)
+    plt.close(fig)
+    buf.seek(0)
+    return Image(buf, width=width, height=height)
 
-    # Logo + right-side info table
-    logo_cell = ""
+
+def sector_bar_img(sectors, pcts, width=160*mm, height=45*mm):
+    """Horizontal bar chart for sector allocation."""
+    CHART_COLORS = ['#1565C0','#2E7D32','#E65100','#7B1FA2','#00838F','#BF360C','#4527A0','#558B2F']
+    fig, ax = plt.subplots(figsize=(width/mm/3.78, height/mm/3.78), dpi=150)
+    y = range(len(sectors))
+    bars = ax.barh(list(y), pcts,
+        color=[CHART_COLORS[i % len(CHART_COLORS)] for i in range(len(sectors))],
+        height=0.6, edgecolor='white')
+    ax.set_yticks(list(y))
+    ax.set_yticklabels(sectors, fontsize=7)
+    ax.set_xlabel('% of NAV', fontsize=6)
+    ax.tick_params(axis='x', labelsize=6)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    for bar, pct in zip(bars, pcts):
+        ax.text(bar.get_width() + 0.3, bar.get_y() + bar.get_height()/2,
+            f'{pct:.1f}%', va='center', fontsize=6)
+    plt.tight_layout(pad=0.3)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=150)
+    plt.close(fig)
+    buf.seek(0)
+    return Image(buf, width=width, height=height)
+
+
+# ── Shared layout blocks ────────────────────────────────────────
+def header_block(story, s, title, issued_date, investor_name='',
+                 address_lines='', page_info='1 of 1',
+                 stmt_type='', stmt_period=''):
+    """Full-width header with logo left, title right."""
+    # Logo
+    logo_w, logo_h = 28*mm, 22*mm
     if os.path.exists(LOGO_PATH):
         try:
-            logo = Image(LOGO_PATH, width=22*mm, height=18*mm)
-            logo_cell = logo
+            logo_img = Image(LOGO_PATH, width=logo_w, height=logo_h)
         except:
-            logo_cell = Paragraph("<b>ZY-Invest</b>", s['title'])
+            logo_img = Paragraph('<b>ZY-Invest</b>', s['h1'])
     else:
-        logo_cell = Paragraph("<b>ZY-Invest</b>", s['title'])
+        logo_img = Paragraph('<b>ZY-Invest</b>', s['h1'])
 
-    right_data = [
-        [Paragraph(f"<b>{title}</b>", ParagraphStyle('th',
-            fontName='Helvetica-Bold', fontSize=12,
-            textColor=GRAY_DARK, alignment=TA_RIGHT))],
-    ]
-    header_table = Table(
-        [[logo_cell, Table(right_data, colWidths=[110*mm])]],
-        colWidths=[50*mm, 115*mm]
-    )
-    header_table.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('ALIGN',  (1,0), (1,0),  'RIGHT'),
+    # Right side: title + meta
+    right_inner = [[Paragraph(title, ParagraphStyle('ht',
+        fontName='Helvetica-Bold', fontSize=13, textColor=GRAY1, alignment=TA_RIGHT))]]
+    if stmt_type:
+        right_inner.append([Paragraph(stmt_type, ParagraphStyle('hst',
+            fontName='Helvetica', fontSize=8, textColor=GRAY2, alignment=TA_RIGHT))])
+
+    right_t = Table(right_inner, colWidths=[130*mm])
+    right_t.setStyle(TableStyle([
+        ('ALIGN',  (0,0),(-1,-1),'RIGHT'),
+        ('VALIGN', (0,0),(-1,-1),'MIDDLE'),
+        ('TOPPADDING',(0,0),(-1,-1),1),
+        ('BOTTOMPADDING',(0,0),(-1,-1),1),
     ]))
-    story.append(header_table)
-    story.append(Spacer(1, 3*mm))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=BLUE))
-    story.append(Spacer(1, 3*mm))
 
-    # Address block + right meta
+    hdr = Table([[logo_img, right_t]], colWidths=[38*mm, 130*mm])
+    hdr.setStyle(TableStyle([
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('LEFTPADDING',(0,0),(-1,-1),0),
+        ('RIGHTPADDING',(0,0),(-1,-1),0),
+    ]))
+    story.append(hdr)
+    story.append(HRFlowable(width='100%', thickness=2, color=BLUE, spaceAfter=4))
+
+    # Address + meta row (only for personal statements)
     if investor_name:
-        left_lines = [
-            Paragraph(f"<b>{investor_name}</b>", s['body']),
+        meta = [
+            ['Page No.',         f': {page_info}'],
+            ['Issued Date',      f': {issued_date}'],
         ]
-        if investor_address:
-            for line in investor_address.split('\n'):
-                if line.strip():
-                    left_lines.append(Paragraph(line.strip(), s['small']))
-
-        meta_rows = [
-            ['Page No.', f': {page_info}'],
-            ['Issued Date', f': {issued_date}'],
-        ]
-        if statement_type:
-            meta_rows.append(['Statement Type', f': {statement_type}'])
-        if statement_period:
-            meta_rows.append(['Statement Period', f': {statement_period}'])
-        meta_rows += [
+        if stmt_type:
+            meta.append(['Statement Type', f': {stmt_type}'])
+        if stmt_period:
+            meta.append(['Statement Period', f': {stmt_period}'])
+        meta += [
             ['Email Address', ': nzy.invest@gmail.com'],
             ['Telephone No.', ': (+60)11 - 1121 8085'],
         ]
-
-        meta_table = Table(
-            [[Paragraph(r[0], s['small']),
-              Paragraph(r[1], s['small'])] for r in meta_rows],
-            colWidths=[32*mm, 78*mm]
-        )
-        meta_table.setStyle(TableStyle([
-            ('ALIGN',   (0,0), (-1,-1), 'LEFT'),
-            ('VALIGN',  (0,0), (-1,-1), 'TOP'),
-            ('TOPPADDING', (0,0), (-1,-1), 1),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+        meta_t = Table(
+            [[Paragraph(r[0], s['small']), Paragraph(r[1], s['small'])] for r in meta],
+            colWidths=[32*mm, 80*mm])
+        meta_t.setStyle(TableStyle([
+            ('TOPPADDING',(0,0),(-1,-1),1.5),
+            ('BOTTOMPADDING',(0,0),(-1,-1),1.5),
+            ('LEFTPADDING',(0,0),(-1,-1),0),
         ]))
 
-        addr_block = Table(
-            [[[*left_lines], meta_table]],
-            colWidths=[70*mm, 115*mm]
-        )
-        addr_block.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('ALIGN',  (1,0), (1,0), 'RIGHT'),
+        addr_lines_p = [Paragraph(f'<b>{investor_name.upper()}</b>',
+            ParagraphStyle('an', fontName='Helvetica-Bold', fontSize=9, textColor=GRAY1))]
+        for ln in address_lines.split('\n'):
+            if ln.strip():
+                addr_lines_p.append(Paragraph(ln.strip(), s['small']))
+
+        addr_t = Table([[addr_lines_p, meta_t]], colWidths=[75*mm, 113*mm])
+        addr_t.setStyle(TableStyle([
+            ('VALIGN',(0,0),(-1,-1),'TOP'),
+            ('LEFTPADDING',(0,0),(-1,-1),0),
+            ('RIGHTPADDING',(0,0),(-1,-1),0),
+            ('TOPPADDING',(0,0),(-1,-1),4),
         ]))
-        story.append(addr_block)
-        story.append(Spacer(1, 4*mm))
+        story.append(addr_t)
+        story.append(Spacer(1, 3*mm))
 
 
-def build_investor_info_table(story, s, fields: list):
-    """Render a 2x2 bordered investor information table."""
-    story.append(Paragraph("Investor's Information", s['section']))
+def section_title(story, s, text):
+    story.append(Paragraph(text, s['h3']))
+    story.append(HRFlowable(width='100%', thickness=0.6, color=BLUE, spaceAfter=3))
 
-    # Split into pairs for 2-column layout
-    rows = []
-    for i in range(0, len(fields), 2):
-        row = []
-        for j in range(2):
-            if i+j < len(fields):
-                k, v = fields[i+j]
-                row.extend([
-                    Paragraph(k, s['small']),
-                    Paragraph(str(v) if v else '—', s['body'])
-                ])
-            else:
-                row.extend([Paragraph('', s['small']), Paragraph('', s['body'])])
-        rows.append(row)
 
-    t = Table(rows, colWidths=[32*mm, 55*mm, 32*mm, 46*mm])
+def kv_table(story, s, rows, col_w=None):
+    """Two-column key-value table."""
+    col_w = col_w or [45*mm, 120*mm]
+    data = [[Paragraph(k, s['small']), Paragraph(str(v) if v else '—', s['bold'])]
+            for k, v in rows]
+    t = Table(data, colWidths=col_w)
     t.setStyle(TableStyle([
-        ('GRID',        (0,0), (-1,-1), 0.5, BORDER),
-        ('BACKGROUND',  (0,0), (-1,-1), WHITE),
-        ('ROWBACKGROUNDS', (0,0), (-1,-1), [WHITE, GRAY_LIGHT]),
-        ('TOPPADDING',  (0,0), (-1,-1), 5),
-        ('BOTTOMPADDING',(0,0),(-1,-1), 5),
-        ('LEFTPADDING', (0,0), (-1,-1), 6),
-        ('RIGHTPADDING',(0,0), (-1,-1), 6),
-        ('VALIGN',      (0,0), (-1,-1), 'MIDDLE'),
-        ('FONTNAME',    (0,0), (0,-1), 'Helvetica'),
-        ('TEXTCOLOR',   (0,0), (0,-1), GRAY_MED),
-        ('FONTNAME',    (2,0), (2,-1), 'Helvetica'),
-        ('TEXTCOLOR',   (2,0), (2,-1), GRAY_MED),
-        ('FONTSIZE',    (0,0), (-1,-1), 8),
+        ('ROWBACKGROUNDS',(0,0),(-1,-1),[WHITE, GRAY4]),
+        ('GRID',(0,0),(-1,-1),0.4,GRAY5),
+        ('TOPPADDING',(0,0),(-1,-1),4),
+        ('BOTTOMPADDING',(0,0),(-1,-1),4),
+        ('LEFTPADDING',(0,0),(-1,-1),6),
+        ('RIGHTPADDING',(0,0),(-1,-1),6),
+        ('FONTSIZE',(0,0),(-1,-1),8),
+        ('TEXTCOLOR',(0,0),(0,-1),GRAY2),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
     ]))
     story.append(t)
-    story.append(Spacer(1, 4*mm))
+    story.append(Spacer(1, 3*mm))
 
 
-def build_data_table(story, s, headers: list, rows: list,
-                     col_widths: list, title: str = "",
-                     total_row: list = None):
-    """Generic styled data table."""
+def data_table(story, s, headers, rows, col_widths,
+               title='', total_row=None, span_first=False):
+    """Styled data table with blue header."""
     if title:
-        story.append(Paragraph(title, s['section']))
+        section_title(story, s, title)
 
-    header_row = [Paragraph(h, ParagraphStyle('th',
-        fontName='Helvetica-Bold', fontSize=8,
-        textColor=WHITE, alignment=TA_CENTER)) for h in headers]
+    def cell(txt, bold=False, align=TA_LEFT, color=GRAY1):
+        return Paragraph(str(txt) if txt is not None else '—',
+            ParagraphStyle('c', fontName='Helvetica-Bold' if bold else 'Helvetica',
+                fontSize=8, textColor=color, alignment=align, leading=11))
 
-    table_data = [header_row]
+    hrow = [Paragraph(h, ParagraphStyle('th', fontName='Helvetica-Bold',
+        fontSize=8, textColor=WHITE, alignment=TA_CENTER)) for h in headers]
+
+    tdata = [hrow]
     for row in rows:
-        table_data.append([
-            Paragraph(str(c) if c is not None else '—',
-                ParagraphStyle('td', fontName='Helvetica', fontSize=8,
-                    textColor=GRAY_DARK, leading=11))
-            for c in row
-        ])
-
+        tdata.append([cell(c) if not isinstance(c, Paragraph) else c for c in row])
     if total_row:
-        table_data.append([
-            Paragraph(str(c) if c is not None else '',
-                ParagraphStyle('tot', fontName='Helvetica-Bold', fontSize=8,
-                    textColor=GRAY_DARK, alignment=TA_RIGHT if i > 0 else TA_LEFT))
-            for i, c in enumerate(total_row)
-        ])
+        tdata.append([cell(c, bold=True) if not isinstance(c, Paragraph) else c
+                      for c in total_row])
 
-    t = Table(table_data, colWidths=col_widths, repeatRows=1)
-    n = len(table_data)
-    style = [
-        ('BACKGROUND',   (0,0), (-1,0), BLUE),
-        ('TEXTCOLOR',    (0,0), (-1,0), WHITE),
-        ('GRID',         (0,0), (-1,-1), 0.4, BORDER),
-        ('ROWBACKGROUNDS',(0,1),(-1,-1 if not total_row else -2),
-                         [WHITE, GRAY_LIGHT]),
-        ('TOPPADDING',   (0,0), (-1,-1), 5),
-        ('BOTTOMPADDING',(0,0), (-1,-1), 5),
-        ('LEFTPADDING',  (0,0), (-1,-1), 6),
-        ('RIGHTPADDING', (0,0), (-1,-1), 6),
-        ('VALIGN',       (0,0), (-1,-1), 'MIDDLE'),
+    t = Table(tdata, colWidths=col_widths, repeatRows=1)
+    sty = [
+        ('BACKGROUND', (0,0),(-1,0), BLUE),
+        ('ROWBACKGROUNDS',(0,1),(-1,-1 if not total_row else -2),[WHITE,GRAY4]),
+        ('GRID',(0,0),(-1,-1),0.4,GRAY5),
+        ('TOPPADDING',(0,0),(-1,-1),4),
+        ('BOTTOMPADDING',(0,0),(-1,-1),4),
+        ('LEFTPADDING',(0,0),(-1,-1),5),
+        ('RIGHTPADDING',(0,0),(-1,-1),5),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
     ]
     if total_row:
-        style += [
-            ('BACKGROUND', (0,-1), (-1,-1), BLUE_LIGHT),
-            ('LINEABOVE',  (0,-1), (-1,-1), 1, BLUE),
-            ('FONTNAME',   (0,-1), (-1,-1), 'Helvetica-Bold'),
+        sty += [
+            ('BACKGROUND',(0,-1),(-1,-1),BLUE_LIGHT),
+            ('LINEABOVE',(0,-1),(-1,-1),1,BLUE),
         ]
-    t.setStyle(TableStyle(style))
+    t.setStyle(TableStyle(sty))
     story.append(t)
     story.append(Spacer(1, 4*mm))
 
 
-def build_footer(story, s):
-    """Standard footer with important notices + footer line."""
-    story.append(Spacer(1, 4*mm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
+def footer_block(story, s):
     story.append(Spacer(1, 3*mm))
-    story.append(Paragraph("<b>IMPORTANT NOTICES</b>", s['notice_title']))
+    story.append(HRFlowable(width='100%', thickness=0.5, color=GRAY5, spaceAfter=3))
+    story.append(Paragraph('<b>IMPORTANT NOTICES</b>',
+        ParagraphStyle('nt', fontName='Helvetica-Bold', fontSize=8, textColor=GRAY1)))
     notices = [
-        "<b>Confidentiality:</b> This statement contains personal data and is intended solely for the recipient. "
-        "Please do not share this document with any third parties.",
-        "<b>Discrepancies:</b> Please review all figures carefully. Any discrepancies or \"untally\" figures must be "
-        "reported to us immediately; failure to do so may result in the recipient bearing any associated losses.",
-        "<b>Digital Statements:</b> Effective 1st January 2026, all future portfolio statements will be provided "
-        "exclusively via WhatsApp.",
+        "<b>1. Confidentiality:</b> This statement contains personal data and is intended solely "
+        "for the recipient. Please do not share this document with any third parties.",
+        "<b>2. Discrepancies:</b> Please review all figures carefully. Any discrepancies must be "
+        "reported to us immediately; failure to do so may result in the recipient bearing any losses.",
+        "<b>3. Digital Statements:</b> Effective 1st January 2026, all future portfolio statements "
+        "will be provided exclusively via WhatsApp.",
     ]
-    for i, n in enumerate(notices, 1):
-        story.append(Paragraph(f"{i}. {n}", s['notice']))
-
-    story.append(Spacer(1, 3*mm))
-    footer_table = Table([[
-        Paragraph("Head Office: None", s['small']),
-        Paragraph("Line: (60)11-1121 8085   Email: nzy.invest@gmail.com", s['small']),
-    ]], colWidths=[50*mm, 115*mm])
-    footer_table.setStyle(TableStyle([
-        ('ALIGN', (1,0), (1,0), 'RIGHT'),
-        ('TOPPADDING', (0,0), (-1,-1), 0),
+    for n in notices:
+        story.append(Paragraph(n, s['notice']))
+    story.append(Spacer(1, 2*mm))
+    ft = Table([[
+        Paragraph('Head Office: None', s['tiny']),
+        Paragraph('Line: (60)11-1121 8085  |  Email: nzy.invest@gmail.com', s['tiny']),
+    ]], colWidths=[45*mm, 123*mm])
+    ft.setStyle(TableStyle([
+        ('ALIGN',(1,0),(1,0),'RIGHT'),
+        ('TOPPADDING',(0,0),(-1,-1),0),
     ]))
-    story.append(footer_table)
+    story.append(ft)
 
 
-# ─────────────────────────────────────────────────────────────
-# 1. FACTSHEET
-# ─────────────────────────────────────────────────────────────
-def generate_factsheet(fund_data: dict, holdings: list,
-                       performance: dict, distributions: list) -> bytes:
+# ══════════════════════════════════════════════════════════════
+#  1.  FACTSHEET
+# ══════════════════════════════════════════════════════════════
+def generate_factsheet(fund_data: dict, holdings: list, performance: dict,
+                       distributions: list, nta_history: list,
+                       sector_data: list, manager_comment: str = '') -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
         leftMargin=15*mm, rightMargin=15*mm,
         topMargin=12*mm, bottomMargin=12*mm)
-    s = get_styles()
+    s = S()
     story = []
-
     today = date.today()
     period = today.strftime('%B %Y')
 
-    # Header
-    build_header(story, s,
-        title=f"ZY Family Vision Portfolio — {period}",
+    header_block(story, s,
+        title=f"ZY Family Vision Portfolio  —  {period}",
         issued_date=today.strftime('%d-%m-%Y'))
 
     story.append(Paragraph(
-        "The portfolio aims to provide our investors with capital appreciation higher than the prevailing "
-        "fixed-deposit rate by investing in a high-growth portfolio of stocks and fixed income instruments.",
-        s['body']))
+        "The portfolio aims to provide our investors with capital appreciation higher than the "
+        "prevailing fixed-deposit rate by investing in a high-growth portfolio of stocks and "
+        "fixed income instruments.", s['body']))
     story.append(Spacer(1, 4*mm))
 
-    # Fund details + sector allocation side by side
-    nta    = fund_data.get('current_nta', 0)
-    aum    = fund_data.get('aum', 0)
-    units  = fund_data.get('total_units', 0)
-    t_ret  = fund_data.get('total_return_pct', 0)
-    t_days = fund_data.get('trading_days', 0)
+    # ── Two-column: Fund Details + Sector Pie ──────────────────
+    nta   = fund_data.get('current_nta', 0)
+    aum   = fund_data.get('aum', 0)
+    units = fund_data.get('total_units', 0)
 
-    fund_rows = [
-        ['Manager',             'Mr. Ng Zhi Yao'],
-        ['Fund Category',       'Equity Fund'],
-        ['Launch Date',         '13 December 2021'],
-        ['Unit NAV',            fmt_rm(nta)],
-        ['Fund Size',           fmt_rm(aum)],
-        ['Units in Circulation',fmt_num(units, 2) + ' units'],
-        ['Financial Year End',  '30 November'],
-        ['Min. Initial Investment', 'RM 10,000.00'],
-        ['Min. Additional',     'RM 1,000.00'],
-        ['Benchmark',           'FBMKLCI, Tech Index'],
-        ['Annual Mgmt Fee',     '0.10% p.a. of NAV'],
-        ['Performance Fee',     '10.0% p.a. of excess return'],
-        ['Distribution Policy', 'At least 80% of gross income'],
+    fd_rows = [
+        ['Manager',               'Mr. Ng Zhi Yao'],
+        ['Fund Category',         'Equity Fund'],
+        ['Launch Date',           '13 December 2021'],
+        ['Unit Net Asset Value',  fm(nta, 4)],
+        ['Fund Size',             fm(aum)],
+        ['Units in Circulation',  fn(units, 2) + ' units'],
+        ['Financial Year End',    '30 November'],
+        ['Min. Initial Investment','RM 10,000.00'],
+        ['Min. Additional',       'RM 1,000.00'],
+        ['Benchmark',             'FBMKLCI, Tech Index'],
+        ['Annual Mgmt Fee',       '0.10% p.a. of NAV'],
+        ['Performance Fee',       '10.0% p.a. of excess return'],
+        ['Distribution Policy',   'At least 80% of gross income'],
     ]
-
-    story.append(Paragraph("Fund Details", s['section']))
-    fd_rows = [[
-        Paragraph(r[0], s['small']),
-        Paragraph(r[1], s['bold'])
-    ] for r in fund_rows]
-    fd_table = Table(fd_rows, colWidths=[45*mm, 115*mm])
-    fd_table.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.4, BORDER),
-        ('ROWBACKGROUNDS', (0,0), (-1,-1), [WHITE, GRAY_LIGHT]),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-        ('LEFTPADDING', (0,0), (-1,-1), 6),
-        ('FONTSIZE', (0,0), (-1,-1), 8),
-        ('TEXTCOLOR', (0,0), (0,-1), GRAY_MED),
+    fd_data = [[Paragraph(k, s['small']), Paragraph(v, s['bold'])] for k,v in fd_rows]
+    fd_t = Table(fd_data, colWidths=[38*mm, 55*mm])
+    fd_t.setStyle(TableStyle([
+        ('ROWBACKGROUNDS',(0,0),(-1,-1),[WHITE,GRAY4]),
+        ('GRID',(0,0),(-1,-1),0.4,GRAY5),
+        ('TOPPADDING',(0,0),(-1,-1),3.5),
+        ('BOTTOMPADDING',(0,0),(-1,-1),3.5),
+        ('LEFTPADDING',(0,0),(-1,-1),5),
+        ('FONTSIZE',(0,0),(-1,-1),7.5),
+        ('TEXTCOLOR',(0,0),(0,-1),GRAY2),
     ]))
-    story.append(fd_table)
+
+    # Sector pie chart
+    pie_img = None
+    if sector_data:
+        lbls = [r.get('asset_class') or r.get('sector','') for r in sector_data[:6]]
+        vals = [max(float(r.get('weight_pct',0)),0.01) for r in sector_data[:6]]
+        if sum(vals) > 0:
+            pie_img = pie_chart_img(lbls, vals, size=(55*mm, 55*mm))
+
+    left_block = [
+        [Paragraph('Fund Details', s['h3'])],
+        [fd_t],
+    ]
+    left_t = Table(left_block, colWidths=[95*mm])
+    left_t.setStyle(TableStyle([
+        ('TOPPADDING',(0,0),(-1,-1),0),
+        ('BOTTOMPADDING',(0,0),(-1,-1),2),
+        ('LEFTPADDING',(0,0),(-1,-1),0),
+    ]))
+
+    right_block_data = []
+    right_block_data.append([Paragraph('Sector Allocation*', s['h3'])])
+    if pie_img:
+        # Legend
+        CHART_COLORS = ['#1565C0','#2E7D32','#E65100','#7B1FA2','#00838F','#BF360C']
+        legend_rows = []
+        for i, r in enumerate(sector_data[:6]):
+            nm  = r.get('asset_class') or r.get('sector','')
+            pct = float(r.get('weight_pct',0))
+            legend_rows.append([
+                Paragraph(f'<font color="{CHART_COLORS[i%6]}">■</font> {nm}', s['tiny']),
+                Paragraph(f'{pct:.1f}%', s['tiny']),
+            ])
+        legend_t = Table(legend_rows, colWidths=[50*mm, 15*mm])
+        legend_t.setStyle(TableStyle([
+            ('TOPPADDING',(0,0),(-1,-1),1.5),
+            ('BOTTOMPADDING',(0,0),(-1,-1),1.5),
+            ('LEFTPADDING',(0,0),(-1,-1),2),
+        ]))
+        chart_legend = Table([[pie_img, legend_t]], colWidths=[58*mm, 68*mm])
+        chart_legend.setStyle(TableStyle([
+            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+            ('LEFTPADDING',(0,0),(-1,-1),0),
+        ]))
+        right_block_data.append([chart_legend])
+    else:
+        right_block_data.append([Paragraph('No holdings data', s['small'])])
+
+    right_t = Table(right_block_data, colWidths=[63*mm])
+    right_t.setStyle(TableStyle([
+        ('TOPPADDING',(0,0),(-1,-1),0),
+        ('BOTTOMPADDING',(0,0),(-1,-1),2),
+        ('LEFTPADDING',(0,0),(-1,-1),0),
+    ]))
+
+    two_col = Table([[left_t, right_t]], colWidths=[100*mm, 68*mm])
+    two_col.setStyle(TableStyle([
+        ('VALIGN',(0,0),(-1,-1),'TOP'),
+        ('LEFTPADDING',(0,0),(-1,-1),0),
+        ('RIGHTPADDING',(0,0),(-1,-1),0),
+    ]))
+    story.append(two_col)
     story.append(Spacer(1, 4*mm))
 
-    # Performance table
-    perf = performance.get('period_returns', {})
-    story.append(Paragraph("Portfolio Performance Analysis", s['section']))
-    perf_headers = ['', '1M', '3M', '6M', '1Y', '3Y', 'All']
-    perf_row = ['Portfolio'] + [
-        fmt_pct(perf.get(k)) for k in ['1M','3M','6M','1Y','3Y']
-    ] + [fmt_pct(fund_data.get('total_return_pct'))]
-    build_data_table(story, s,
-        headers=perf_headers,
-        rows=[perf_row],
-        col_widths=[25*mm, 20*mm, 20*mm, 20*mm, 20*mm, 20*mm, 20*mm])
+    # ── Investment Strategy ─────────────────────────────────────
+    section_title(story, s, 'Investment Strategy')
+    strategy = (
+        "The strategic limit on asset allocation of the fund is as follows: "
+        "Equities: Minimum 60% and maximum 98%.  "
+        "Derivatives: Maximum 5%.  "
+        "Fixed-income securities: Minimum 2% and maximum 40%."
+    )
+    story.append(Paragraph(strategy, s['body']))
+    story.append(Spacer(1, 3*mm))
 
-    # Distribution history
+    # ── NTA Performance Chart (full history) ────────────────────
+    if nta_history:
+        section_title(story, s, 'Portfolio Performance Analysis')
+        dates = [r.get('date','') for r in nta_history]
+        ntas  = [float(r.get('nta',1)) for r in nta_history]
+        # Shorten date labels
+        short_dates = []
+        for d in dates:
+            try:
+                dt = datetime.fromisoformat(str(d))
+                short_dates.append(dt.strftime('%b-%y'))
+            except:
+                short_dates.append(str(d)[:7])
+        chart = bar_chart_img(short_dates, ntas, width=168*mm, height=55*mm)
+        story.append(chart)
+
+        # Performance table
+        perf = performance.get('period_returns', {})
+        total_ret = fund_data.get('total_return_pct', 0)
+        perf_headers = ['', '1 Month', '3 Months', '6 Months', '1 Year', '3 Years', 'All']
+        perf_row = ['Portfolio'] + [fp(perf.get(k)) for k in ['1M','3M','6M','1Y','3Y']] + [fp(total_ret)]
+        data_table(story, s, headers=perf_headers, rows=[perf_row],
+            col_widths=[25*mm,23*mm,23*mm,23*mm,23*mm,23*mm,23*mm])
+
+    # ── Distribution History ────────────────────────────────────
     if distributions:
-        story.append(Paragraph("Distribution History", s['section']))
+        section_title(story, s, 'Distribution History')
         dist_rows = []
         for d in distributions:
+            pr = d.get('payout_ratio')
             dist_rows.append([
                 d.get('financial_year','—'),
                 d.get('title','—'),
-                fmt_num(d.get('dps_sen'), 2) + ' sen',
-                fmt_pct(d.get('payout_ratio')),
+                fn(d.get('dps_sen'),2) + ' sen',
+                f"{float(pr):.1f}%" if pr else '—',
             ])
-        build_data_table(story, s,
-            headers=['Year', 'Description', 'DPS (sen)', 'Payout Ratio'],
+        data_table(story, s,
+            headers=['Year','Description','DPS (sen)','Payout Ratio'],
             rows=dist_rows,
-            col_widths=[20*mm, 90*mm, 30*mm, 25*mm])
+            col_widths=[18*mm, 100*mm, 28*mm, 28*mm])
 
-    # Largest holdings
-    if holdings:
-        story.append(Paragraph("Largest Holdings", s['section']))
-        h_rows = [[h.get('instrument','—'),
-                   fmt_num(h.get('weight_pct') or h.get('mv_portion',0)*100, 2)+'%']
-                  for h in holdings[:10]]
-        build_data_table(story, s,
-            headers=['Asset Name', 'Percentage'],
-            rows=h_rows,
-            col_widths=[130*mm, 35*mm])
-
-    # Disclaimer
-    story.append(Paragraph("<b>Disclaimer</b>", s['notice_title']))
-    story.append(Paragraph(
-        "Investment involves significant risk, including the potential loss of principal. Past performance is not "
-        "indicative of future results. This portfolio update is intended strictly for family members only; it does "
-        "not constitute a financial prospectus and is not open to the general public or external investors.",
-        s['notice']))
+    # ── Manager's Comments ──────────────────────────────────────
+    section_title(story, s, "Manager's Comments")
+    comment_text = manager_comment or (
+        "Our portfolio maintains its current strategic positions. We continue to monitor market "
+        "developments and macroeconomic conditions closely. The fund remains well-positioned "
+        "relative to its investment objectives for the current financial year."
+    )
+    story.append(Paragraph(comment_text, s['body']))
     story.append(Spacer(1, 3*mm))
-    footer_table = Table([[
-        Paragraph("Head Office: None", s['small']),
-        Paragraph("Line: (60)11-1121 8085   Email: nzy.invest@gmail.com", s['small']),
-    ]], colWidths=[50*mm, 115*mm])
-    footer_table.setStyle(TableStyle([('ALIGN',(1,0),(1,0),'RIGHT'),('TOPPADDING',(0,0),(-1,-1),0)]))
-    story.append(footer_table)
+
+    # ── Largest Holdings ────────────────────────────────────────
+    if holdings:
+        section_title(story, s, 'Largest Holdings*')
+        h_rows = []
+        for h in holdings[:10]:
+            pct = h.get('weight_pct') or (float(h.get('mv_portion',0))*100)
+            h_rows.append([h.get('instrument','—'), f"{float(pct):.2f}%"])
+        data_table(story, s,
+            headers=['Asset Name','Percentage'],
+            rows=h_rows,
+            col_widths=[140*mm, 28*mm])
+        story.append(Paragraph(
+            '* As percentage of Net Asset Value (NAV) of the fund', s['tiny']))
+        story.append(Spacer(1, 2*mm))
+
+    # ── Disclaimer ──────────────────────────────────────────────
+    story.append(HRFlowable(width='100%', thickness=0.5, color=GRAY5))
+    story.append(Spacer(1, 2*mm))
+    story.append(Paragraph('<b>Disclaimer</b>',
+        ParagraphStyle('dis', fontName='Helvetica-Bold', fontSize=8, textColor=GRAY1)))
+    story.append(Paragraph(
+        "Investment involves significant risk, including the potential loss of principal. "
+        "Past performance is not indicative of future results, and market volatility may affect "
+        "the timing of realized gains. Please note that this portfolio update is intended strictly "
+        "for family members only; it does not constitute a financial prospectus and is not open "
+        "to the general public or external investors.", s['notice']))
+    story.append(Spacer(1, 3*mm))
+    ft = Table([[
+        Paragraph('Head Office: None', s['tiny']),
+        Paragraph('Line: (60)11-1121 8085  |  Email: nzy.invest@gmail.com', s['tiny']),
+    ]], colWidths=[45*mm, 123*mm])
+    ft.setStyle(TableStyle([('ALIGN',(1,0),(1,0),'RIGHT'),('TOPPADDING',(0,0),(-1,-1),0)]))
+    story.append(ft)
 
     doc.build(story)
     return buf.getvalue()
 
 
-# ─────────────────────────────────────────────────────────────
-# 2. SUBSCRIPTION STATEMENT
-# ─────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  2.  SUBSCRIPTION STATEMENT
+# ══════════════════════════════════════════════════════════════
 def generate_subscription(investor: dict, cashflows: list,
-                           statement_period: str = "") -> bytes:
+                           statement_period: str = '') -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
         leftMargin=15*mm, rightMargin=15*mm,
         topMargin=12*mm, bottomMargin=12*mm)
-    s = get_styles()
+    s  = S()
     story = []
-
     today = date.today()
     name  = investor.get('name','')
-    addr  = '\n'.join(filter(None, [
-        investor.get('address_line1'),
-        investor.get('address_line2'),
-        ' '.join(filter(None, [investor.get('postcode'), investor.get('city')])),
-        investor.get('state'),
+    addr  = '\n'.join(filter(None,[
+        investor.get('address_line1',''),
+        investor.get('address_line2',''),
+        ' '.join(filter(None,[investor.get('postcode',''),investor.get('city','')])),
+        investor.get('state',''),
     ]))
 
-    build_header(story, s,
-        title="FUND SUBSCRIPTION STATEMENT",
+    header_block(story, s,
+        title='FUND SUBSCRIPTION STATEMENT',
         issued_date=today.strftime('%d-%m-%Y'),
-        statement_type="Transaction Statement",
-        statement_period=statement_period or today.strftime('%d/%m/%Y'),
-        investor_name=name.upper(),
-        investor_address=addr)
+        stmt_type='Transaction Statement',
+        stmt_period=statement_period or today.strftime('%d/%m/%Y'),
+        investor_name=name,
+        address_lines=addr)
 
-    # Investor info
-    build_investor_info_table(story, s, [
-        ['Account Type',    investor.get('account_type','Nominee Account')],
-        ['Account ID',      investor.get('account_id','—')],
-        ['Registered Name', investor.get('name','—')],
-        ['Settlement Type', 'Banking'],
-        ['Phone No.',       investor.get('phone','—')],
-        ['Bank Name',       investor.get('bank_name','—')],
-        ['Email Address',   investor.get('email','—')],
-        ['Bank Account No.',investor.get('bank_account_no','—')],
-        ['Nominee Name',    '—'],
-        ['Total Days Held', f"{investor.get('days_held',0)} days"],
-    ])
+    # Investor info grid
+    section_title(story, s, "Investor's Information")
+    inv_fields = [
+        ['Account Type', investor.get('account_type','Nominee Account'),
+         'Account ID',   investor.get('account_id','—')],
+        ['Registered Name', name,
+         'Settlement Type', 'Banking'],
+        ['Phone No.',    investor.get('phone','—'),
+         'Bank Name',    investor.get('bank_name','—')],
+        ['Email Address', investor.get('email','—'),
+         'Bank Account No.', investor.get('bank_account_no','—')],
+        ['Nominee Name', '—',
+         'Total Days Held', f"{investor.get('days_held',0)} days"],
+    ]
+    inv_data = []
+    for row in inv_fields:
+        inv_data.append([
+            Paragraph(row[0], s['small']),
+            Paragraph(str(row[1]) if row[1] else '—', s['body']),
+            Paragraph(row[2], s['small']),
+            Paragraph(str(row[3]) if row[3] else '—', s['body']),
+        ])
+    inv_t = Table(inv_data, colWidths=[32*mm, 56*mm, 32*mm, 48*mm])
+    inv_t.setStyle(TableStyle([
+        ('GRID',(0,0),(-1,-1),0.4,GRAY5),
+        ('ROWBACKGROUNDS',(0,0),(-1,-1),[WHITE,GRAY4]),
+        ('TOPPADDING',(0,0),(-1,-1),5),
+        ('BOTTOMPADDING',(0,0),(-1,-1),5),
+        ('LEFTPADDING',(0,0),(-1,-1),6),
+        ('FONTSIZE',(0,0),(-1,-1),8),
+        ('TEXTCOLOR',(0,0),(0,-1),GRAY2),
+        ('TEXTCOLOR',(2,0),(2,-1),GRAY2),
+    ]))
+    story.append(inv_t)
+    story.append(Spacer(1, 5*mm))
 
     # Principal transactions
     if cashflows:
-        rows = []
+        cf_rows = []
         for cf in cashflows:
-            amt  = float(cf.get('amount', 0))
-            rows.append([
-                fmt_date(cf.get('date')),
-                cf.get('description', 'Fund Subscription'),
-                fmt_rm(abs(amt)) if amt != 0 else '—',
-                fmt_num(cf.get('nta_at_date'), 4) if cf.get('nta_at_date') else '—',
-                fmt_num(cf.get('units'), 4) if cf.get('units') else '—',
-                fmt_num(cf.get('avg_cost'), 4) if cf.get('avg_cost') else '—',
+            amt = float(cf.get('amount',0))
+            cf_rows.append([
+                fd(cf.get('date')),
+                cf.get('description','—'),
+                fm(abs(amt)) if amt != 0 else '—',
+                fn(cf.get('nta_at_date'),4) if cf.get('nta_at_date') else '—',
+                fn(cf.get('units'),4) if cf.get('units') else '—',
+                fn(cf.get('avg_cost'),4) if cf.get('avg_cost') else '—',
             ])
 
-        # Opening + closing rows
-        total_units = sum(float(cf.get('units',0)) for cf in cashflows if float(cf.get('amount',0)) > 0)
-        avg_cost    = cashflows[-1].get('nta_at_date') if cashflows else None
-        full_rows = [
-            [fmt_date(cashflows[0].get('date')) if cashflows else '—',
-             'Opening', '—', '—', '—', '—'],
-            *rows,
-            [fmt_date(cashflows[-1].get('date')) if cashflows else '—',
-             'Closing',
-             fmt_rm(sum(abs(float(cf.get('amount',0))) for cf in cashflows)),
-             '—',
-             fmt_num(total_units, 4),
-             fmt_num(avg_cost, 4) if avg_cost else '—'],
+        # Add Opening row at top, Closing at bottom
+        total_inv = sum(abs(float(cf.get('amount',0))) for cf in cashflows if float(cf.get('amount',0)) > 0)
+        final_units = sum(float(cf.get('units',0)) for cf in cashflows)
+        avg_c = cashflows[-1].get('nta_at_date') if cashflows else None
+
+        all_rows = [
+            [fd(cashflows[0].get('date')), 'Opening','—','—','—','—'],
+            *cf_rows,
+            [fd(cashflows[-1].get('date')), 'Closing',
+             fm(total_inv),'—', fn(final_units,4), fn(avg_c,4) if avg_c else '—'],
         ]
+        data_table(story, s,
+            title='Principal Transaction',
+            headers=['Date','Description','Investment Value','Subscription Price',
+                     'Unit Balanced','Average Cost'],
+            rows=all_rows,
+            col_widths=[24*mm,38*mm,30*mm,28*mm,26*mm,22*mm])
 
-        build_data_table(story, s,
-            title="Principal Transaction",
-            headers=['Date','Description','Investment Value','Subscription Price','Unit Balanced','Average Cost'],
-            rows=full_rows,
-            col_widths=[24*mm, 35*mm, 30*mm, 30*mm, 27*mm, 27*mm])
-
-    build_footer(story, s)
+    footer_block(story, s)
     doc.build(story)
     return buf.getvalue()
 
 
-# ─────────────────────────────────────────────────────────────
-# 3. DIVIDEND PAYMENT STATEMENT
-# ─────────────────────────────────────────────────────────────
-def generate_dividend_statement(investor: dict,
-                                 distributions: list,
+# ══════════════════════════════════════════════════════════════
+#  3.  DIVIDEND PAYMENT STATEMENT
+# ══════════════════════════════════════════════════════════════
+def generate_dividend_statement(investor: dict, distributions: list,
                                  financial_year: str) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
         leftMargin=15*mm, rightMargin=15*mm,
         topMargin=12*mm, bottomMargin=12*mm)
-    s = get_styles()
+    s = S()
     story = []
-
     today = date.today()
     name  = investor.get('name','')
+    addr  = '\n'.join(filter(None,[
+        investor.get('address_line1',''),
+        investor.get('address_line2',''),
+        ' '.join(filter(None,[investor.get('postcode',''),investor.get('city','')])),
+        investor.get('state',''),
+    ]))
 
-    build_header(story, s,
-        title="DIVIDEND PAYMENT STATEMENT",
+    pmt_period = fd(distributions[0].get('pmt_date')) if distributions else today.strftime('%d/%m/%Y')
+
+    header_block(story, s,
+        title='DIVIDEND PAYMENT STATEMENT',
         issued_date=today.strftime('%d-%m-%Y'),
-        statement_type=financial_year,
-        statement_period=distributions[0].get('pmt_date','') if distributions else '',
-        investor_name=name.upper(),
-        investor_address='\n'.join(filter(None, [
-            investor.get('address_line1'),
-            investor.get('address_line2'),
-            ' '.join(filter(None, [investor.get('postcode'), investor.get('city')])),
-            investor.get('state'),
-        ])))
+        stmt_type=financial_year,
+        stmt_period=pmt_period,
+        investor_name=name,
+        address_lines=addr)
 
     # Investor info
-    build_investor_info_table(story, s, [
-        ["Investor's Name",  investor.get('name','—')],
-        ['Settlement Type', 'Banking'],
-        ['Phone Number',     investor.get('phone','—')],
-        ['Bank Name',        investor.get('bank_name','—')],
-        ['Email Address',    investor.get('email','—')],
-        ['Bank Account No.', investor.get('bank_account_no','—')],
-    ])
+    section_title(story, s, "Investor's Information")
+    inv_fields = [
+        ['Investor\'s Name', name,          'Settlement Type',   'Banking'],
+        ['Phone Number',     investor.get('phone','—'),
+         'Bank Name',        investor.get('bank_name','—')],
+        ['Email Address',    investor.get('email','—'),
+         'Bank Account No.', investor.get('bank_account_no','—')],
+    ]
+    inv_data = []
+    for row in inv_fields:
+        inv_data.append([
+            Paragraph(row[0], s['small']),
+            Paragraph(str(row[1]) if row[1] else '—', s['body']),
+            Paragraph(row[2], s['small']),
+            Paragraph(str(row[3]) if row[3] else '—', s['body']),
+        ])
+    inv_t = Table(inv_data, colWidths=[32*mm, 56*mm, 32*mm, 48*mm])
+    inv_t.setStyle(TableStyle([
+        ('GRID',(0,0),(-1,-1),0.4,GRAY5),
+        ('ROWBACKGROUNDS',(0,0),(-1,-1),[WHITE,GRAY4]),
+        ('TOPPADDING',(0,0),(-1,-1),5),
+        ('BOTTOMPADDING',(0,0),(-1,-1),5),
+        ('LEFTPADDING',(0,0),(-1,-1),6),
+        ('FONTSIZE',(0,0),(-1,-1),8),
+        ('TEXTCOLOR',(0,0),(0,-1),GRAY2),
+        ('TEXTCOLOR',(2,0),(2,-1),GRAY2),
+    ]))
+    story.append(inv_t)
+    story.append(Spacer(1, 5*mm))
 
-    # Dividend details
+    # Dividend details table
     if distributions:
+        total_dps = total_amt = 0.0
         rows = []
-        total_dps = 0
-        total_amt = 0
         for d in distributions:
-            dps    = float(d.get('dps_sen', 0))
-            units  = float(d.get('units_at_ex_date', 0))
-            amt    = float(d.get('amount', 0))
-            eps    = float(d.get('eps', 0)) if d.get('eps') else None
-            dpr    = float(d.get('payout_ratio', 0)) if d.get('payout_ratio') else None
+            dps  = float(d.get('dps_sen',0))
+            units= float(d.get('units_at_ex_date',0))
+            amt  = float(d.get('amount',0))
+            eps  = d.get('eps')
+            dpr  = d.get('payout_ratio')
             total_dps += dps
             total_amt += amt
             rows.append([
-                fmt_date(d.get('pmt_date') or d.get('ex_date')),
-                d.get('title', d.get('dist_type','—')).replace('_',' ').title(),
-                fmt_num(units, 4),
-                fmt_num(eps, 2) if eps else '—',
-                f"{dpr:.1f}%" if dpr else '—',
-                fmt_num(dps, 2),
-                Paragraph(f"<b>{fmt_rm(amt)}</b>",
-                    ParagraphStyle('amt', fontName='Helvetica-Bold',
-                        fontSize=8, textColor=BLUE, alignment=TA_RIGHT)),
+                fd(d.get('pmt_date') or d.get('ex_date')),
+                d.get('title', d.get('dist_type','')).replace('_',' ').title(),
+                fn(units, 4),
+                fn(eps, 2) if eps else '—',
+                f"{float(dpr):.1f}%" if dpr else '—',
+                fn(dps, 2),
+                Paragraph(f'<b>{fm(amt)}</b>', ParagraphStyle('amt',
+                    fontName='Helvetica-Bold', fontSize=8, textColor=BLUE, alignment=TA_RIGHT)),
             ])
 
-        build_data_table(story, s,
-            title="Dividend Details",
-            headers=['Date','Description','Holding Units','EPS','DPR','DPS','Dividend Amount'],
+        data_table(story, s,
+            title='Dividend Details',
+            headers=['Date','Description','Holding Units','EPS','DPR','DPS (sen)','Dividend Amount'],
             rows=rows,
-            col_widths=[22*mm, 35*mm, 28*mm, 16*mm, 16*mm, 16*mm, 30*mm],
-            total_row=['', 'Total', '', '', '',
-                       fmt_num(total_dps, 2),
-                       fmt_rm(total_amt)])
-
+            col_widths=[24*mm,38*mm,26*mm,16*mm,16*mm,18*mm,30*mm],
+            total_row=['','Total','','','', fn(total_dps,2),
+                Paragraph(f'<b>{fm(total_amt)}</b>',
+                    ParagraphStyle('ta', fontName='Helvetica-Bold', fontSize=8,
+                        textColor=BLUE, alignment=TA_RIGHT))])
         story.append(Paragraph(
-            "Notes: EPS: Earning Per Share  |  DPR: Dividend Payout Ratio  |  DPS: Dividend Per Share (sen)",
-            s['small']))
+            'Notes: EPS = Earning Per Share  |  DPR = Dividend Payout Ratio  |  DPS = Dividend Per Share (sen)',
+            s['tiny']))
         story.append(Spacer(1, 2*mm))
 
-    build_footer(story, s)
+    footer_block(story, s)
     doc.build(story)
     return buf.getvalue()
 
 
-# ─────────────────────────────────────────────────────────────
-# 4. INVESTMENT ACCOUNT STATEMENT (Annual)
-# ─────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  4.  INVESTMENT ACCOUNT STATEMENT (Annual)
+# ══════════════════════════════════════════════════════════════
 def generate_account_statement(investor: dict, summary: dict,
                                 cashflows: list, dist_history: list,
                                 statement_period: str,
@@ -612,138 +759,205 @@ def generate_account_statement(investor: dict, summary: dict,
     doc = SimpleDocTemplate(buf, pagesize=A4,
         leftMargin=15*mm, rightMargin=15*mm,
         topMargin=12*mm, bottomMargin=12*mm)
-    s = get_styles()
+    s = S()
     story = []
-
     today = date.today()
     name  = investor.get('name','')
+    addr  = '\n'.join(filter(None,[
+        investor.get('address_line1',''),
+        investor.get('address_line2',''),
+        ' '.join(filter(None,[investor.get('postcode',''),investor.get('city','')])),
+        investor.get('state',''),
+    ]))
 
     def make_header(page_n):
-        build_header(story, s,
-            title="INVESTMENT ACCOUNT STATEMENT",
+        header_block(story, s,
+            title='INVESTMENT ACCOUNT STATEMENT',
             issued_date=today.strftime('%d-%m-%Y'),
-            page_info=f"{page_n} of 2",
-            statement_type="Annually",
-            statement_period=statement_period,
-            investor_name=name.upper(),
-            investor_address='\n'.join(filter(None, [
-                investor.get('address_line1'),
-                investor.get('address_line2'),
-                ' '.join(filter(None,[investor.get('postcode'),investor.get('city')])),
-                investor.get('state'),
-            ])))
+            stmt_type='Annually',
+            stmt_period=statement_period,
+            investor_name=name,
+            address_lines=addr)
 
-    # PAGE 1
+    # ── PAGE 1 ──────────────────────────────────────────────────
     make_header(1)
+    story.append(Paragraph(f'Page 1 of 2', ParagraphStyle('pg',
+        fontName='Helvetica', fontSize=7, textColor=GRAY3, alignment=TA_RIGHT)))
 
     # Investor info
-    build_investor_info_table(story, s, [
-        ['Account Type',     summary.get('account_type','Nominee Account')],
-        ['Account ID',       investor.get('account_id','—')],
-        ['Registered Name',  name],
-        ['Settlement Type',  'Banking'],
-        ['Phone No.',        investor.get('phone','—')],
-        ['Bank Name',        investor.get('bank_name','—')],
-        ['Email Address',    investor.get('email','—')],
-        ['Bank Account No.', investor.get('bank_account_no','—')],
-        ['Nominee Name',     '—'],
-        ['Total Days Held',  f"{summary.get('days_held',0)} days"],
-    ])
+    section_title(story, s, "Investor's Information")
+    inv_fields = [
+        ['Account Type',    summary.get('account_type','Nominee Account'),
+         'Account ID',      investor.get('account_id','—')],
+        ['Registered Name', name,
+         'Settlement Type', 'Banking'],
+        ['Phone No.',       investor.get('phone','—'),
+         'Bank Name',       investor.get('bank_name','—')],
+        ['Email Address',   investor.get('email','—'),
+         'Bank Account No.',investor.get('bank_account_no','—')],
+        ['Nominee Name','—','Total Days Held', f"{summary.get('days_held',0)} days"],
+    ]
+    inv_data = []
+    for row in inv_fields:
+        inv_data.append([
+            Paragraph(row[0], s['small']),
+            Paragraph(str(row[1]) if row[1] else '—', s['body']),
+            Paragraph(row[2], s['small']),
+            Paragraph(str(row[3]) if row[3] else '—', s['body']),
+        ])
+    inv_t = Table(inv_data, colWidths=[32*mm, 56*mm, 32*mm, 48*mm])
+    inv_t.setStyle(TableStyle([
+        ('GRID',(0,0),(-1,-1),0.4,GRAY5),
+        ('ROWBACKGROUNDS',(0,0),(-1,-1),[WHITE,GRAY4]),
+        ('TOPPADDING',(0,0),(-1,-1),5),
+        ('BOTTOMPADDING',(0,0),(-1,-1),5),
+        ('LEFTPADDING',(0,0),(-1,-1),6),
+        ('FONTSIZE',(0,0),(-1,-1),8),
+        ('TEXTCOLOR',(0,0),(0,-1),GRAY2),
+        ('TEXTCOLOR',(2,0),(2,-1),GRAY2),
+    ]))
+    story.append(inv_t)
+    story.append(Spacer(1, 5*mm))
 
     # Account summary
-    nta         = float(summary.get('current_nta', 0))
-    units       = float(summary.get('units', 0))
-    total_costs = float(summary.get('total_costs', 0))
-    market_val  = float(summary.get('market_value', 0))
-    unreal_pl   = float(summary.get('unrealized_pl', 0))
-    real_pl     = float(summary.get('realized_pl', 0))
-    div_rcvd    = float(summary.get('dividends_received', 0))
-    adj         = float(summary.get('adjustment', 0))
-    total_pl    = unreal_pl + real_pl + div_rcvd + adj
-    total_pct   = (total_pl / abs(total_costs) * 100) if total_costs else 0
-    irr         = summary.get('irr')
+    nta_v    = float(summary.get('current_nta',0))
+    units_v  = float(summary.get('units',0))
+    costs_v  = float(summary.get('total_costs',0))
+    mv_v     = float(summary.get('market_value',0))
+    unreal_v = float(summary.get('unrealized_pl',0))
+    real_v   = float(summary.get('realized_pl',0))
+    div_v    = float(summary.get('dividends_received',0))
+    adj_v    = float(summary.get('adjustment',0))
+    total_pl = unreal_v + real_v + div_v + adj_v
+    total_pct= (total_pl / abs(costs_v) * 100) if costs_v else 0
+    irr      = summary.get('irr')
+    avg_cost = costs_v / units_v if units_v else 0
 
-    story.append(Paragraph("Account Summary", s['section']))
-    sum_rows = [
-        ['(a)', 'Latest Fund Price', fmt_num(units,4), fmt_num(nta,4), fmt_rm(market_val)],
-        ['(b)', 'Subscription Cost', fmt_num(units,4), fmt_num(total_costs/units if units else 0,4),
-         f"({fmt_rm(total_costs)})"],
-        ['(c)', 'Unrealized Profit & Loss:  (a) + (b)', '', '', fmt_rm(unreal_pl)],
-        ['(d)', 'Realized Profit & Loss', '', '', fmt_rm(real_pl) if real_pl else '—'],
-        ['(e)', 'Dividend Received', '', '', fmt_rm(div_rcvd) if div_rcvd else '—'],
-        ['(f)', f'Adjustment: Initial Capital {fmt_rm(abs(adj))}', '', '',
-         f"({fmt_rm(abs(adj))})" if adj < 0 else fmt_rm(adj)],
-        ['', Paragraph('<b>Total Profit &amp; Loss:  (c) + (d) + (e) + (f)</b>', s['bold']),
-         '', '',
-         Paragraph(f'<b>{fmt_rm(total_pl)}</b>',
-             ParagraphStyle('tp', fontName='Helvetica-Bold', fontSize=8,
-                 textColor=GREEN if total_pl >= 0 else RED, alignment=TA_RIGHT))],
-        ['', Paragraph('<b>Total Performance %</b>', s['bold']), '', '',
-         Paragraph(f'<b>{fmt_pct(total_pct)}</b>',
-             ParagraphStyle('pp', fontName='Helvetica-Bold', fontSize=8,
-                 textColor=GREEN if total_pct >= 0 else RED, alignment=TA_RIGHT))],
-        ['', Paragraph('<b>Annualised Performance* %</b>', s['bold']), '', '',
-         Paragraph(f'<b>{fmt_pct(irr) if irr else "—"}</b>',
-             ParagraphStyle('ap', fontName='Helvetica-Bold', fontSize=8,
-                 textColor=GREEN if irr and float(irr) >= 0 else RED, alignment=TA_RIGHT))],
+    def pl_p(v):
+        if v is None or v == 0: return Paragraph('—', s['body'])
+        color = GREEN if float(v) >= 0 else RED
+        return Paragraph(f'<b>{fm(v)}</b>',
+            ParagraphStyle('pl', fontName='Helvetica-Bold', fontSize=8,
+                textColor=color, alignment=TA_RIGHT))
+
+    section_title(story, s, 'Account Summary')
+    sum_data = [
+        ['Fields','Holding Units','Average Price','Total Value (RM)'],
+        ['(a)  Latest Fund Price',  fn(units_v,4), fn(nta_v,4),   fm(mv_v)],
+        ['(b)  Subscription Cost',  fn(units_v,4), fn(avg_cost,4), f'({fm(costs_v)})'],
+        ['(c)  Unrealized Profit & Loss:  (a) + (b)', '', '',      fm(unreal_v)],
+        ['(d)  Realized Profit & Loss',  '', '',
+         fm(real_v) if real_v else '—'],
+        ['(e)  Dividend Received', '', '',
+         fm(div_v) if div_v else '—'],
+        ['(f)  Adjustment: Initial Capital', '', '',
+         f'({fm(abs(adj_v))})' if adj_v < 0 else (fm(adj_v) if adj_v else '—')],
     ]
+    sum_tdata = [[Paragraph(h, ParagraphStyle('sh', fontName='Helvetica-Bold',
+        fontSize=8, textColor=WHITE, alignment=TA_CENTER)) for h in sum_data[0]]]
+    for row in sum_data[1:]:
+        sum_tdata.append([
+            Paragraph(row[0], s['body']),
+            Paragraph(row[1], ParagraphStyle('rc', fontName='Helvetica', fontSize=8,
+                textColor=GRAY1, alignment=TA_RIGHT)),
+            Paragraph(row[2], ParagraphStyle('rc2', fontName='Helvetica', fontSize=8,
+                textColor=GRAY1, alignment=TA_RIGHT)),
+            Paragraph(row[3], ParagraphStyle('rv', fontName='Helvetica', fontSize=8,
+                textColor=GRAY1, alignment=TA_RIGHT)),
+        ])
 
-    headers_sum = ['', 'Fields', 'Holding Units', 'Average Price', 'Total Value (RM)']
-    build_data_table(story, s, headers=headers_sum, rows=sum_rows,
-        col_widths=[8*mm, 75*mm, 28*mm, 28*mm, 28*mm])
+    # Total rows
+    def bold_right(txt, color=GRAY1):
+        return Paragraph(f'<b>{txt}</b>',
+            ParagraphStyle('br', fontName='Helvetica-Bold', fontSize=8,
+                textColor=color, alignment=TA_RIGHT))
 
+    def bold_left(txt):
+        return Paragraph(f'<b>{txt}</b>',
+            ParagraphStyle('bl', fontName='Helvetica-Bold', fontSize=8, textColor=GRAY1))
+
+    tpl_color = GREEN if total_pl >= 0 else RED
+    tp_color  = GREEN if total_pct >= 0 else RED
+    irr_color = GREEN if irr and float(irr) >= 0 else RED
+
+    sum_tdata.append([bold_left('Total Profit & Loss:  (c) + (d) + (e) + (f)'),
+        Paragraph('', s['body']), Paragraph('', s['body']),
+        bold_right(fm(total_pl), tpl_color)])
+    sum_tdata.append([bold_left('Total Performance %'),
+        Paragraph('', s['body']), Paragraph('', s['body']),
+        bold_right(fp(total_pct), tp_color)])
+    sum_tdata.append([bold_left('Annualised Performance* %'),
+        Paragraph('', s['body']), Paragraph('', s['body']),
+        bold_right(fp(irr) if irr else '—', irr_color)])
+
+    sum_t = Table(sum_tdata, colWidths=[85*mm, 25*mm, 25*mm, 33*mm])
+    sum_sty = [
+        ('BACKGROUND',(0,0),(-1,0), BLUE),
+        ('ROWBACKGROUNDS',(0,1),(-1,-4),[WHITE,GRAY4]),
+        ('GRID',(0,0),(-1,-1),0.4,GRAY5),
+        ('TOPPADDING',(0,0),(-1,-1),4),
+        ('BOTTOMPADDING',(0,0),(-1,-1),4),
+        ('LEFTPADDING',(0,0),(-1,-1),5),
+        ('RIGHTPADDING',(0,0),(-1,-1),5),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('LINEABOVE',(0,-3),(-1,-3),1,BLUE),
+        ('BACKGROUND',(0,-3),(-1,-1),BLUE_LIGHT),
+    ]
+    sum_t.setStyle(TableStyle(sum_sty))
+    story.append(sum_t)
     story.append(Paragraph(
-        "* Powered by Financial Formulation of Internal Rate of Return (IRR) "
-        "&amp; Mathematical Algorithm Newton's method", s['small']))
+        '* Powered by Financial Formulation of Internal Rate of Return (IRR) '
+        '& Mathematical Algorithm Newton\'s method', s['tiny']))
+    story.append(Spacer(1, 2*mm))
+    footer_block(story, s)
 
-    build_footer(story, s)
-
-    # PAGE 2
-    from reportlab.platypus import PageBreak
+    # ── PAGE 2 ──────────────────────────────────────────────────
     story.append(PageBreak())
     make_header(2)
+    story.append(Paragraph('Page 2 of 2', ParagraphStyle('pg2',
+        fontName='Helvetica', fontSize=7, textColor=GRAY3, alignment=TA_RIGHT)))
 
     # Principal transactions
     if cashflows:
         cf_rows = []
-        running_units = 0
+        running_units = 0.0
         for cf in cashflows:
-            amt   = float(cf.get('amount', 0))
-            u     = float(cf.get('units', 0))
-            running_units += u
+            u   = float(cf.get('units',0))
+            amt = float(cf.get('amount',0))
             nta_d = cf.get('nta_at_date')
+            running_units += u
             cf_rows.append([
-                fmt_date(cf.get('date')),
+                fd(cf.get('date')),
                 cf.get('description','—'),
-                fmt_rm(abs(amt)) + (f"\n@ {fmt_rm(nta_d)}" if nta_d else '') if amt else '—',
-                fmt_rm(nta_d) if nta_d else '—',
-                fmt_num(abs(u), 4) if u else '—',
-                fmt_num(running_units, 4) if running_units else '—',
+                (fm(abs(amt)) + (f'\n@ {fm(nta_d)}' if nta_d else '')) if amt else '—',
+                fm(nta_d) if nta_d else '—',
+                fn(abs(u),4) if u else '—',
+                fn(running_units,4) if running_units > 0 else '—',
             ])
-        build_data_table(story, s,
-            title="Principal Transaction",
+        data_table(story, s,
+            title='Principal Transaction',
             headers=['Date','Description','Cashflow @ Price','Avg. Cost (RM)','Units Issued','Units Balanced'],
             rows=cf_rows,
-            col_widths=[22*mm, 40*mm, 35*mm, 25*mm, 25*mm, 25*mm])
+            col_widths=[22*mm, 48*mm, 35*mm, 24*mm, 23*mm, 23*mm])
 
     # Distribution history
     if dist_history:
         dh_rows = []
         for d in dist_history:
             dh_rows.append([
-                fmt_date(d.get('pmt_date') or d.get('ex_date')),
+                fd(d.get('pmt_date') or d.get('ex_date')),
                 d.get('title','—'),
-                fmt_num(d.get('dps_sen'),2),
-                fmt_num(d.get('units_at_ex_date'),4) if d.get('units_at_ex_date') else '—',
-                fmt_rm(d.get('amount')) if d.get('amount') else '—',
-                fmt_rm(d.get('amount')) if d.get('amount') else '—',
+                fn(d.get('dps_sen'),2),
+                fn(d.get('units_at_ex_date'),4) if d.get('units_at_ex_date') else '—',
+                fm(d.get('amount')) if d.get('amount') else '—',
+                fm(d.get('amount')) if d.get('amount') else '—',
             ])
-        build_data_table(story, s,
-            title="Distribution Transaction",
-            headers=['Date','Description','DPS','Holding Units','Distribution Amount','Balanced (RM)'],
+        data_table(story, s,
+            title='Distribution Transaction',
+            headers=['Date','Description','DPS (sen)','Holding Units','Distribution Amount','Balanced (RM)'],
             rows=dh_rows,
-            col_widths=[22*mm, 45*mm, 18*mm, 28*mm, 30*mm, 29*mm])
+            col_widths=[22*mm, 48*mm, 20*mm, 28*mm, 30*mm, 27*mm])
 
-    build_footer(story, s)
+    footer_block(story, s)
     doc.build(story)
     return buf.getvalue()

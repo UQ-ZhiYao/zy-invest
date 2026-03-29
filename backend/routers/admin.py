@@ -602,6 +602,55 @@ async def add_principal(
         "UPDATE investors SET units = units + $1, updated_at = NOW() WHERE id = $2",
         sign * units, body['investor_id']
     )
+    # Auto-generate subscription statement for this investor
+    try:
+        from services.pdf_statements import generate_subscription
+        import base64
+        inv_full = await db.fetchrow("""
+            SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+            FROM investors i LEFT JOIN users u ON u.investor_id = i.id
+            WHERE i.id = $1
+        """, body['investor_id'])
+        if inv_full:
+            cfs = await db.fetch("""
+                SELECT date, cashflow_type, amount, nta_at_date, units
+                FROM principal_cashflows WHERE investor_id=$1 ORDER BY date
+            """, body['investor_id'])
+            from datetime import date as date_type2
+            from decimal import Decimal as D2
+            cfs_list = []
+            cum_u = cum_c = 0.0
+            for cf in cfs:
+                amt = float(cf['amount'])
+                u   = float(cf['units'])
+                if amt > 0:
+                    cum_c += abs(amt); cum_u += u
+                else:
+                    cum_u += u
+                avg = cum_c / cum_u if cum_u > 0 else 0
+                cfs_list.append({**dict(cf),
+                    'description': 'Fund Subscription' if amt > 0 else 'Fund Redemption',
+                    'avg_cost': avg})
+            pdf_b = generate_subscription(
+                investor=dict(inv_full),
+                cashflows=cfs_list,
+                statement_period=body.get('date','')
+            )
+            b64 = base64.b64encode(pdf_b).decode()
+            file_url  = f"data:application/pdf;base64,{b64}"
+            inv_name  = inv_full['name']
+            file_name = f"Subscription_{inv_name.replace(' ','_')}_{body.get('date','')}.pdf"
+            title     = f"Subscription Statement — {inv_name} ({body.get('date','')})"
+            await db.execute("""
+                INSERT INTO documents (title,doc_type,file_url,file_name,file_size_kb,
+                    visibility,investor_id,uploaded_by)
+                VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$8::uuid)
+            """, title,'member_statement',file_url,file_name,
+                len(pdf_b)//1024,'member',str(body['investor_id']),str(admin['id']))
+    except Exception as e:
+        pass  # Auto-gen failure should not block the main operation
+
     return {"message": "Principal cashflow recorded"}
 
 
@@ -785,6 +834,50 @@ async def declare_distribution(
         "investors_count": len(investor_units),
         "total_dividend": round(total_div, 4)
     }
+
+    # Auto-generate dividend payment statement for each investor
+    try:
+        from services.pdf_statements import generate_dividend_statement
+        import base64
+        for inv in investor_units:
+            inv_full = await db.fetchrow("""
+                SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
+                       u.address_line1, u.address_line2, u.city, u.postcode, u.state
+                FROM investors i LEFT JOIN users u ON u.investor_id=i.id
+                WHERE i.id=$1
+            """, str(inv['investor_id']))
+            if not inv_full: continue
+            # Get all distributions for this investor's FY
+            dists_for_inv = await db.fetch("""
+                SELECT dl.units_at_ex_date, dl.amount, dl.paid,
+                       d.title, d.dist_type, d.dps_sen, d.ex_date, d.pmt_date,
+                       d.financial_year, d.payout_ratio
+                FROM distribution_ledger dl
+                JOIN distributions d ON d.id=dl.distribution_id
+                WHERE dl.investor_id=$1 AND d.financial_year=$2
+                ORDER BY d.ex_date
+            """, str(inv['investor_id']), body.get('financial_year','FY?'))
+            if not dists_for_inv: continue
+            fy = body.get('financial_year','FY?')
+            pdf_b = generate_dividend_statement(
+                investor=dict(inv_full),
+                distributions=[dict(d) for d in dists_for_inv],
+                financial_year=fy
+            )
+            b64 = base64.b64encode(pdf_b).decode()
+            file_url  = f"data:application/pdf;base64,{b64}"
+            inv_name  = inv_full['name']
+            file_name = f"Dividend_{fy}_{inv_name.replace(' ','_')}.pdf"
+            title     = f"Dividend Statement {fy} — {inv_name}"
+            await db.execute("""
+                INSERT INTO documents (title,doc_type,file_url,file_name,file_size_kb,
+                    visibility,investor_id,financial_year,uploaded_by)
+                VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$8,$9::uuid)
+                ON CONFLICT DO NOTHING
+            """, title,'member_statement',file_url,file_name,
+                len(pdf_b)//1024,'member',str(inv['investor_id']),fy,str(admin['id']))
+    except Exception:
+        pass
 
 
 @router.get("/distributions/{dist_id}/breakdown")
@@ -1005,14 +1098,31 @@ async def generate_statement(
                         ELSE 0 END AS weight_pct
             FROM holdings WHERE units > 0.001 ORDER BY total_cost DESC LIMIT 10
         """)
-        perf_row = await db.fetchrow("SELECT * FROM v_fund_overview")
-        perf_data = {'period_returns': {}, 'total_return_pct': float(perf_row['total_return_pct']) if perf_row else 0}
+        sector_data = await db.fetch("SELECT * FROM v_holdings_by_class ORDER BY total_market_value DESC")
+        nta_hist = await db.fetch("SELECT date, nta FROM historical ORDER BY date ASC")
         dists = await db.fetch("SELECT * FROM distributions ORDER BY ex_date DESC LIMIT 8")
+        # Period returns
+        from datetime import date as date_type
+        latest = await db.fetchrow("SELECT nta, date FROM historical ORDER BY date DESC LIMIT 1")
+        periods = {}
+        if latest:
+            for label, days in [("1M",30),("3M",90),("6M",180),("1Y",365),("3Y",1095)]:
+                ref_date = latest["date"] - __import__("datetime").timedelta(days=days)
+                ref = await db.fetchrow(
+                    "SELECT nta FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1", ref_date)
+                if ref and ref["nta"]:
+                    periods[label] = round((float(latest["nta"])/float(ref["nta"])-1)*100,4)
+        perf_data = {'period_returns': periods,
+                     'total_return_pct': float(fund_data.get('total_return_pct',0))}
+        manager_comment = body.get('manager_comment','')
         pdf_bytes = generate_factsheet(
             fund_data=fund_data,
             holdings=[dict(h) for h in holdings],
             performance=perf_data,
-            distributions=[dict(d) for d in dists]
+            distributions=[dict(d) for d in dists],
+            nta_history=[dict(r) for r in nta_hist],
+            sector_data=[dict(r) for r in sector_data],
+            manager_comment=manager_comment,
         )
         title = f"ZY-Invest Factsheet {period or fund_data.get('last_nta_date','')}"
         visibility = 'fund'

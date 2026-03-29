@@ -127,8 +127,15 @@
               <div id="period-group" class="form-group">
                 <label class="form-label">Period / Month</label>
                 <input type="text" id="factsheet-period" class="form-input"
-                  placeholder="e.g. February 2026"
-                  value="">
+                  placeholder="e.g. February 2026" value="">
+              </div>
+
+              <!-- Manager comment (factsheet only) -->
+              <div id="comment-group" class="form-group">
+                <label class="form-label">Manager's Comments <span style="font-weight:400;color:var(--text-muted)">(required for factsheet)</span></label>
+                <textarea id="manager-comment" class="form-input" rows="5"
+                  placeholder="Write the manager's market commentary for this month...&#10;&#10;e.g. Our portfolio maintains a heavy concentration in Zetrix AI despite headwinds from Ringgit appreciation..."
+                  style="resize:vertical;font-size:0.85rem;line-height:1.5"></textarea>
               </div>
 
               <!-- Bulk generate for factsheet -->
@@ -204,6 +211,7 @@ function selectType(type) {
   document.getElementById('investor-group').style.display  = needsInvestor  ? 'block' : 'none';
   document.getElementById('fy-group').style.display        = needsFY        ? 'grid'  : 'none';
   document.getElementById('period-group').style.display    = isFactsheet    ? 'block' : 'none';
+  document.getElementById('comment-group').style.display   = isFactsheet    ? 'block' : 'none';
   document.getElementById('bulk-group').style.display      = needsInvestor  ? 'block' : 'none';
 }
 
@@ -240,10 +248,11 @@ async function generateStatement() {
     for (const target of targets) {
       try {
         const res = await api.post('/api/admin/statements/generate', {
-          statement_type: selectedType,
-          investor_id:    target.investor_id,
-          financial_year: finYear,
-          period:         period,
+          statement_type:   selectedType,
+          investor_id:      target.investor_id,
+          financial_year:   finYear,
+          period:           period,
+          manager_comment:  document.getElementById('manager-comment').value.trim(),
         });
 
         generated.unshift(res);
