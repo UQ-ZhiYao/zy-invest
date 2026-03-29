@@ -35,7 +35,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -46,16 +46,18 @@ app.include_router(admin.router,   prefix="/api/admin",   tags=["Admin"])
 
 
 @app.get("/")
+@app.head("/")
 async def root():
     return {"status": "ok", "service": "ZY-Invest API", "version": "1.0.0"}
 
 
+@app.head("/health")
+@app.get("/health-check")
+async def health_head():
+    return {"status": "ok"}
+
+
 @app.get("/health")
+@app.head("/health")
 async def health():
-    # Try to connect if not already connected
-    if engine.pool is None:
-        try:
-            await engine.connect()
-        except Exception as e:
-            return {"status": "degraded", "db": str(e)}
-    return {"status": "healthy"}
+    return {"status": "healthy", "service": "ZY-Invest API"}
