@@ -7,224 +7,229 @@
   <link rel="stylesheet" href="../../assets/css/main.css">
   <link rel="stylesheet" href="../../assets/css/dashboard.css">
   <style>
-    /* ── Toolbar ────────────────────────────────────────────── */
-    .toolbar {
-      display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;
-      background:var(--white); border:1px solid var(--border);
-      border-radius:var(--radius-lg); padding:16px 20px; margin-bottom:20px;
+    /* ── Stats row ─────────────────────────────────────────── */
+    .stats-row {
+      display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px;
     }
-    .toolbar-group { display:flex; flex-direction:column; gap:5px; min-width:140px; flex:1; }
-    .toolbar-group label { font-size:0.78rem; font-weight:600; color:var(--gray-700); }
-    .toolbar-group select,
-    .toolbar-group input  {
-      padding:8px 10px; font-size:0.85rem; border:1.5px solid var(--border);
+    .stat-box {
+      background:var(--white); border:1px solid var(--border);
+      border-radius:var(--radius-lg); padding:16px 18px;
+    }
+    .stat-box-label { font-size:0.72rem; font-weight:700; letter-spacing:.07em;
+                      text-transform:uppercase; color:var(--text-muted); margin-bottom:6px; }
+    .stat-box-value { font-size:1.6rem; font-weight:800; color:var(--gray-900); margin-bottom:2px; }
+    .stat-box-sub   { font-size:0.75rem; color:var(--text-muted); }
+
+    /* ── Filter bar ─────────────────────────────────────────── */
+    .filter-bar {
+      background:var(--white); border:1px solid var(--border);
+      border-radius:var(--radius-lg); padding:14px 18px;
+      display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;
+      margin-bottom:16px;
+    }
+    .filter-group { display:flex; flex-direction:column; gap:4px; }
+    .filter-group label { font-size:0.77rem; font-weight:600; color:var(--gray-700); }
+    .filter-group select,
+    .filter-group input {
+      padding:7px 10px; font-size:0.84rem; border:1.5px solid var(--border);
       border-radius:var(--radius-md); background:var(--gray-50);
       color:var(--text); font-family:var(--font-body); outline:none;
+      min-width:120px;
     }
-    .toolbar-group select:focus,
-    .toolbar-group input:focus  { border-color:var(--blue); background:var(--white); }
+    .filter-group select:focus,
+    .filter-group input:focus { border-color:var(--blue); background:var(--white); }
 
-    /* ── Stats bar ──────────────────────────────────────────── */
-    .stats-bar {
-      display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px;
+    /* ── Table panel ────────────────────────────────────────── */
+    .panel { background:var(--white); border:1px solid var(--border);
+             border-radius:var(--radius-lg); overflow:hidden; }
+    .panel-hdr {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:14px 18px; border-bottom:1px solid var(--border);
+      font-weight:700; font-size:0.95rem; color:var(--gray-900);
     }
-    .stat-card {
-      background:var(--white); border:1px solid var(--border); border-radius:var(--radius-lg);
-      padding:14px 18px; display:flex; flex-direction:column; gap:3px;
+    .table-wrap { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; font-size:0.84rem; }
+    thead tr { background:var(--blue); }
+    thead th {
+      padding:10px 12px; color:#fff; font-weight:600;
+      text-align:left; font-size:0.79rem; white-space:nowrap;
     }
-    .stat-label { font-size:0.75rem; color:var(--text-muted); font-weight:500; }
-    .stat-value { font-size:1.5rem; font-weight:700; color:var(--gray-900); }
-    .stat-sub   { font-size:0.75rem; color:var(--text-muted); }
+    tbody tr { border-bottom:1px solid var(--border); transition:background .12s; }
+    tbody tr:last-child { border-bottom:none; }
+    tbody tr:hover { background:var(--blue-bg,#EFF6FF); }
+    tbody td { padding:9px 12px; vertical-align:middle; }
 
-    /* ── Table ──────────────────────────────────────────────── */
-    .doc-table-wrap {
-      background:var(--white); border:1px solid var(--border);
-      border-radius:var(--radius-lg); overflow:hidden;
-    }
-    .doc-table { width:100%; border-collapse:collapse; font-size:0.85rem; }
-    .doc-table thead tr { background:var(--blue); }
-    .doc-table thead th {
-      padding:11px 14px; color:#fff; font-weight:600; text-align:left;
-      font-size:0.8rem; white-space:nowrap;
-    }
-    .doc-table tbody tr { border-bottom:1px solid var(--border); transition:background .15s; }
-    .doc-table tbody tr:last-child { border-bottom:none; }
-    .doc-table tbody tr:hover { background:var(--blue-bg); }
-    .doc-table td { padding:10px 14px; vertical-align:middle; }
-    .doc-title { font-weight:600; color:var(--gray-900); max-width:220px;
-                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .doc-meta  { font-size:0.75rem; color:var(--text-muted); margin-top:2px; }
-
-    /* badges */
+    /* ── Badges ─────────────────────────────────────────────── */
     .badge {
       display:inline-block; padding:2px 8px; border-radius:20px;
-      font-size:0.73rem; font-weight:600; white-space:nowrap;
+      font-size:0.72rem; font-weight:600; white-space:nowrap;
     }
-    .badge-subscription { background:#DBEAFE; color:#1565C0; }
-    .badge-redemption   { background:#FEF3C7; color:#B45309; }
-    .badge-dividend     { background:#D1FAE5; color:#065F46; }
-    .badge-account      { background:#EDE9FE; color:#5B21B6; }
-    .badge-factsheet    { background:#FCE7F3; color:#9D174D; }
-    .badge-other        { background:var(--gray-100); color:var(--gray-600); }
-    .badge-member       { background:#DBEAFE; color:#1565C0; }
-    .badge-fund         { background:#D1FAE5; color:#065F46; }
+    .badge-sub   { background:#DBEAFE; color:#1565C0; }
+    .badge-red   { background:#FEF3C7; color:#B45309; }
+    .badge-div   { background:#D1FAE5; color:#065F46; }
+    .badge-acct  { background:#EDE9FE; color:#5B21B6; }
+    .badge-fact  { background:#FCE7F3; color:#9D174D; }
+    .badge-other { background:#F3F4F6; color:#6B7280; }
+    .badge-mem   { background:#DBEAFE; color:#1565C0; }
+    .badge-fund  { background:#D1FAE5; color:#065F46; }
 
-    /* Action buttons */
+    /* ── Action buttons ─────────────────────────────────────── */
     .act-btn {
-      padding:5px 10px; border-radius:var(--radius-md); font-size:0.78rem;
+      padding:4px 9px; border-radius:var(--radius-sm); font-size:0.77rem;
       font-weight:600; cursor:pointer; border:1px solid transparent;
-      transition:all .15s; white-space:nowrap;
+      transition:all .12s; white-space:nowrap; line-height:1.4;
     }
-    .act-download { background:var(--blue); color:#fff; border-color:var(--blue); }
-    .act-download:hover { background:#0D47A1; }
-    .act-delete { background:#fff; color:#C62828; border-color:#FECACA; }
-    .act-delete:hover { background:#FEF2F2; border-color:#C62828; }
-    .act-regen { background:#fff; color:var(--blue); border-color:var(--blue-200,#BFDBFE); }
-    .act-regen:hover { background:var(--blue-bg); }
-    .actions-col { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+    .act-dl  { background:var(--blue); color:#fff; border-color:var(--blue); }
+    .act-dl:hover  { background:#0D47A1; }
+    .act-eye { background:#fff; color:var(--blue); border-color:#BFDBFE; }
+    .act-eye:hover { background:#EFF6FF; }
+    .act-del { background:#fff; color:#C62828; border-color:#FECACA; }
+    .act-del:hover { background:#FEF2F2; border-color:#C62828; }
+    .act-col { display:flex; gap:5px; align-items:center; }
 
     /* ── Pagination ─────────────────────────────────────────── */
-    .pagination {
+    .pag-row {
       display:flex; justify-content:space-between; align-items:center;
-      padding:14px 20px; border-top:1px solid var(--border);
-      background:var(--white); border-radius:0 0 var(--radius-lg) var(--radius-lg);
+      padding:12px 18px; border-top:1px solid var(--border);
+      font-size:0.82rem; color:var(--text-muted);
     }
-    .pag-info { font-size:0.82rem; color:var(--text-muted); }
-    .pag-btns { display:flex; gap:6px; }
-    .pag-btn  {
-      padding:5px 12px; border:1px solid var(--border); border-radius:var(--radius-md);
-      background:var(--white); font-size:0.82rem; cursor:pointer; color:var(--text);
+    .pag-btns { display:flex; gap:5px; }
+    .pag-btn {
+      padding:4px 10px; border:1px solid var(--border); border-radius:var(--radius-sm);
+      background:var(--white); font-size:0.81rem; cursor:pointer; color:var(--text);
     }
-    .pag-btn:hover { background:var(--blue-bg); border-color:var(--blue); color:var(--blue); }
-    .pag-btn.active { background:var(--blue); color:#fff; border-color:var(--blue); }
+    .pag-btn:hover:not(:disabled) { background:#EFF6FF; border-color:var(--blue); color:var(--blue); }
+    .pag-btn.on { background:var(--blue); color:#fff; border-color:var(--blue); }
     .pag-btn:disabled { opacity:.4; cursor:default; }
 
-    /* ── Bulk actions bar ───────────────────────────────────── */
+    /* ── Bulk bar ────────────────────────────────────────────── */
     .bulk-bar {
-      display:none; align-items:center; gap:12px; padding:10px 16px;
-      background:var(--blue-bg); border:1px solid var(--blue);
-      border-radius:var(--radius-md); margin-bottom:14px;
-      font-size:0.85rem; color:var(--blue);
+      display:none; align-items:center; gap:10px;
+      padding:9px 14px; background:#EFF6FF;
+      border:1px solid #BFDBFE; border-radius:var(--radius-md);
+      margin-bottom:12px; font-size:0.84rem;
     }
-    .bulk-bar.visible { display:flex; }
-    .bulk-bar span { font-weight:600; }
+    .bulk-bar.show { display:flex; }
 
-    /* ── Preview drawer ─────────────────────────────────────── */
-    .preview-overlay {
+    /* ── Preview modal ──────────────────────────────────────── */
+    .modal-overlay {
       display:none; position:fixed; inset:0;
-      background:rgba(0,0,0,.55); z-index:1000; align-items:center; justify-content:center;
+      background:rgba(0,0,0,.55); z-index:300;
+      align-items:center; justify-content:center;
     }
-    .preview-overlay.open { display:flex; }
-    .preview-box {
-      background:#fff; border-radius:var(--radius-lg); width:min(900px,95vw);
-      height:90vh; display:flex; flex-direction:column; overflow:hidden;
-      box-shadow:0 20px 60px rgba(0,0,0,.3);
+    .modal-overlay.open { display:flex; }
+    .modal-box {
+      background:#fff; border-radius:var(--radius-lg);
+      width:min(880px,94vw); height:88vh;
+      display:flex; flex-direction:column; overflow:hidden;
+      box-shadow:0 24px 64px rgba(0,0,0,.3);
     }
-    .preview-header {
+    .modal-top {
       display:flex; justify-content:space-between; align-items:center;
-      padding:14px 20px; border-bottom:1px solid var(--border); flex-shrink:0;
+      padding:13px 18px; border-bottom:1px solid var(--border); flex-shrink:0;
     }
-    .preview-title { font-weight:700; font-size:1rem; color:var(--gray-900);
-                     max-width:600px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .preview-close { background:none; border:none; font-size:1.4rem; cursor:pointer;
-                     color:var(--text-muted); padding:2px 8px; border-radius:var(--radius-sm); }
-    .preview-close:hover { background:var(--gray-100); }
-    .preview-iframe { flex:1; border:none; width:100%; }
-    .preview-actions { padding:12px 20px; border-top:1px solid var(--border);
-                       display:flex; gap:10px; flex-shrink:0; }
+    .modal-ttl { font-weight:700; font-size:.95rem; color:var(--gray-900);
+                 overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:600px; }
+    .modal-close { background:none; border:none; font-size:1.3rem;
+                   cursor:pointer; color:var(--text-muted); padding:2px 7px;
+                   border-radius:var(--radius-sm); }
+    .modal-close:hover { background:var(--gray-100); }
+    .modal-body { flex:1; overflow:hidden; }
+    .modal-body iframe { width:100%; height:100%; border:none; }
+    .modal-foot { padding:11px 18px; border-top:1px solid var(--border);
+                  display:flex; gap:10px; flex-shrink:0; }
 
-    /* ── Loading / Empty ────────────────────────────────────── */
-    .empty-state {
-      text-align:center; padding:60px 20px; color:var(--text-muted);
-    }
-    .empty-icon { font-size:3rem; margin-bottom:12px; }
-    .empty-text { font-size:0.95rem; }
+    /* ── Empty / loading ────────────────────────────────────── */
+    .empty-row td { text-align:center; padding:48px 20px; color:var(--text-muted); }
+    .doc-name { font-weight:600; color:var(--gray-900); max-width:200px;
+                white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .doc-file { font-size:0.74rem; color:var(--text-muted); margin-top:2px; }
 
-    @media(max-width:900px) {
-      .stats-bar { grid-template-columns:repeat(2,1fr); }
-    }
-    @media(max-width:600px) {
-      .stats-bar { grid-template-columns:1fr 1fr; }
-      .doc-title { max-width:130px; }
-    }
+    @media(max-width:900px) { .stats-row{grid-template-columns:1fr 1fr;} }
+    @media(max-width:560px) { .stats-row{grid-template-columns:1fr 1fr;} }
   </style>
 </head>
 <body>
 <div class="dash-root">
-  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99"
-       onclick="document.getElementById('sidebar').classList.remove('mobile-open');this.style.display='none'"></div>
-  <nav class="sidebar" id="sidebar"></nav>
+  <div id="sidebar-overlay"
+       style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99"
+       onclick="document.getElementById('sidebar').classList.remove('mobile-open');this.style.display='none'">
+  </div>
+  <aside class="sidebar" id="sidebar"></aside>
 
-  <main class="main-content">
-    <header class="top-bar">
-      <button class="sidebar-toggle" id="sidebar-toggle">☰</button>
-      <div class="breadcrumb">ZY-Invest › Admin › Document Management</div>
+  <div class="dash-main" id="dash-main">
+    <header class="dash-topbar">
+      <div class="topbar-left">
+        <button class="mobile-menu-btn"
+          onclick="document.getElementById('sidebar').classList.toggle('mobile-open');
+                   document.getElementById('sidebar-overlay').style.display='block'">☰</button>
+        <span class="topbar-title" id="topbar-title">Document Management</span>
+      </div>
       <div class="topbar-right">
-        <span class="date-badge" id="date-badge"></span>
+        <span class="topbar-date" id="topbar-date"></span>
+        <button class="btn btn-primary" style="padding:8px 16px;font-size:0.82rem"
+          onclick="window.location.href='statements.html'">＋ Generate New</button>
       </div>
     </header>
 
-    <div class="page-content">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:12px">
-        <div>
-          <h1 class="page-title">Document Management</h1>
-          <p class="page-subtitle">View, download, delete and re-generate all issued PDF statements.</p>
+    <div class="dash-content">
+      <div class="page-header">
+        <div class="breadcrumb">
+          <a href="../../index.html">ZY-Invest</a><span>›</span>
+          <span>Admin</span><span>›</span><span>Document Management</span>
         </div>
-        <div style="display:flex;gap:10px">
-          <button class="btn btn-outline" onclick="bulkDeleteSelected()" id="bulk-delete-btn"
-            style="display:none;color:#C62828;border-color:#FECACA">🗑 Delete Selected</button>
-          <button class="btn btn-primary" onclick="window.location='statements.html'">＋ Generate New</button>
-        </div>
+        <h1>Document Management</h1>
+        <p>View, download, preview and delete all issued PDF statements.</p>
       </div>
 
       <!-- Stats -->
-      <div class="stats-bar" id="stats-bar">
-        <div class="stat-card">
-          <div class="stat-label">Total Documents</div>
-          <div class="stat-value" id="s-total">—</div>
-          <div class="stat-sub" id="s-size">Loading...</div>
+      <div class="stats-row" id="stats-row">
+        <div class="stat-box">
+          <div class="stat-box-label">Total Documents</div>
+          <div class="stat-box-value" id="s-total">—</div>
+          <div class="stat-box-sub" id="s-sub">All types</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Statements Issued</div>
-          <div class="stat-value" id="s-stmts">—</div>
-          <div class="stat-sub">Subscription · Redemption · Dividend</div>
+        <div class="stat-box">
+          <div class="stat-box-label">Statements Issued</div>
+          <div class="stat-box-value" id="s-stmts">—</div>
+          <div class="stat-box-sub">Sub · Red · Dividend</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Account Statements</div>
-          <div class="stat-value" id="s-acct">—</div>
-          <div class="stat-sub">Annual FY reports</div>
+        <div class="stat-box">
+          <div class="stat-box-label">Account Statements</div>
+          <div class="stat-box-value" id="s-acct">—</div>
+          <div class="stat-box-sub">Annual FY reports</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Factsheets</div>
-          <div class="stat-value" id="s-fact">—</div>
-          <div class="stat-sub">Monthly fund reports</div>
+        <div class="stat-box">
+          <div class="stat-box-label">Factsheets</div>
+          <div class="stat-box-value" id="s-fact">—</div>
+          <div class="stat-box-sub">Monthly fund reports</div>
         </div>
       </div>
 
-      <!-- Filters toolbar -->
-      <div class="toolbar">
-        <div class="toolbar-group" style="max-width:200px">
+      <!-- Filters -->
+      <div class="filter-bar">
+        <div class="filter-group" style="flex:2;min-width:160px">
           <label>Search</label>
-          <input type="text" id="q-search" placeholder="Investor name or title…" oninput="debounceLoad()">
+          <input type="text" id="q-search" placeholder="Name or title…" oninput="debounceLoad()">
         </div>
-        <div class="toolbar-group" style="max-width:160px">
-          <label>Statement Type</label>
+        <div class="filter-group">
+          <label>Type</label>
           <select id="q-type" onchange="loadDocs(1)">
             <option value="">All Types</option>
             <option value="subscription">Subscription</option>
             <option value="redemption">Redemption</option>
             <option value="dividend">Dividend</option>
-            <option value="account">Account Statement</option>
+            <option value="account">Account Stmt</option>
             <option value="factsheet">Factsheet</option>
           </select>
         </div>
-        <div class="toolbar-group" style="max-width:160px">
+        <div class="filter-group">
           <label>Investor</label>
           <select id="q-investor" onchange="loadDocs(1)">
             <option value="">All Investors</option>
           </select>
         </div>
-        <div class="toolbar-group" style="max-width:110px">
+        <div class="filter-group">
           <label>Financial Year</label>
           <select id="q-fy" onchange="loadDocs(1)">
             <option value="">All FYs</option>
@@ -232,7 +237,7 @@
             <option>FY24</option><option>FY25</option><option>FY26</option>
           </select>
         </div>
-        <div class="toolbar-group" style="max-width:130px">
+        <div class="filter-group">
           <label>Visibility</label>
           <select id="q-vis" onchange="loadDocs(1)">
             <option value="">All</option>
@@ -240,7 +245,7 @@
             <option value="fund">Fund-wide</option>
           </select>
         </div>
-        <div class="toolbar-group" style="max-width:80px">
+        <div class="filter-group">
           <label>Per page</label>
           <select id="q-limit" onchange="loadDocs(1)">
             <option value="20">20</option>
@@ -249,375 +254,385 @@
           </select>
         </div>
         <div style="display:flex;align-items:flex-end">
-          <button class="btn btn-outline" onclick="clearFilters()" style="font-size:0.82rem;padding:8px 12px">⟳ Clear</button>
+          <button class="btn btn-outline" style="font-size:0.82rem;padding:7px 12px"
+            onclick="clearFilters()">⟳ Clear</button>
         </div>
       </div>
 
       <!-- Bulk bar -->
       <div class="bulk-bar" id="bulk-bar">
-        <input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)" style="width:16px;height:16px">
-        <span id="bulk-count">0 selected</span>
-        <button class="act-btn act-delete" onclick="bulkDeleteSelected()">🗑 Delete Selected</button>
-        <button class="btn btn-outline" style="font-size:0.8rem;padding:5px 10px"
-          onclick="clearSelection()">✕ Clear</button>
+        <input type="checkbox" id="sel-all" onchange="toggleAll(this.checked)"
+               style="width:15px;height:15px">
+        <span id="bulk-count" style="font-weight:600;color:var(--blue)">0 selected</span>
+        <button class="act-btn act-del" onclick="bulkDelete()">🗑 Delete Selected</button>
+        <button class="btn btn-outline" style="font-size:0.8rem;padding:4px 10px"
+          onclick="clearSel()">✕ Clear</button>
       </div>
 
       <!-- Table -->
-      <div class="doc-table-wrap">
-        <div id="table-container">
-          <div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-text">Loading documents…</div></div>
+      <div class="panel">
+        <div class="panel-hdr">
+          <span id="tbl-title">Documents</span>
+          <span id="tbl-count" style="font-size:0.8rem;color:var(--text-muted)"></span>
         </div>
-        <div class="pagination" id="pagination" style="display:none">
-          <div class="pag-info" id="pag-info"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:34px">
+                  <input type="checkbox" id="hdr-chk" onchange="toggleAll(this.checked)"
+                         style="width:14px;height:14px">
+                </th>
+                <th>Document</th>
+                <th>Type</th>
+                <th>Investor</th>
+                <th>FY</th>
+                <th>Visibility</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="doc-tbody">
+              <tr class="empty-row"><td colspan="8">⏳ Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pag-row" id="pag-row" style="display:none">
+          <span id="pag-info"></span>
           <div class="pag-btns" id="pag-btns"></div>
         </div>
       </div>
-    </div><!-- /page-content -->
-  </main>
-</div>
+    </div><!-- /dash-content -->
+  </div><!-- /dash-main -->
+</div><!-- /dash-root -->
 
-<!-- PDF Preview Overlay -->
-<div class="preview-overlay" id="preview-overlay" onclick="if(event.target===this)closePreview()">
-  <div class="preview-box">
-    <div class="preview-header">
-      <div class="preview-title" id="preview-title">Document Preview</div>
-      <button class="preview-close" onclick="closePreview()">✕</button>
+<!-- Preview modal -->
+<div class="modal-overlay" id="prev-overlay"
+     onclick="if(event.target===this)closePrev()">
+  <div class="modal-box">
+    <div class="modal-top">
+      <div class="modal-ttl" id="prev-title">Preview</div>
+      <button class="modal-close" onclick="closePrev()">✕</button>
     </div>
-    <iframe class="preview-iframe" id="preview-frame" src="about:blank"></iframe>
-    <div class="preview-actions">
-      <button class="btn btn-primary" id="preview-dl-btn">⬇ Download</button>
-      <button class="btn btn-outline" onclick="closePreview()">Close</button>
+    <div class="modal-body">
+      <iframe id="prev-frame" src="about:blank"></iframe>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-primary" id="prev-dl">⬇ Download</button>
+      <button class="btn btn-outline" onclick="closePrev()">Close</button>
     </div>
   </div>
 </div>
 
+<script src="../../assets/js/api.js"></script>
 <script src="../../assets/js/dashboard.js"></script>
 <script>
-initDashboard('admin-documents');
+/* ── Bootstrap ──────────────────────────────────────────────── */
+initDashboard('admin-documents', 'Document Management');
+if (!adminRequired()) throw new Error('Not admin');
 
-/* ── State ───────────────────────────────────────────────── */
-let currentPage  = 1;
-let totalPages   = 1;
-let totalDocs    = 0;
-let allSelected  = new Set();
+/* ── State ──────────────────────────────────────────────────── */
+let curPage   = 1;
+let totPages  = 1;
+let totDocs   = 0;
+let selected  = new Set();
 let debTimer;
-let previewB64   = null;
-let previewName  = null;
+let prevUrl   = null;
+let prevName  = null;
 
-/* ── Init ───────────────────────────────────────────────── */
-async function init() {
-  await loadInvestors();
-  await loadStats();
-  await loadDocs(1);
-}
+/* ── Load on DOM ready ──────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+  loadInvestors();
+  loadStats();
+  loadDocs(1);
+});
 
-/* ── Load investors for filter dropdown ─────────────────── */
+/* ── Investors dropdown ─────────────────────────────────────── */
 async function loadInvestors() {
   try {
     const data = await api.get('/api/admin/investors');
     const sel  = document.getElementById('q-investor');
-    (data.investors || data || []).forEach(inv => {
+    const arr  = Array.isArray(data) ? data : (data.investors || []);
+    arr.forEach(inv => {
       const o = document.createElement('option');
       o.value = inv.id; o.textContent = inv.name;
       sel.appendChild(o);
     });
-  } catch(e) {}
+  } catch(e) { /* dropdown stays empty */ }
 }
 
-/* ── Stats ───────────────────────────────────────────────── */
+/* ── Stats ──────────────────────────────────────────────────── */
 async function loadStats() {
   try {
-    const [all, stmts, acct, fact] = await Promise.all([
-      api.get('/api/admin/documents?limit=1&page=1'),
-      api.get('/api/admin/documents?limit=1&page=1&doc_type=member_statement'),
-      api.get('/api/admin/documents?limit=1&page=1&doc_type=account_statement'),
-      api.get('/api/admin/documents?limit=1&page=1&doc_type=factsheet'),
+    const [all, mem, acct, fact] = await Promise.all([
+      api.get('/api/admin/documents?limit=1'),
+      api.get('/api/admin/documents?limit=1&doc_type=member_statement'),
+      api.get('/api/admin/documents?limit=1&doc_type=account_statement'),
+      api.get('/api/admin/documents?limit=1&doc_type=factsheet'),
     ]);
-    document.getElementById('s-total').textContent = (all.total || 0).toLocaleString();
-    document.getElementById('s-stmts').textContent = (stmts.total || 0).toLocaleString();
-    document.getElementById('s-acct').textContent  = (acct.total || 0).toLocaleString();
-    document.getElementById('s-fact').textContent  = (fact.total || 0).toLocaleString();
-    document.getElementById('s-size').textContent  = `${all.total || 0} files stored`;
-  } catch(e) {}
+    set('s-total', (all.total  || 0));
+    set('s-stmts', (mem.total  || 0));
+    set('s-acct',  (acct.total || 0));
+    set('s-fact',  (fact.total || 0));
+    set('s-sub',   `${all.total || 0} files in library`);
+  } catch(e) { /* stats stay as — */ }
+}
+function set(id, v) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = typeof v === 'number' ? v.toLocaleString() : v;
 }
 
-/* ── Main doc loader ─────────────────────────────────────── */
-async function loadDocs(page = 1) {
-  currentPage = page;
-  document.getElementById('table-container').innerHTML =
-    '<div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-text">Loading…</div></div>';
-  document.getElementById('pagination').style.display = 'none';
+/* ── Main load ──────────────────────────────────────────────── */
+async function loadDocs(page) {
+  curPage = page;
+  setBodyLoading();
 
-  const type  = document.getElementById('q-type').value;
-  const invId = document.getElementById('q-investor').value;
-  const fy    = document.getElementById('q-fy').value;
-  const vis   = document.getElementById('q-vis').value;
-  const search= document.getElementById('q-search').value.trim();
-  const limit = parseInt(document.getElementById('q-limit').value);
+  const search = document.getElementById('q-search').value.trim();
+  const type   = document.getElementById('q-type').value;
+  const invId  = document.getElementById('q-investor').value;
+  const fy     = document.getElementById('q-fy').value;
+  const vis    = document.getElementById('q-vis').value;
+  const lim    = parseInt(document.getElementById('q-limit').value) || 50;
 
-  let url = `/api/admin/documents?page=${page}&limit=${limit}`;
-  // Map display type to doc_type
+  // Map UI filter type to doc_type column value
   const typeMap = {
     subscription:'member_statement', redemption:'member_statement',
     dividend:'member_statement', account:'account_statement', factsheet:'factsheet'
   };
-  if (type) url += `&doc_type=${typeMap[type] || type}`;
-  if (invId) url += `&investor_id=${invId}`;
-  if (fy)    url += `&financial_year=${fy}`;
-  if (vis)   url += `&visibility=${vis}`;
-  if (search)url += `&search=${encodeURIComponent(search)}`;
+  let url = `/api/admin/documents?page=${page}&limit=${lim}`;
+  if (type)   url += `&doc_type=${encodeURIComponent(typeMap[type] || type)}`;
+  if (invId)  url += `&investor_id=${encodeURIComponent(invId)}`;
+  if (fy)     url += `&financial_year=${encodeURIComponent(fy)}`;
+  if (vis)    url += `&visibility=${encodeURIComponent(vis)}`;
+  if (search) url += `&search=${encodeURIComponent(search)}`;
 
   try {
     const res  = await api.get(url);
-    const docs = res.data || [];
-    totalDocs  = res.total || 0;
-    totalPages = Math.max(1, Math.ceil(totalDocs / limit));
+    let docs   = res.data || [];
+    totDocs    = res.total || 0;
+    totPages   = Math.max(1, Math.ceil(totDocs / lim));
 
-    // Filter by title search client-side if backend doesn't support
-    let filtered = docs;
-    if (search) {
-      const q = search.toLowerCase();
-      filtered = docs.filter(d =>
-        (d.title||'').toLowerCase().includes(q) ||
-        (d.investor_name||'').toLowerCase().includes(q));
-    }
-    // Filter by subtype (subscription/redemption/dividend within member_statement)
-    if (type === 'subscription') filtered = filtered.filter(d => /subscri/i.test(d.title||''));
-    else if (type === 'redemption') filtered = filtered.filter(d => /redemp/i.test(d.title||''));
-    else if (type === 'dividend') filtered = filtered.filter(d => /dividend/i.test(d.title||''));
+    // Client-side sub-filter by title keyword (subscription/redemption/dividend
+    // all share doc_type='member_statement')
+    if (type === 'subscription') docs = docs.filter(d => /subscri/i.test(d.title || ''));
+    else if (type === 'redemption') docs = docs.filter(d => /redemp/i.test(d.title || ''));
+    else if (type === 'dividend')   docs = docs.filter(d => /dividend/i.test(d.title || ''));
 
-    renderTable(filtered, limit);
-    renderPagination(totalDocs, limit);
+    renderRows(docs);
+    renderPag(totDocs, lim);
+    document.getElementById('tbl-count').textContent =
+      totDocs ? `${totDocs} document${totDocs !== 1 ? 's' : ''}` : '';
   } catch(e) {
-    document.getElementById('table-container').innerHTML =
-      `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${e.message}</div></div>`;
+    document.getElementById('doc-tbody').innerHTML =
+      `<tr class="empty-row"><td colspan="8">⚠️ ${esc(e.message)}</td></tr>`;
   }
 }
 
-/* ── Render table ────────────────────────────────────────── */
-function renderTable(docs, limit) {
+/* ── Render rows ────────────────────────────────────────────── */
+function renderRows(docs) {
+  const tbody = document.getElementById('doc-tbody');
   if (!docs.length) {
-    document.getElementById('table-container').innerHTML =
-      '<div class="empty-state"><div class="empty-icon">📂</div>' +
-      '<div class="empty-text">No documents found for this filter.</div></div>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">📂 No documents found.</td></tr>';
     return;
   }
-  const rows = docs.map(d => {
-    const checked = allSelected.has(d.id) ? 'checked' : '';
-    const type = detectType(d);
-    const badgeCls = {subscription:'badge-subscription',redemption:'badge-redemption',
-      dividend:'badge-dividend','account statement':'badge-account',
-      factsheet:'badge-factsheet'}[type] || 'badge-other';
-    const visCls = d.visibility === 'fund' ? 'badge-fund' : 'badge-member';
-    const dt = new Date(d.created_at);
-    const dtStr = isNaN(dt) ? '—' : dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
-    const sz = d.file_size_kb ? `${d.file_size_kb} KB` : '—';
-    const fy = d.financial_year ? `<span style="color:var(--blue);font-weight:600">${d.financial_year}</span>` : '—';
+  tbody.innerHTML = docs.map(d => {
+    const chk   = selected.has(d.id) ? 'checked' : '';
+    const type  = detectType(d);
+    const tBadge= {subscription:'badge-sub',redemption:'badge-red',dividend:'badge-div',
+      'account statement':'badge-acct',factsheet:'badge-fact'}[type] || 'badge-other';
+    const vBadge= d.visibility === 'fund' ? 'badge-fund' : 'badge-mem';
+    const dt    = d.created_at ? new Date(d.created_at).toLocaleDateString('en-GB',
+      {day:'2-digit',month:'short',year:'numeric'}) : '—';
+    const sz    = d.file_size_kb ? `${d.file_size_kb} KB` : '';
+    const fy    = d.financial_year
+      ? `<span style="color:var(--blue);font-weight:600">${esc(d.financial_year)}</span>` : '—';
     return `<tr>
-      <td style="width:36px;text-align:center">
-        <input type="checkbox" class="row-check" data-id="${d.id}" ${checked}
-          onchange="toggleRow('${d.id}',this.checked)" style="width:15px;height:15px">
+      <td style="text-align:center">
+        <input type="checkbox" class="row-cb" data-id="${d.id}" ${chk}
+          onchange="toggleRow('${d.id}',this.checked)" style="width:14px;height:14px">
       </td>
       <td>
-        <div class="doc-title" title="${esc(d.title)}">${esc(d.title)}</div>
-        <div class="doc-meta">📄 ${esc(d.file_name||'—')} · ${sz}</div>
+        <div class="doc-name" title="${esc(d.title)}">${esc(d.title)}</div>
+        <div class="doc-file">${esc(d.file_name || '')}${sz ? ' · ' + sz : ''}</div>
       </td>
-      <td><span class="badge ${badgeCls}">${cap(type)}</span></td>
-      <td>${esc(d.investor_name||'Fund-wide')}</td>
+      <td><span class="badge ${tBadge}">${cap(type)}</span></td>
+      <td style="font-size:0.82rem">${esc(d.investor_name || 'Fund-wide')}</td>
       <td>${fy}</td>
-      <td><span class="badge ${visCls}">${d.visibility||'—'}</span></td>
-      <td style="color:var(--text-muted);font-size:0.8rem">${dtStr}</td>
+      <td><span class="badge ${vBadge}">${d.visibility || '—'}</span></td>
+      <td style="font-size:0.79rem;color:var(--text-muted)">${dt}</td>
       <td>
-        <div class="actions-col">
-          <button class="act-btn act-download" onclick="downloadDoc('${d.id}','${esc(d.file_name||d.title+'.pdf')}')">⬇</button>
-          <button class="act-btn act-regen" onclick="previewDoc('${d.id}','${esc(d.title)}')">👁</button>
-          <button class="act-btn act-delete" onclick="deleteDoc('${d.id}','${esc(d.title)}')">🗑</button>
+        <div class="act-col">
+          <button class="act-btn act-dl"  title="Download" onclick="dlDoc('${d.id}','${esc(d.file_name||d.id+'.pdf')}')">⬇</button>
+          <button class="act-btn act-eye" title="Preview"  onclick="prevDoc('${d.id}','${esc(d.title)}')">👁</button>
+          <button class="act-btn act-del" title="Delete"   onclick="delDoc('${d.id}','${esc(d.title)}')">🗑</button>
         </div>
       </td>
     </tr>`;
   }).join('');
-
-  document.getElementById('table-container').innerHTML = `
-    <table class="doc-table">
-      <thead>
-        <tr>
-          <th style="width:36px"><input type="checkbox" id="hdr-check" onchange="toggleSelectAll(this.checked)"
-            style="width:15px;height:15px"></th>
-          <th>Document</th>
-          <th>Type</th>
-          <th>Investor</th>
-          <th>FY</th>
-          <th>Visibility</th>
-          <th>Created</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-  updateBulkBar();
 }
 
-/* ── Pagination ──────────────────────────────────────────── */
-function renderPagination(total, limit) {
-  const pag = document.getElementById('pagination');
-  const info = document.getElementById('pag-info');
-  const btns = document.getElementById('pag-btns');
-  if (total === 0) { pag.style.display='none'; return; }
-  pag.style.display='flex';
-  const from = (currentPage-1)*limit+1;
-  const to   = Math.min(currentPage*limit, total);
-  info.textContent = `Showing ${from}–${to} of ${total} documents`;
+/* ── Pagination ─────────────────────────────────────────────── */
+function renderPag(total, lim) {
+  const row = document.getElementById('pag-row');
+  if (!total) { row.style.display='none'; return; }
+  row.style.display='flex';
+  const from = (curPage-1)*lim + 1;
+  const to   = Math.min(curPage*lim, total);
+  document.getElementById('pag-info').textContent = `Showing ${from}–${to} of ${total}`;
 
-  let html = `<button class="pag-btn" onclick="loadDocs(${currentPage-1})"
-    ${currentPage<=1?'disabled':''}>‹ Prev</button>`;
-  const range = pageRange(currentPage, totalPages);
-  range.forEach(p => {
-    if (p === '…') html += `<span style="padding:5px 4px;color:var(--text-muted)">…</span>`;
-    else html += `<button class="pag-btn ${p===currentPage?'active':''}"
-      onclick="loadDocs(${p})">${p}</button>`;
-  });
-  html += `<button class="pag-btn" onclick="loadDocs(${currentPage+1})"
-    ${currentPage>=totalPages?'disabled':''}>Next ›</button>`;
-  btns.innerHTML = html;
+  const pages = buildPageRange(curPage, totPages);
+  document.getElementById('pag-btns').innerHTML =
+    `<button class="pag-btn" onclick="loadDocs(${curPage-1})"
+      ${curPage<=1?'disabled':''}>‹</button>` +
+    pages.map(p => p === '…'
+      ? `<span style="padding:4px 3px;color:var(--text-muted)">…</span>`
+      : `<button class="pag-btn ${p===curPage?'on':''}" onclick="loadDocs(${p})">${p}</button>`
+    ).join('') +
+    `<button class="pag-btn" onclick="loadDocs(${curPage+1})"
+      ${curPage>=totPages?'disabled':''}>›</button>`;
 }
-function pageRange(cur, total) {
-  if (total <= 7) return Array.from({length:total},(_,i)=>i+1);
+function buildPageRange(cur, tot) {
+  if (tot <= 7) return [...Array(tot)].map((_,i)=>i+1);
   const r = [1];
   if (cur > 3) r.push('…');
-  for (let p=Math.max(2,cur-1);p<=Math.min(total-1,cur+1);p++) r.push(p);
-  if (cur < total-2) r.push('…');
-  r.push(total);
+  for (let p=Math.max(2,cur-1); p<=Math.min(tot-1,cur+1); p++) r.push(p);
+  if (cur < tot-2) r.push('…');
+  r.push(tot);
   return r;
 }
 
-/* ── Selection ───────────────────────────────────────────── */
-function toggleRow(id, checked) {
-  if (checked) allSelected.add(id);
-  else allSelected.delete(id);
-  updateBulkBar();
+/* ── Selection ──────────────────────────────────────────────── */
+function toggleRow(id, on) {
+  on ? selected.add(id) : selected.delete(id);
+  updateBulk();
 }
-function toggleSelectAll(checked) {
-  document.querySelectorAll('.row-check').forEach(cb => {
-    cb.checked = checked;
-    if (checked) allSelected.add(cb.dataset.id);
-    else allSelected.delete(cb.dataset.id);
+function toggleAll(on) {
+  document.querySelectorAll('.row-cb').forEach(cb => {
+    cb.checked = on;
+    on ? selected.add(cb.dataset.id) : selected.delete(cb.dataset.id);
   });
-  document.getElementById('hdr-check') && (document.getElementById('hdr-check').checked = checked);
-  document.getElementById('select-all') && (document.getElementById('select-all').checked = checked);
-  updateBulkBar();
+  const h = document.getElementById('hdr-chk');
+  if (h) h.checked = on;
+  const s = document.getElementById('sel-all');
+  if (s) s.checked = on;
+  updateBulk();
 }
-function clearSelection() {
-  allSelected.clear();
-  document.querySelectorAll('.row-check').forEach(cb => cb.checked = false);
-  const hdr = document.getElementById('hdr-check');
-  if (hdr) hdr.checked = false;
-  updateBulkBar();
+function clearSel() {
+  selected.clear();
+  document.querySelectorAll('.row-cb').forEach(cb => cb.checked=false);
+  ['hdr-chk','sel-all'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.checked=false;
+  });
+  updateBulk();
 }
-function updateBulkBar() {
-  const n = allSelected.size;
+function updateBulk() {
+  const n   = selected.size;
   const bar = document.getElementById('bulk-bar');
-  const dBtn = document.getElementById('bulk-delete-btn');
-  bar.classList.toggle('visible', n > 0);
-  if (dBtn) dBtn.style.display = n > 0 ? '' : 'none';
+  bar.classList.toggle('show', n > 0);
   const cnt = document.getElementById('bulk-count');
   if (cnt) cnt.textContent = `${n} selected`;
 }
 
-/* ── Download ────────────────────────────────────────────── */
-async function downloadDoc(id, filename) {
+/* ── Download ────────────────────────────────────────────────── */
+async function dlDoc(id, filename) {
   try {
     const data = await api.get(`/api/admin/documents/${id}/download`);
-    if (!data?.url) return;
-    blobDownload(data.url, data.file_name || filename);
+    if (!data?.url) { showToast('No file URL returned','error'); return; }
+    blobDl(data.url, data.file_name || filename);
   } catch(e) { showToast('Download failed: ' + e.message, 'error'); }
 }
 
-function blobDownload(url, filename) {
+function blobDl(url, name) {
   if (url.startsWith('data:')) {
     const b64  = url.split(',')[1];
     const bin  = atob(b64);
     const buf  = new Uint8Array(bin.length);
-    for (let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
+    for (let i=0; i<bin.length; i++) buf[i] = bin.charCodeAt(i);
     const blob = new Blob([buf], {type:'application/pdf'});
     const a    = Object.assign(document.createElement('a'),
-      {href:URL.createObjectURL(blob), download:filename});
+      {href: URL.createObjectURL(blob), download: name});
     a.click(); URL.revokeObjectURL(a.href);
   } else {
     Object.assign(document.createElement('a'),
-      {href:url, download:filename, target:'_blank'}).click();
+      {href:url, download:name, target:'_blank'}).click();
   }
 }
 
-/* ── Preview ─────────────────────────────────────────────── */
-async function previewDoc(id, title) {
+/* ── Preview ─────────────────────────────────────────────────── */
+async function prevDoc(id, title) {
   try {
     const data = await api.get(`/api/admin/documents/${id}/download`);
     if (!data?.url) return;
-    previewB64   = data.url;
-    previewName  = data.file_name || title + '.pdf';
-
-    let src = data.url;
-    if (src.startsWith('data:')) src = src; // iframe can render data URI
-    const frame = document.getElementById('preview-frame');
-    frame.src   = src;
-    document.getElementById('preview-title').textContent = title;
-    document.getElementById('preview-dl-btn').onclick =
-      () => blobDownload(previewB64, previewName);
-    document.getElementById('preview-overlay').classList.add('open');
-  } catch(e) { showToast('Preview failed: ' + e.message, 'error'); }
+    prevUrl  = data.url;
+    prevName = data.file_name || title + '.pdf';
+    document.getElementById('prev-title').textContent = title;
+    document.getElementById('prev-frame').src = data.url;
+    document.getElementById('prev-dl').onclick = () => blobDl(prevUrl, prevName);
+    document.getElementById('prev-overlay').classList.add('open');
+  } catch(e) { showToast('Preview failed: ' + e.message,'error'); }
 }
-function closePreview() {
-  document.getElementById('preview-overlay').classList.remove('open');
-  document.getElementById('preview-frame').src = 'about:blank';
-  previewB64 = previewName = null;
+function closePrev() {
+  document.getElementById('prev-overlay').classList.remove('open');
+  document.getElementById('prev-frame').src = 'about:blank';
+  prevUrl = prevName = null;
 }
 
-/* ── Delete ──────────────────────────────────────────────── */
-async function deleteDoc(id, title) {
+/* ── Delete ──────────────────────────────────────────────────── */
+async function delDoc(id, title) {
   if (!confirm(`Delete "${title}"?\n\nThis cannot be undone.`)) return;
   try {
     await api.delete(`/api/admin/documents/${id}`);
-    showToast('Document deleted', 'success');
-    allSelected.delete(id);
-    loadDocs(currentPage);
+    selected.delete(id);
+    showToast('Document deleted','success');
+    loadDocs(curPage);
     loadStats();
-  } catch(e) { showToast('Delete failed: ' + e.message, 'error'); }
+  } catch(e) { showToast('Delete failed: ' + e.message,'error'); }
 }
 
-async function bulkDeleteSelected() {
-  if (!allSelected.size) return;
-  if (!confirm(`Delete ${allSelected.size} selected document(s)?\n\nThis cannot be undone.`)) return;
-  let ok = 0, fail = 0;
-  for (const id of [...allSelected]) {
+async function bulkDelete() {
+  const ids = [...selected];
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} document(s)?\n\nThis cannot be undone.`)) return;
+  let ok=0, fail=0;
+  for (const id of ids) {
     try { await api.delete(`/api/admin/documents/${id}`); ok++; }
     catch { fail++; }
   }
-  allSelected.clear();
-  showToast(`Deleted ${ok} document(s)${fail ? ` (${fail} failed)` : ''}`, ok ? 'success' : 'error');
-  loadDocs(currentPage);
-  loadStats();
+  selected.clear();
+  showToast(`Deleted ${ok}${fail?' ('+fail+' failed)':''}`, ok?'success':'error');
+  loadDocs(curPage); loadStats();
 }
 
-/* ── Helpers ─────────────────────────────────────────────── */
+/* ── Helpers ─────────────────────────────────────────────────── */
+function setBodyLoading() {
+  document.getElementById('doc-tbody').innerHTML =
+    '<tr class="empty-row"><td colspan="8">⏳ Loading…</td></tr>';
+  document.getElementById('pag-row').style.display = 'none';
+}
 function detectType(d) {
-  const t = (d.title||'').toLowerCase();
-  if (/subscri/.test(t)) return 'subscription';
-  if (/redemp/.test(t))  return 'redemption';
-  if (/dividend/.test(t))return 'dividend';
-  if (/account/.test(t)) return 'account statement';
+  const t = (d.title || '').toLowerCase();
+  if (/subscri/.test(t))            return 'subscription';
+  if (/redemp/.test(t))             return 'redemption';
+  if (/dividend/.test(t))           return 'dividend';
+  if (/account/.test(t))            return 'account statement';
   if (/factsheet|vision portfolio/.test(t)) return 'factsheet';
   return d.doc_type || 'other';
 }
-function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'; }
-function esc(s) { return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function debounceLoad() { clearTimeout(debTimer); debTimer=setTimeout(()=>loadDocs(1), 350); }
+function cap(s)   { return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'; }
+function esc(s)   {
+  return String(s||'').replace(/[&<>"']/g,
+    c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function debounceLoad() {
+  clearTimeout(debTimer);
+  debTimer = setTimeout(() => loadDocs(1), 380);
+}
 function clearFilters() {
-  ['q-type','q-investor','q-fy','q-vis'].forEach(id => document.getElementById(id).value='');
-  document.getElementById('q-search').value='';
+  ['q-type','q-investor','q-fy','q-vis'].forEach(id =>
+    document.getElementById(id).value = '');
+  document.getElementById('q-search').value = '';
   loadDocs(1);
 }
-
-init();
 </script>
 </body>
 </html>

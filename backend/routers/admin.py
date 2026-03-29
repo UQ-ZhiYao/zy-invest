@@ -1077,8 +1077,9 @@ async def list_documents(
     if visibility:
         where.append(f"d.visibility = ${i}"); params.append(visibility); i+=1
     if search:
-        where.append(f"(LOWER(d.title) LIKE ${i} OR LOWER(inv.name) LIKE ${i})")
-        params.append(f"%{search.lower()}%"); i+=1
+        where.append(f"(LOWER(d.title) LIKE ${i} OR LOWER(COALESCE(inv.name,'')) LIKE ${i+1})")
+        params.append(f"%{search.lower()}%")
+        params.append(f"%{search.lower()}%"); i+=2
 
     where_sql = " AND ".join(where)
     offset = (page-1)*limit

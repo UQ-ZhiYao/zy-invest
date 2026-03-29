@@ -258,7 +258,7 @@ def _letter(s, name, addr, title, issued,
 
     meta_t = Table(
         [[Paragraph(k, s['small']), Paragraph(v, s['small'])] for k, v in meta],
-        colWidths=[36*mm, 70*mm])
+        colWidths=[35*mm, 68*mm])
     meta_t.setStyle(TableStyle([
         ('TOPPADDING',(0,0),(-1,-1),1.5),
         ('BOTTOMPADDING',(0,0),(-1,-1),1.5),
@@ -283,14 +283,16 @@ def _letter(s, name, addr, title, issued,
 
     # ── Two-column body row ─────────────────────────────────────
     # Left: name+address, Right: meta — separator spacer in between
-    body_row = Table([[addr_t, meta_t]],
-                     colWidths=[62*mm, CW - 62*mm])
+    # addr left (60mm) | gap (CW-60-103=8mm) | meta right (103mm)
+    body_row = Table([[addr_t, Spacer(1,1), meta_t]],
+                     colWidths=[60*mm, CW - 60*mm - 103*mm, 103*mm])
     body_row.setStyle(TableStyle([
         ('VALIGN',(0,0),(-1,-1),'TOP'),
         ('LEFTPADDING',(0,0),(-1,-1),0),
         ('RIGHTPADDING',(0,0),(-1,-1),0),
         ('TOPPADDING',(0,0),(-1,-1),0),
         ('BOTTOMPADDING',(0,0),(-1,-1),0),
+        ('ALIGN',(2,0),(2,-1),'RIGHT'),
     ]))
 
     return [
@@ -416,7 +418,7 @@ def _donut(labels, values, size=(55*mm, 55*mm)):
         pctdistance=0.75,
         colors=[CC[i % len(CC)] for i in range(len(values))],
         startangle=90,
-        wedgeprops=dict(width=0.52, edgecolor='white', linewidth=1.2))
+        wedgeprops=dict(width=0.52, edgecolor='white', linewidth=0.3))
     for at in autotexts:
         at.set_fontsize(5.5); at.set_color('white'); at.set_fontweight('bold')
     ax.set_aspect('equal')
