@@ -389,9 +389,9 @@ def _inv_grid(s, fields):
     w1 = 33*mm; w2 = CW/2 - w1; w3 = 33*mm; w4 = CW/2 - w3
     rows = [[
         Paragraph(r[0], s['small']),
-        Paragraph(str(r[1]) if r[1] else '—', s['bold']),
+        Paragraph(str(r[1]) if r[1] else '—', s['body']),
         Paragraph(r[2], s['small']),
-        Paragraph(str(r[3]) if r[3] else '—', s['bold']),
+        Paragraph(str(r[3]) if r[3] else '—', s['body']),
     ] for r in fields]
     t = Table(rows, colWidths=[w1, w2, w3, w4])
     t.setStyle(TableStyle([
@@ -408,9 +408,9 @@ def _inv_grid(s, fields):
         ('FONTSIZE',(2,0),(2,-1),7.5),
         ('TEXTCOLOR',(0,0),(0,-1),G2),
         ('TEXTCOLOR',(2,0),(2,-1),G2),
-        # Values: bold black
-        ('FONTNAME',(1,0),(1,-1),'Helvetica-Bold'),
-        ('FONTNAME',(3,0),(3,-1),'Helvetica-Bold'),
+        # Values: normal weight black
+        ('FONTNAME',(1,0),(1,-1),'Helvetica'),
+        ('FONTNAME',(3,0),(3,-1),'Helvetica'),
         ('FONTSIZE',(1,0),(1,-1),8),
         ('FONTSIZE',(3,0),(3,-1),8),
         ('TEXTCOLOR',(1,0),(1,-1),G1),
