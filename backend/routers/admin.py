@@ -485,46 +485,35 @@ async def compute_holdings_and_settlement(
                 settlement_errors.append(f"Holdings save {instr}: {e}")
 
     # ── Cash position ─────────────────────────────────────────
-    # Cash = subscriptions - redemptions + dividends + others - distributions - open positions cost
+    # Cash = principal (signed) + transactions net + dividends + others - distributions
+    # principal_cashflows.amount is already signed: positive=deposit, negative=withdrawal
     cash = Decimal('0')
 
-    # 1. Principal cashflows
-    # Inflow types: subscription, transfer, deposit (legacy)
-    # Outflow types: redemption, withdrawal (legacy)
-    # Amount may be stored positive or negative — use abs() and type to determine direction
-    INFLOW_TYPES  = {'subscription', 'transfer', 'deposit'}
-    OUTFLOW_TYPES = {'redemption', 'withdrawal'}
-    pc_rows = await db.fetch("SELECT cashflow_type, amount FROM principal_cashflows")
+    # 1. Principal cashflows — amount already signed (positive=in, negative=out)
+    pc_rows = await db.fetch("SELECT amount FROM principal_cashflows")
     for r in pc_rows:
-        amt = abs(D(r['amount']))
-        ctype = (r['cashflow_type'] or '').lower().strip()
-        if ctype in INFLOW_TYPES:
-            cash += amt
-        elif ctype in OUTFLOW_TYPES:
-            cash -= amt
-        else:
-            # Unknown type — use amount sign as fallback
-            cash += D(r['amount'])
+        cash += D(r['amount'])
 
-    # 2. Others: positive = income (in), negative = expense (out)
+    # 2. Trade transactions — net_amount already signed (buy=negative, sell=positive)
+    for row in rows:
+        cash += D(row['net_amount'])
+
+    # 3. Others: interest income, management fees, misc (already signed)
     oth_rows = await db.fetch("SELECT amount FROM others")
     for r in oth_rows:
         cash += D(r['amount'])
 
-    # 3. Distributions paid out to investors (cash leaves fund)
-    dist_rows = await db.fetch("SELECT total_dividend FROM distributions WHERE total_dividend IS NOT NULL")
-    for r in dist_rows:
-        cash -= abs(D(r['total_dividend']))
-
-    # 4. Stock dividends received (cash into fund)
+    # 4. Stock dividends received by fund (cash inflow, always positive)
     div_rows = await db.fetch("SELECT amount FROM dividends")
     for r in div_rows:
         cash += abs(D(r['amount']))
 
-    # 5. Deduct cost basis of currently open stock positions
-    for instr, pos in positions.items():
-        if pos['units'] > Decimal('0.001'):
-            cash -= pos['total_net_cost']
+    # 5. Fund distributions paid out to investors (cash outflow)
+    dist_rows = await db.fetch(
+        "SELECT total_dividend FROM distributions WHERE total_dividend IS NOT NULL"
+    )
+    for r in dist_rows:
+        cash -= abs(D(r['total_dividend']))
 
     # Save CASH as a holdings row (always — even if negative)
     cash_rounded = cash.quantize(Decimal('0.0001'), ROUND_HALF_UP)
@@ -552,27 +541,11 @@ async def compute_holdings_and_settlement(
     except Exception as e:
         settlement_errors.append(f"Cash position: {e}")
 
-    # Diagnostic breakdown
-    pc_sub  = sum(abs(D(r['amount'])) for r in pc_rows if r['cashflow_type'] == 'subscription')
-    pc_red  = sum(abs(D(r['amount'])) for r in pc_rows if r['cashflow_type'] != 'subscription')
-    oth_tot = sum(D(r['amount']) for r in oth_rows)
-    div_tot = sum(abs(D(r['amount'])) for r in div_rows)
-    dist_tot = sum(abs(D(r['total_dividend'])) for r in dist_rows if r['total_dividend'])
-    pos_cost = sum(pos['total_net_cost'] for pos in positions.values() if pos['units'] > Decimal('0.001'))
-
     return {
         "message": "Holdings and settlement recomputed",
         "positions": holdings_saved,
         "settlement_records": settlement_count,
         "cash_balance": float(cash.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
-        "cash_breakdown": {
-            "subscriptions":   float(pc_sub.quantize(Decimal('0.01'))),
-            "redemptions":     float(pc_red.quantize(Decimal('0.01'))),
-            "others_income":   float(oth_tot.quantize(Decimal('0.01'))),
-            "dividends_rcvd":  float(div_tot.quantize(Decimal('0.01'))),
-            "distributions_pd": float(dist_tot.quantize(Decimal('0.01'))),
-            "open_pos_cost":   float(pos_cost.quantize(Decimal('0.01'))),
-        },
         "errors": settlement_errors[:5] if settlement_errors else []
     }
 
