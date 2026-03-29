@@ -485,15 +485,18 @@ async def compute_holdings_and_settlement(
                 settlement_errors.append(f"Holdings save {instr}: {e}")
 
     # ── Cash position ─────────────────────────────────────────
-    # Aggregate cash from all fund activity sources
+    # Cash = money received from investors + income - payouts - open position cost basis
+    # We do NOT sum raw transaction net_amounts because trading volume >> AUM
+    # (a stock bought and sold multiple times generates large offsetting flows)
+    # Instead: Cash = Fund equity sources - cash deployed into open positions
     cash = Decimal('0')
 
-    # 1. Principal cashflows: subscription = inflow, redemption = outflow
+    # 1. Principal cashflows: subscriptions in, redemptions out
     pc_rows = await db.fetch("SELECT cashflow_type, amount FROM principal_cashflows")
     for r in pc_rows:
         amt = D(r['amount'])
         if r['cashflow_type'] == 'subscription':
-            cash += amt
+            cash += abs(amt)
         else:
             cash -= abs(amt)
 
@@ -502,19 +505,20 @@ async def compute_holdings_and_settlement(
     for r in oth_rows:
         cash += D(r['amount'])
 
-    # 3. Distributions: fund pays out cash to investors
+    # 3. Distributions paid out to investors (cash leaves fund)
     dist_rows = await db.fetch("SELECT total_dividend FROM distributions WHERE total_dividend IS NOT NULL")
     for r in dist_rows:
         cash -= abs(D(r['total_dividend']))
 
-    # 4. Dividends received: increases fund cash
+    # 4. Stock dividends received (cash into fund)
     div_rows = await db.fetch("SELECT amount FROM dividends")
     for r in div_rows:
         cash += abs(D(r['amount']))
 
-    # 5. Transactions: net_amount negative = buy (cash out), positive = sell (cash in)
-    for row in rows:
-        cash += D(row['net_amount'])  # already signed: buy=-ve, sell=+ve
+    # 5. Deduct cost basis of open stock positions (cash deployed into stocks)
+    for instr, pos in positions.items():
+        if pos['units'] > Decimal('0.001'):
+            cash -= pos['total_net_cost']  # cost basis of still-held positions
 
     # Save CASH as a holdings row (always — even if negative)
     cash_rounded = cash.quantize(Decimal('0.0001'), ROUND_HALF_UP)
@@ -531,7 +535,7 @@ async def compute_holdings_and_settlement(
                 last_updated=NOW()
         """,
             'CASH',
-            'Money Market',
+            'Currencies',
             'Cash & Equivalents',
             'MY',
             float(cash_rounded),
