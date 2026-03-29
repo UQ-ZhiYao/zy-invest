@@ -546,11 +546,27 @@ async def compute_holdings_and_settlement(
     except Exception as e:
         settlement_errors.append(f"Cash position: {e}")
 
+    # Diagnostic breakdown
+    pc_sub  = sum(abs(D(r['amount'])) for r in pc_rows if r['cashflow_type'] == 'subscription')
+    pc_red  = sum(abs(D(r['amount'])) for r in pc_rows if r['cashflow_type'] != 'subscription')
+    oth_tot = sum(D(r['amount']) for r in oth_rows)
+    div_tot = sum(abs(D(r['amount'])) for r in div_rows)
+    dist_tot = sum(abs(D(r['total_dividend'])) for r in dist_rows if r['total_dividend'])
+    pos_cost = sum(pos['total_net_cost'] for pos in positions.values() if pos['units'] > Decimal('0.001'))
+
     return {
         "message": "Holdings and settlement recomputed",
         "positions": holdings_saved,
         "settlement_records": settlement_count,
         "cash_balance": float(cash.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
+        "cash_breakdown": {
+            "subscriptions":   float(pc_sub.quantize(Decimal('0.01'))),
+            "redemptions":     float(pc_red.quantize(Decimal('0.01'))),
+            "others_income":   float(oth_tot.quantize(Decimal('0.01'))),
+            "dividends_rcvd":  float(div_tot.quantize(Decimal('0.01'))),
+            "distributions_pd": float(dist_tot.quantize(Decimal('0.01'))),
+            "open_pos_cost":   float(pos_cost.quantize(Decimal('0.01'))),
+        },
         "errors": settlement_errors[:5] if settlement_errors else []
     }
 

@@ -139,7 +139,7 @@ function renderHoldings(data) {
     const cost = Number(h.total_cost || 0);
     const upl  = isCash ? 0 : mv - cost;
     const ret  = (!isCash && cost > 0) ? (upl / cost) * 100 : 0;
-    const rowStyle = isCash ? 'background:var(--blue-bg)' : '';
+    const rowStyle = '';
     return `<tr style="${rowStyle}">
       <td style="font-weight:700;color:${isCash?'var(--blue)':'inherit'}">${h.instrument}</td>
       <td><span class="pill ${isCash?'pill-blue':'pill-gray'}" style="font-size:0.72rem">${h.asset_class}</span></td>
@@ -208,6 +208,7 @@ async function computeHoldings() {
     const r = await api.post('/api/admin/holdings/compute', {});
     const cashStr = r.cash_balance !== undefined ? ` · Cash: RM ${Number(r.cash_balance).toLocaleString('en-MY', {minimumFractionDigits:2, maximumFractionDigits:2})}` : '';
     showToast(`Done! ${r.positions} positions, ${r.settlement_records} settlement records${cashStr}`, 'success');
+    if (r.cash_breakdown) console.log('Cash breakdown:', JSON.stringify(r.cash_breakdown, null, 2));
     await loadHoldings();
   } catch(e) { showToast('Compute failed: ' + e.message, 'error'); }
 }
