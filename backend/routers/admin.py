@@ -1205,43 +1205,23 @@ async def generate_statement(
     elif stmt_type == 'subscription':
         if not investor_id:
             raise HTTPException(400, "investor_id required")
-        # Get user + investor data
         inv = await db.fetchrow("""
             SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
                    u.address_line1, u.address_line2, u.city, u.postcode, u.state
-            FROM investors i
-            LEFT JOIN users u ON u.investor_id = i.id
+            FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, investor_id)
-        if not inv:
-            raise HTTPException(404, "Investor not found")
+        if not inv: raise HTTPException(404, "Investor not found")
+        # Generate one PDF per subscription record — return the most recent one
         cfs = await db.fetch("""
-            SELECT date, cashflow_type AS description, amount, nta_at_date, units
-            FROM principal_cashflows
-            WHERE investor_id = $1
-            ORDER BY date
+            SELECT * FROM principal_cashflows
+            WHERE investor_id = $1 AND amount > 0 ORDER BY date DESC
         """, investor_id)
-        # Running average cost
-        cfs_list = []
-        cum_units = cum_cost = 0
-        for cf in cfs:
-            amt = float(cf['amount'])
-            u   = float(cf['units'])
-            if amt > 0:
-                cum_cost  += abs(amt)
-                cum_units += u
-            else:
-                cum_units += u  # negative units on redemption
-            avg = cum_cost / cum_units if cum_units > 0 else 0
-            cfs_list.append({**dict(cf),
-                'description': 'Fund Subscription' if amt > 0 else 'Fund Redemption',
-                'avg_cost': avg})
-        pdf_bytes = generate_subscription(
-            investor=dict(inv),
-            cashflows=cfs_list,
-            statement_period=period
-        )
-        title = f"Subscription Statement — {inv['name']}"
+        if not cfs: raise HTTPException(404, "No subscription records found")
+        # Use the latest subscription record for a single-page daily statement
+        cf_rec = dict(cfs[0])
+        pdf_bytes = generate_subscription(investor=dict(inv), cashflow_record=cf_rec)
+        title = f"Subscription Statement — {inv['name']} ({str(cf_rec.get('date',''))[:10]})"
         visibility = 'member'
         inv_id_for_doc = str(investor_id)
 
@@ -1251,24 +1231,18 @@ async def generate_statement(
         inv = await db.fetchrow("""
             SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
                    u.address_line1, u.address_line2, u.city, u.postcode, u.state
-            FROM investors i
-            LEFT JOIN users u ON u.investor_id = i.id
+            FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, investor_id)
         if not inv: raise HTTPException(404, "Investor not found")
         cfs = await db.fetch("""
-            SELECT date, cashflow_type, amount, nta_at_date, units
-            FROM principal_cashflows
-            WHERE investor_id = $1 AND amount < 0
-            ORDER BY date
+            SELECT * FROM principal_cashflows
+            WHERE investor_id = $1 AND amount < 0 ORDER BY date DESC
         """, investor_id)
-        cfs_list = []
-        for cf in cfs:
-            cfs_list.append({**dict(cf), 'description': 'Fund Redemption',
-                'avg_cost': float(cf['nta_at_date']) if cf.get('nta_at_date') else None})
-        pdf_bytes = generate_redemption(
-            investor=dict(inv), cashflows=cfs_list, statement_period=period)
-        title = f"Redemption Statement — {inv['name']}"
+        if not cfs: raise HTTPException(404, "No redemption records found")
+        cf_rec = dict(cfs[0])
+        pdf_bytes = generate_redemption(investor=dict(inv), cashflow_record=cf_rec)
+        title = f"Redemption Statement — {inv['name']} ({str(cf_rec.get('date',''))[:10]})"
         visibility = 'member'
         inv_id_for_doc = str(investor_id)
 
@@ -1278,13 +1252,11 @@ async def generate_statement(
         inv = await db.fetchrow("""
             SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
                    u.address_line1, u.address_line2, u.city, u.postcode, u.state
-            FROM investors i
-            LEFT JOIN users u ON u.investor_id = i.id
+            FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, investor_id)
-        if not inv:
-            raise HTTPException(404, "Investor not found")
-        # Get distribution ledger for this investor
+        if not inv: raise HTTPException(404, "Investor not found")
+        # Get distribution ledger for this investor (most recent record for FY)
         dists = await db.fetch("""
             SELECT dl.units_at_ex_date, dl.amount, dl.paid,
                    d.title, d.dist_type, d.dps_sen, d.ex_date, d.pmt_date,
@@ -1293,13 +1265,13 @@ async def generate_statement(
             JOIN distributions d ON d.id = dl.distribution_id
             WHERE dl.investor_id = $1
               AND ($2 = '' OR d.financial_year = $2)
-            ORDER BY d.ex_date
+            ORDER BY d.ex_date DESC
         """, investor_id, fin_year)
+        if not dists: raise HTTPException(404, "No dividend records found for this investor/FY")
+        # Generate one PDF per distribution record — use most recent
+        dist_rec = dict(dists[0])
         pdf_bytes = generate_dividend_statement(
-            investor=dict(inv),
-            distributions=[dict(d) for d in dists],
-            financial_year=fin_year
-        )
+            investor=dict(inv), dist_record=dist_rec, financial_year=fin_year or dist_rec.get('financial_year',''))
         title = f"Dividend Statement {fin_year} — {inv['name']}"
         visibility = 'member'
         inv_id_for_doc = str(investor_id)
