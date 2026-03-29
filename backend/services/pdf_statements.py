@@ -62,7 +62,7 @@ DISC_H   = 34 * mm
 DISC_TOP = FTR_LINE + DISC_H  # top of disclaimer area
 
 # Body frame
-BODY_BOT = DISC_TOP + 2 * mm   # body stops just above disclaimer zone
+BODY_BOT = DISC_TOP + 1 * mm   # body stops just above disclaimer zone
 BODY_TOP = HDR_LINE - 4 * mm
 BODY_H   = BODY_TOP - BODY_BOT
 CW       = W - LM - RM          # ≈ 527 pt
