@@ -608,7 +608,7 @@ async def add_principal(
         import base64
         inv_full = await db.fetchrow("""
             SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
-                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, body['investor_id'])
@@ -833,7 +833,7 @@ async def declare_distribution(
         for inv in investor_units:
             inv_full = await db.fetchrow("""
                 SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
-                       u.address_line1, u.address_line2, u.city, u.postcode, u.state
+                       u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
                 FROM investors i LEFT JOIN users u ON u.investor_id=i.id
                 WHERE i.id=$1
             """, str(inv['investor_id']))
@@ -1208,7 +1208,7 @@ async def generate_statement(
             raise HTTPException(400, "investor_id required")
         inv = await db.fetchrow("""
             SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
-                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, investor_id)
@@ -1231,7 +1231,7 @@ async def generate_statement(
             raise HTTPException(400, "investor_id required")
         inv = await db.fetchrow("""
             SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
-                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, investor_id)
@@ -1252,7 +1252,7 @@ async def generate_statement(
             raise HTTPException(400, "investor_id required")
         inv = await db.fetchrow("""
             SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
-                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, investor_id)
@@ -1282,7 +1282,7 @@ async def generate_statement(
             raise HTTPException(400, "investor_id required")
         inv = await db.fetchrow("""
             SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
-                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
             FROM investors i
             LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
@@ -1437,7 +1437,7 @@ async def generate_fy_statements(
         inv_id = str(inv['id'])
         inv_full = await db.fetchrow("""
             SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
-                   u.address_line1, u.address_line2, u.city, u.postcode, u.state
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
             FROM investors i LEFT JOIN users u ON u.investor_id=i.id WHERE i.id=$1
         """, inv_id)
         if not inv_full: continue

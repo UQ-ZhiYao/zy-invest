@@ -62,7 +62,7 @@ DISC_H   = 34 * mm
 DISC_TOP = FTR_LINE + DISC_H  # top of disclaimer area
 
 # Body frame
-BODY_BOT = DISC_TOP + 3 * mm
+BODY_BOT = DISC_TOP + 3 * mm   # safe: body stops above disclaimer zone
 BODY_TOP = HDR_LINE - 4 * mm
 BODY_H   = BODY_TOP - BODY_BOT
 CW       = W - LM - RM          # ≈ 527 pt
@@ -163,8 +163,8 @@ def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
                 canvas.setFillColor(BLUE)
                 canvas.drawString(LM, LOGO_Y + LOGO_H / 2, 'ZY-Invest')
 
-        # Title — top-right, same zone as logo
-        if title and pg == 1:
+        # Title — top-right, same zone as logo, EVERY page
+        if title:
             canvas.setFont('Helvetica-Bold', 12)
             canvas.setFillColor(G1)
             canvas.drawRightString(W - RM, TITLE_Y, title)
@@ -262,9 +262,10 @@ def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
             canvas.setFillColor(G2)
             ny = dy + DISC_H - 13*mm
             lh = 3.0*mm
-            for notice in notices:
+            for i, notice in enumerate(notices):
                 ny = _canvas_wrap(canvas, notice, LM, ny, 'Helvetica', 7, CW, lh)
-                ny -= 1.5*mm  # gap between notices
+                if i < len(notices) - 1:
+                    ny -= 1.5*mm  # gap between notices (not after last)
 
         canvas.restoreState()
     return _draw
@@ -315,11 +316,16 @@ def _meta(page, issued, stmt_type='', stmt_period=''):
 
 
 def _addr(inv):
+    """Build address: line1, line2, postcode+city, state+country"""
+    postcode_city = ' '.join(filter(None, [
+        inv.get('postcode',''), inv.get('city','')]))
+    state_country = ' '.join(filter(None, [
+        inv.get('state',''), inv.get('country','')]))
     return '\n'.join(filter(None, [
         inv.get('address_line1',''),
         inv.get('address_line2',''),
-        ' '.join(filter(None,[inv.get('postcode',''), inv.get('city','')])),
-        inv.get('state',''),
+        postcode_city,
+        state_country,
     ]))
 
 
@@ -761,9 +767,9 @@ def generate_account_statement(investor, summary, cashflows, dist_history,
     today = date.today()
     name  = investor.get('name','')
     addr  = _addr(investor)
-    meta1 = _meta('1 of 2', today.strftime('%d-%m-%Y'), 'Annually', statement_period)
-    meta2 = _meta('2 of 2', today.strftime('%d-%m-%Y'), 'Annually', statement_period)
-    extra = _letter_height(name, addr, meta1) + 4*mm
+    # Estimate extra_top with a placeholder meta (page count not known yet)
+    _meta_placeholder = _meta('1 of ?', today.strftime('%d-%m-%Y'), 'Annually', statement_period)
+    extra = _letter_height(name, addr, _meta_placeholder) + 4*mm
 
     # ── Page 1: Account Summary ──────────────────────────────
     nta_v   = float(summary.get('current_nta',0))
@@ -834,7 +840,6 @@ def generate_account_statement(investor, summary, cashflows, dist_history,
 
     # ── Page 2 ─────────────────────────────────────────────────
     story.append(PageBreak())
-    story += _inv_block(s, investor)
 
     if cashflows:
         cf_rows = []; running = 0.0
@@ -873,14 +878,14 @@ def generate_account_statement(investor, summary, cashflows, dist_history,
     fr  = Frame(LM, BODY_BOT, CW, BODY_H - extra, id='b',
                 leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
 
-    # Single callback: picks meta_rows by actual page number
-    meta_map = {1: meta1, 2: meta2}
+    # Build page-specific meta AFTER knowing n
+    def _make_meta(pg):
+        return _meta(f'{pg} of {n}', today.strftime('%d-%m-%Y'), 'Annually', statement_period)
+
     def _cb_acct(canvas, doc):
         pg = doc.page
-        mr = meta_map.get(pg, _meta(f'{pg} of {n}',
-            today.strftime('%d-%m-%Y'), 'Annually', statement_period))
         _page_cb(n, title='INVESTMENT ACCOUNT STATEMENT',
-                 name=name, addr=addr, meta_rows=mr)(canvas, doc)
+                 name=name, addr=addr, meta_rows=_make_meta(pg))(canvas, doc)
 
     doc.addPageTemplates([PageTemplate(id='m', frames=[fr], onPage=_cb_acct)])
     doc.build(story)
