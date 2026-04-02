@@ -1295,14 +1295,26 @@ async def generate_statement(
             WHERE i.id = $1
         """, investor_id)
         if not inv: raise HTTPException(404, "Investor not found")
-        # Generate one PDF per subscription record — return the most recent one
-        cfs = await db.fetch("""
+        # Use selected_date if provided, otherwise latest
+        selected_date = body.get('selected_date')
+        if selected_date:
+            target = await db.fetchrow("""
+                SELECT * FROM principal_cashflows
+                WHERE investor_id=$1 AND amount>0 AND date=$2::date
+                ORDER BY created_at DESC LIMIT 1
+            """, investor_id, selected_date)
+        else:
+            target = await db.fetchrow("""
+                SELECT * FROM principal_cashflows
+                WHERE investor_id=$1 AND amount>0 ORDER BY date DESC LIMIT 1
+            """, investor_id)
+        if not target: raise HTTPException(404, "No subscription record found")
+        prior_cfs = await db.fetch("""
             SELECT * FROM principal_cashflows
-            WHERE investor_id = $1 AND amount > 0 ORDER BY date DESC
-        """, investor_id)
-        if not cfs: raise HTTPException(404, "No subscription records found")
-        # Use the latest subscription record for a single-page daily statement
-        cf_rec = dict(cfs[0])
+            WHERE investor_id=$1 AND created_at < $2 ORDER BY date ASC
+        """, investor_id, target['created_at'])
+        cf_rec = dict(target)
+        cf_rec['prior_cashflows'] = [dict(c) for c in (prior_cfs or [])]
         pdf_bytes = generate_subscription(investor=dict(inv), cashflow_record=cf_rec)
         title = f"Subscription Statement — {inv['name']} ({str(cf_rec.get('date',''))[:10]})"
         visibility = 'member'
@@ -1325,12 +1337,32 @@ async def generate_statement(
             WHERE i.id = $1
         """, investor_id)
         if not inv: raise HTTPException(404, "Investor not found")
-        cfs = await db.fetch("""
+        selected_date = body.get('selected_date')
+        if selected_date:
+            target = await db.fetchrow("""
+                SELECT * FROM principal_cashflows
+                WHERE investor_id=$1 AND amount<0 AND date=$2::date
+                ORDER BY created_at DESC LIMIT 1
+            """, investor_id, selected_date)
+        else:
+            target = await db.fetchrow("""
+                SELECT * FROM principal_cashflows
+                WHERE investor_id=$1 AND amount<0 ORDER BY date DESC LIMIT 1
+            """, investor_id)
+        if not target: raise HTTPException(404, "No redemption record found")
+        prior_cfs = await db.fetch("""
             SELECT * FROM principal_cashflows
-            WHERE investor_id = $1 AND amount < 0 ORDER BY date DESC
-        """, investor_id)
-        if not cfs: raise HTTPException(404, "No redemption records found")
-        cf_rec = dict(cfs[0])
+            WHERE investor_id=$1 AND created_at < $2 ORDER BY date ASC
+        """, investor_id, target['created_at'])
+        red_rec = await db.fetchrow("""
+            SELECT * FROM redemption_ledger
+            WHERE cashflow_id=$1 ORDER BY created_at DESC LIMIT 1
+        """, target['id'])
+        cf_rec = dict(target)
+        cf_rec['prior_cashflows'] = [dict(c) for c in (prior_cfs or [])]
+        if red_rec:
+            cf_rec.update({k: float(red_rec[k]) for k in
+                ['realized_pl','cost_basis','redemption_value','avg_cost_at_redemption']})
         pdf_bytes = generate_redemption(investor=dict(inv), cashflow_record=cf_rec)
         title = f"Redemption Statement — {inv['name']} ({str(cf_rec.get('date',''))[:10]})"
         visibility = 'member'
@@ -1365,8 +1397,13 @@ async def generate_statement(
             ORDER BY d.ex_date DESC
         """, investor_id, fin_year)
         if not dists: raise HTTPException(404, "No dividend records found for this investor/FY")
-        # Generate one PDF per distribution record — use most recent
-        dist_rec = dict(dists[0])
+        # Use selected distribution title if provided, else most recent
+        selected_dist = body.get('selected_distribution')
+        if selected_dist:
+            matching = [d for d in dists if d.get('title') == selected_dist]
+            dist_rec = dict(matching[0]) if matching else dict(dists[0])
+        else:
+            dist_rec = dict(dists[0])
         pdf_bytes = generate_dividend_statement(
             investor=dict(inv), dist_record=dist_rec, financial_year=fin_year or dist_rec.get('financial_year',''))
         title = f"Dividend Statement {fin_year} — {inv['name']}"
@@ -1607,3 +1644,36 @@ async def generate_fy_statements(
                 errors.append(f"{inv['name']} {fy_label}: {str(e)[:80]}")
 
     return {"generated": generated, "errors": errors[:10]}
+
+# ── Get available cashflow dates for statement generation ─────
+@router.get("/investors/{investor_id}/cashflow-dates")
+async def get_cashflow_dates(
+    investor_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Return all subscription and redemption dates for date picker."""
+    rows = await db.fetch("""
+        SELECT date, cashflow_type, amount, units, nta_at_date
+        FROM principal_cashflows
+        WHERE investor_id = $1
+        ORDER BY date DESC
+    """, investor_id)
+    return [serialise(r) for r in rows]
+
+
+@router.get("/investors/{investor_id}/distribution-list")
+async def get_distribution_list(
+    investor_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Return all distributions for this investor (for dropdown)."""
+    rows = await db.fetch("""
+        SELECT d.title, d.financial_year, d.dist_type, d.ex_date, d.pmt_date, d.dps_sen
+        FROM distribution_ledger dl
+        JOIN distributions d ON d.id = dl.distribution_id
+        WHERE dl.investor_id = $1
+        ORDER BY d.pmt_date DESC
+    """, investor_id)
+    return [serialise(r) for r in rows]

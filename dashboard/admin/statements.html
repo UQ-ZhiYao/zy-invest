@@ -110,6 +110,38 @@
                 </select>
               </div>
 
+              <!-- Date picker (shown for subscription + redemption) -->
+              <div id="date-group" style="display:none" class="form-group">
+                <label class="form-label">Transaction Date</label>
+                <select id="date-select" class="form-input">
+                  <option value="">Latest record</option>
+                </select>
+              </div>
+
+              <!-- Distribution picker (shown for dividend) -->
+              <div id="dist-group" style="display:none" class="form-group">
+                <label class="form-label">Distribution</label>
+                <select id="dist-select" class="form-input">
+                  <option value="">Latest distribution</option>
+                </select>
+              </div>
+
+              <!-- Date picker (subscription/redemption) -->
+              <div id="date-group" style="display:none" class="form-group">
+                <label class="form-label">Transaction Date</label>
+                <select id="date-select" class="form-input">
+                  <option value="">Latest record</option>
+                </select>
+              </div>
+
+              <!-- Distribution picker (dividend) -->
+              <div id="dist-group" style="display:none" class="form-group">
+                <label class="form-label">Distribution Record</label>
+                <select id="dist-select" class="form-input">
+                  <option value="">Latest distribution</option>
+                </select>
+              </div>
+
               <!-- FY selector (shown for dividend + account) -->
               <div id="fy-group" style="display:none" class="form-row">
                 <div class="form-group">
@@ -208,6 +240,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sel = document.getElementById('investor-select');
     sel.innerHTML = '<option value="">— Select investor —</option>' +
       allInvestors.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
+    sel.addEventListener('change', loadCashflowOptions);
   } catch(e) { showToast('Failed to load investors', 'error'); }
 });
 
@@ -221,11 +254,90 @@ function selectType(type) {
   const needsFY        = type === 'dividend' || type === 'account';
   const needsInvestor  = type !== 'factsheet';
 
-  document.getElementById('investor-group').style.display  = needsInvestor  ? 'block' : 'none';
-  document.getElementById('fy-group').style.display        = needsFY        ? 'grid'  : 'none';
-  document.getElementById('period-group').style.display    = isFactsheet    ? 'block' : 'none';
-  document.getElementById('comment-group').style.display   = isFactsheet    ? 'block' : 'none';
-  document.getElementById('bulk-group').style.display      = needsInvestor  ? 'block' : 'none';
+  const needsDate = type === 'subscription' || type === 'redemption';
+  const needsDist = type === 'dividend';
+
+  document.getElementById('investor-group').style.display  = needsInvestor ? 'block' : 'none';
+  document.getElementById('date-group').style.display      = needsDate     ? 'block' : 'none';
+  document.getElementById('dist-group').style.display      = needsDist     ? 'block' : 'none';
+  document.getElementById('fy-group').style.display        = needsFY       ? 'grid'  : 'none';
+  document.getElementById('period-group').style.display    = isFactsheet   ? 'block' : 'none';
+  document.getElementById('comment-group').style.display   = isFactsheet   ? 'block' : 'none';
+  document.getElementById('bulk-group').style.display      = needsInvestor ? 'block' : 'none';
+
+  // Load dates/distributions when investor changes
+  if (needsDate || needsDist) {
+    const sel = document.getElementById('investor-select');
+    if (!sel._hasListener) {
+      sel.addEventListener('change', () => loadCashflowOptions());
+      sel._hasListener = true;
+    }
+  }
+}
+
+async function loadCashflowOptions() {
+  const invId = document.getElementById('investor-select').value;
+  if (!invId) return;
+
+  if (selectedType === 'subscription' || selectedType === 'redemption') {
+    const dateSel = document.getElementById('date-select');
+    dateSel.innerHTML = '<option value="">Loading...</option>';
+    try {
+      const rows = await api.get(`/api/admin/investors/${invId}/cashflow-dates`);
+      const filtered = rows.filter(r =>
+        selectedType === 'subscription' ? r.amount > 0 : r.amount < 0);
+      dateSel.innerHTML = '<option value="">Latest record</option>' +
+        filtered.map(r => {
+          const d = new Date(r.date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+          const amt = Math.abs(r.amount).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
+          return `<option value="${r.date}">${d} — RM ${amt}</option>`;
+        }).join('');
+    } catch(e) { dateSel.innerHTML = '<option value="">Error loading</option>'; }
+  }
+
+  if (selectedType === 'dividend') {
+    const distSel = document.getElementById('dist-select');
+    distSel.innerHTML = '<option value="">Loading...</option>';
+    try {
+      const rows = await api.get(`/api/admin/investors/${invId}/distribution-list`);
+      distSel.innerHTML = '<option value="">Latest distribution</option>' +
+        rows.map(r => {
+          const d = r.pmt_date ? new Date(r.pmt_date).toLocaleDateString('en-GB') : '';
+          return `<option value="${r.title}">${r.title} (${r.financial_year}) ${d}</option>`;
+        }).join('');
+    } catch(e) { distSel.innerHTML = '<option value="">Error loading</option>'; }
+  }
+}
+
+async function loadCashflowOptions() {
+  const invId = document.getElementById('investor-select').value;
+  if (!invId) return;
+  if (selectedType === 'subscription' || selectedType === 'redemption') {
+    const dateSel = document.getElementById('date-select');
+    dateSel.innerHTML = '<option value="">Loading...</option>';
+    try {
+      const rows = await api.get(`/api/admin/investors/${invId}/cashflow-dates`);
+      const filtered = rows.filter(r => selectedType === 'subscription' ? r.amount > 0 : r.amount < 0);
+      dateSel.innerHTML = '<option value="">Latest record</option>' +
+        filtered.map(r => {
+          const d = new Date(r.date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+          const amt = Math.abs(r.amount).toLocaleString('en-MY',{minimumFractionDigits:2});
+          return `<option value="${r.date}">${d} — RM ${amt}</option>`;
+        }).join('');
+    } catch(e) { dateSel.innerHTML = '<option value="">—</option>'; }
+  }
+  if (selectedType === 'dividend') {
+    const distSel = document.getElementById('dist-select');
+    distSel.innerHTML = '<option value="">Loading...</option>';
+    try {
+      const rows = await api.get(`/api/admin/investors/${invId}/distribution-list`);
+      distSel.innerHTML = '<option value="">Latest distribution</option>' +
+        rows.map(r => {
+          const d = r.pmt_date ? new Date(r.pmt_date).toLocaleDateString('en-GB') : '';
+          return `<option value="${r.title}">${r.title} (${r.financial_year}) ${d}</option>`;
+        }).join('');
+    } catch(e) { distSel.innerHTML = '<option value="">—</option>'; }
+  }
 }
 
 async function generateStatement() {
@@ -261,11 +373,13 @@ async function generateStatement() {
     for (const target of targets) {
       try {
         const res = await api.post('/api/admin/statements/generate', {
-          statement_type:   selectedType,
-          investor_id:      target.investor_id,
-          financial_year:   finYear,
-          period:           period,
-          manager_comment:  document.getElementById('manager-comment').value.trim(),
+          statement_type:         selectedType,
+          investor_id:            target.investor_id,
+          financial_year:         finYear,
+          period:                 period,
+          manager_comment:        document.getElementById('manager-comment').value.trim(),
+          selected_date:          document.getElementById('date-select').value || null,
+          selected_distribution:  document.getElementById('dist-select').value || null,
         });
 
         generated.unshift(res);

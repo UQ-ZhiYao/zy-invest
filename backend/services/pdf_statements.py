@@ -130,7 +130,7 @@ def _canvas_wrap(canvas, text, x, y, font, size, max_w, line_h):
 
 
 # ── Per-page canvas callback ────────────────────────────────────
-def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
+def _page_cb(n_pages, title='', subtitle='', name='', addr='', meta_rows=None):
     """
     Canvas draws on EVERY page:
       - Logo (top-left, above blue line)
@@ -168,7 +168,11 @@ def _page_cb(n_pages, title='', name='', addr='', meta_rows=None):
         if title:
             canvas.setFont('Helvetica-Bold', 12)
             canvas.setFillColor(G1)
-            canvas.drawRightString(W - RM, TITLE_Y, title)
+            canvas.drawRightString(W - RM, TITLE_Y + (3*mm if subtitle else 0), title)
+            if subtitle:
+                canvas.setFont('Helvetica', 9)
+                canvas.setFillColor(G2)
+                canvas.drawRightString(W - RM, TITLE_Y - 3*mm, subtitle)
 
         # Blue HR
         canvas.setStrokeColor(BLUE)
@@ -326,7 +330,7 @@ def _count_pages(story, extra_top=0):
     c = _C(); c.build(copy.deepcopy(story)); return max(c._n, 1)
 
 
-def _build(story, title='', name='', addr='', meta_rows=None, extra_top=0):
+def _build(story, title='', subtitle='', name='', addr='', meta_rows=None, extra_top=0):
     """Build PDF with canvas-drawn header letter block."""
     n   = _count_pages(story, extra_top)
     buf = io.BytesIO()
@@ -336,7 +340,7 @@ def _build(story, title='', name='', addr='', meta_rows=None, extra_top=0):
                           bottomMargin=BODY_BOT)
     fr  = Frame(LM, BODY_BOT, CW, BODY_H - extra_top, id='b',
                 leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
-    cb  = _page_cb(n, title=title, name=name, addr=addr, meta_rows=meta_rows)
+    cb  = _page_cb(n, title=title, subtitle=subtitle, name=name, addr=addr, meta_rows=meta_rows)
     doc.addPageTemplates([PageTemplate(id='m', frames=[fr], onPage=cb)])
     doc.build(story)
     return buf.getvalue()
@@ -522,6 +526,38 @@ def _donut(labels, values, size=(55*mm,55*mm)):
     return Image(buf, width=size[0], height=size[1])
 
 
+def _bar_chart(labels, values, width, height=60*mm):
+    """Horizontal stacked bar chart for sector allocation — cleaner than donut."""
+    if not values or sum(values) == 0: return None
+    total = sum(values)
+    fig, ax = plt.subplots(figsize=(width/mm/3.78, height/mm/3.78), dpi=150)
+    # Draw horizontal bars
+    y_pos = list(range(len(labels)-1, -1, -1))  # reverse so first is at top
+    colors = [CC[i % len(CC)] for i in range(len(labels))]
+    bars = ax.barh(y_pos, values, color=colors, height=0.55, zorder=3)
+    # Data labels inside bars
+    for bar, val in zip(bars, values):
+        w = bar.get_width()
+        if w > 3:
+            ax.text(w/2, bar.get_y() + bar.get_height()/2,
+                    f'{val:.1f}%', ha='center', va='center',
+                    fontsize=6, color='white', fontweight='bold')
+    # Y axis labels
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, fontsize=6.5)
+    ax.set_xlim(0, max(values) * 1.15)
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}%'))
+    ax.tick_params(axis='x', labelsize=6)
+    ax.grid(axis='x', alpha=0.3, linewidth=0.4, linestyle='--', zorder=0)
+    for sp in ['top','right','bottom']: ax.spines[sp].set_visible(False)
+    ax.spines['left'].set_color('#E5E7EB')
+    plt.tight_layout(pad=0.3)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=150)
+    plt.close(fig); buf.seek(0)
+    return Image(buf, width=width, height=height)
+
+
 # ══════════════════════════════════════════════════════════════
 # 1.  FACTSHEET  (no letter header — fund-wide report)
 # ══════════════════════════════════════════════════════════════
@@ -530,10 +566,7 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
     s = S(); story = []
     today = date.today()
 
-    # Period label below header (title is on canvas)
-    story.append(Paragraph(today.strftime('%B %Y'),
-        ParagraphStyle('fp', fontName='Helvetica-Bold', fontSize=10,
-                       textColor=G2, alignment=TA_RIGHT, spaceAfter=3)))
+    # Separator below header
     story.append(HRFlowable(width=CW, thickness=0.4, color=G5, spaceAfter=4))
     story.append(Paragraph(
         'The portfolio aims to provide our investors with capital appreciation higher than the '
@@ -578,16 +611,11 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
     right = [Paragraph('Sector Allocation*', s['h3']),
              HRFlowable(width='100%', thickness=0.6, color=BLUE, spaceAfter=3)]
     if sector_data:
-        lbls = [r.get('asset_class') or r.get('sector','') for r in sector_data[:6]]
-        vals = [max(float(r.get('weight_pct',0)),0.01) for r in sector_data[:6]]
-        pie  = _donut(lbls, vals, size=(52*mm,52*mm))
-        if pie:
-            leg = [[Paragraph(f'<font color="{CC[i%8]}">■</font>  {lbls[i]}', s['tiny']),
-                    Paragraph(f'{vals[i]:.1f}%', s['tiny'])] for i in range(len(lbls))]
-            leg_t = Table(leg, colWidths=[R_W-20*mm, 18*mm])
-            leg_t.setStyle(TableStyle([('TOPPADDING',(0,0),(-1,-1),2),
-                ('BOTTOMPADDING',(0,0),(-1,-1),2),('LEFTPADDING',(0,0),(-1,-1),2)]))
-            right.append(Table([[pie, leg_t]], colWidths=[54*mm, R_W-54*mm]))
+        lbls = [r.get('asset_class') or r.get('sector','') for r in sector_data[:8]]
+        vals = [max(float(r.get('weight_pct',0)),0) for r in sector_data[:8]]
+        bar  = _bar_chart(lbls, vals, width=R_W, height=min(8+len(lbls)*8, 65)*mm)
+        if bar:
+            right.append(bar)
     else:
         right.append(Paragraph('No data', s['small']))
 
@@ -676,7 +704,8 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
         'for family members only and does not constitute a financial prospectus.', s['notice']))
 
     # Factsheet: title on canvas header (no letter block — no name/address)
-    return _build(story, title='ZY FAMILY VISION PORTFOLIO', name='', addr='', meta_rows=None, extra_top=0)
+    period = today.strftime('%B %Y')
+    return _build(story, title='MONTHLY FACTSHEET', subtitle=period, name='', addr='', meta_rows=None, extra_top=0)
 
 
 # ── Personal statement builder ──────────────────────────────────
@@ -687,7 +716,7 @@ def _personal(story, inv, title, issued, stmt_type, stmt_period, page='1 of 1'):
     addr   = _addr(inv)
     meta   = _meta(page, issued, stmt_type, stmt_period)
     extra  = _letter_height(name, addr, meta) + 4*mm
-    return _build(story, title=title, name=name, addr=addr,
+    return _build(story, title=title, subtitle='', name=name, addr=addr,
                   meta_rows=meta, extra_top=extra)
 
 
@@ -707,21 +736,23 @@ def generate_subscription(investor, cashflow_record):
     units    = float(cashflow_record.get('units',0))
     nta_d    = cashflow_record.get('nta_at_date')
 
-    # Compute opening balance from prior cashflows
+    # Compute opening balance from prior cashflows (VWAP method)
     prior = cashflow_record.get('prior_cashflows', [])
     op_units = 0.0; op_cost = 0.0
     for cf in prior:
-        u = float(cf.get('units',0)); a = float(cf.get('amount',0))
-        op_units += u
-        if a > 0: op_cost += abs(a)          # subscription adds cost
-        # redemption: cost_basis was removed when we implemented redemption_ledger
-        # approximate: reduce cost proportionally
-        elif a < 0 and op_units > 0:
-            prev_units = op_units - u  # units before this redemption
-            if prev_units > 0:
-                cost_per_unit = op_cost / prev_units
-                op_cost = max(0, op_cost + u * cost_per_unit)  # u is negative
-    op_avg   = (op_cost / op_units) if op_units > 0 else 0
+        u = float(cf.get('units', 0))
+        a = float(cf.get('amount', 0))
+        if a > 0:
+            # Subscription: add units and cost
+            op_units += u
+            op_cost  += abs(a)
+        elif a < 0:
+            # Redemption: remove units; reduce cost at current VWAP
+            avg = op_cost / op_units if op_units > 0 else 0
+            redeemed = abs(u)
+            op_units = max(0.0, op_units - redeemed)
+            op_cost  = max(0.0, op_cost - redeemed * avg)
+    op_avg = (op_cost / op_units) if op_units > 0 else 0
 
     # Closing balance
     cl_units = op_units + units
@@ -732,7 +763,7 @@ def generate_subscription(investor, cashflow_record):
     story += _sec(s, 'Principal Transaction')
     c1,c2,c3,c4,c5,c6 = 26*mm,44*mm,32*mm,30*mm,28*mm,CW-160*mm
     story.append(_dtbl(s,
-        headers=['Date','Description','Investment Value','Subscription Price','Unit Balanced','Average Cost'],
+        headers=['Date','Description','Investment Value','Entry Price','Unit Balanced','Avg. Cost (VWAP)'],
         rows=[
             # Opening: prior cumulative position
             [fd(inv_date), 'Opening',
@@ -783,18 +814,18 @@ def generate_redemption(investor, cashflow_record):
     cost_basis    = float(cashflow_record.get('cost_basis', 0)) or                     (units_r * avg_cost_pre)
     realized_pl   = float(cashflow_record.get('realized_pl',0)) or                     (redeem_value - cost_basis)
 
-    # Opening: compute from prior cashflows
+    # Opening: compute from prior cashflows (VWAP method)
     prior = cashflow_record.get('prior_cashflows', [])
     op_units = 0.0; op_cost = 0.0
     for cf in prior:
-        u = float(cf.get('units',0)); a = float(cf.get('amount',0))
-        op_units += u
-        if a > 0: op_cost += abs(a)
-        elif a < 0 and op_units > 0:
-            prev_u = op_units - u
-            if prev_u > 0:
-                op_cost = max(0, op_cost + u * (op_cost / prev_u))
-    op_avg   = (op_cost / op_units) if op_units > 0 else avg_cost_pre
+        u = float(cf.get('units', 0)); a = float(cf.get('amount', 0))
+        if a > 0:
+            op_units += u; op_cost += abs(a)
+        elif a < 0:
+            avg = op_cost / op_units if op_units > 0 else 0
+            op_units = max(0.0, op_units - abs(u))
+            op_cost  = max(0.0, op_cost  - abs(u) * avg)
+    op_avg = (op_cost / op_units) if op_units > 0 else avg_cost_pre
 
     # Closing after redemption
     cl_units = max(0, op_units - units_r)
@@ -952,7 +983,7 @@ def generate_account_statement(investor, summary, cashflows, dist_history,
         [_pr('(a)'), _pr('Latest Fund Price'),                _pr(fn(units_v,4),TA_RIGHT), _pr(fn(nta_v,4),TA_RIGHT),  _pr(fm(mv_v),TA_RIGHT)],
         [_pr('(b)'), _pr('Subscription Cost'),                _pr(fn(units_v,4),TA_RIGHT), _pr(fn(avg_c,4),TA_RIGHT),  _pr(f'({fm(cost_v)})',TA_RIGHT)],
         [_pr('(c)'), _pr('Unrealized P&L:  (a) + (b)'),      _pr(''),                      _pr(''),                     _pr(fm(unr_v),TA_RIGHT)],
-        [_pr('(d)'), _pr('Realized P&L (Redemptions)'),       _pr(''),                      _pr(''),                     _pr(fm(rea_v) if rea_v else '—',TA_RIGHT)],
+        [_pr('(d)'), _pr('Realized P&L  (from Redemptions Only)'), _pr(''), _pr(''), _pr(fm(rea_v) if rea_v else '—',TA_RIGHT)],
         [_pr('(e)'), _pr('Dividend Received'),                _pr(''),                      _pr(''),                     _pr(fm(div_v) if div_v else '—',TA_RIGHT)],
         [_pr('(f)'), _pr(f'Adjustment / Fund Switching {fm(abs(adj_v))}'),
                                                               _pr(''),                      _pr(''),
