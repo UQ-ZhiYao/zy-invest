@@ -1485,7 +1485,7 @@ async def generate_statement(
         if selected_date:
             target = await db.fetchrow("""
                 SELECT * FROM principal_cashflows
-                WHERE investor_id=$1 AND amount>0 AND date=$2::date
+                WHERE investor_id=$1::uuid AND amount>0 AND date=$2::date
                 ORDER BY created_at DESC LIMIT 1
             """, investor_id, selected_date)
         else:
@@ -1496,7 +1496,7 @@ async def generate_statement(
         if not target: raise HTTPException(404, "No subscription record found")
         prior_cfs = await db.fetch("""
             SELECT * FROM principal_cashflows
-            WHERE investor_id=$1
+            WHERE investor_id=$1::uuid
               AND (date < $2 OR (date = $2 AND created_at < $3))
             ORDER BY date ASC
         """, investor_id, target['date'], target['created_at'])
@@ -1531,7 +1531,7 @@ async def generate_statement(
         if selected_date:
             target = await db.fetchrow("""
                 SELECT * FROM principal_cashflows
-                WHERE investor_id=$1 AND amount<0 AND date=$2::date
+                WHERE investor_id=$1::uuid AND amount<0 AND date=$2::date
                 ORDER BY created_at DESC LIMIT 1
             """, investor_id, selected_date)
         else:
@@ -1542,13 +1542,13 @@ async def generate_statement(
         if not target: raise HTTPException(404, "No redemption record found")
         prior_cfs = await db.fetch("""
             SELECT * FROM principal_cashflows
-            WHERE investor_id=$1
+            WHERE investor_id=$1::uuid
               AND (date < $2 OR (date = $2 AND created_at < $3))
             ORDER BY date ASC
         """, investor_id, target['date'], target['created_at'])
         red_rec = await db.fetchrow("""
             SELECT * FROM redemption_ledger
-            WHERE cashflow_id=$1 ORDER BY created_at DESC LIMIT 1
+            WHERE cashflow_id=$1::uuid ORDER BY created_at DESC LIMIT 1
         """, target['id'])
         cf_rec = dict(target)
         cf_rec['prior_cashflows'] = [dict(c) for c in (prior_cfs or [])]

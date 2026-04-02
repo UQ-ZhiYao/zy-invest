@@ -480,35 +480,40 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
     pad    = max((hi - lo) * 0.15, 0.05)
     y_min  = round((lo - pad) / 0.05) * 0.05
     y_max  = round((hi + pad) / 0.05 + 1) * 0.05
-    # dpi=150 for crisp output; fontsize scaled accordingly (mfs = desired_pt × DPI/72)
-    DPI = 150
-    w_in = width / 72; h_in = height / 72
-    mfs  = round(7 * DPI / 72)   # ~14.6pt matplotlib = 7pt in PDF
+    DPI  = 96
+    FS   = 6.0   # clean small font at this DPI
+    w_in = width  / 72
+    h_in = height / 72
     fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=DPI)
+    fig.subplots_adjust(top=0.92, bottom=0.18, left=0.10, right=0.97)
+
     x = list(range(len(dates)))
-    ax.plot(x, ntas, color='#1565C0', linewidth=1.5, zorder=3)
-    ax.fill_between(x, ntas, y_min, alpha=0.10, color='#1565C0')
-    step = max(1, len(dates)//10)
+    ax.plot(x, ntas, color='#1565C0', linewidth=1.2, zorder=3)
+    ax.fill_between(x, ntas, y_min, alpha=0.08, color='#1565C0')
+
+    step = max(1, len(dates) // 10)
     ax.set_xticks(x[::step])
-    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=mfs, rotation=30, ha='right')
+    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=FS,
+                        rotation=30, ha='right')
     ax.set_ylim(y_min, y_max)
     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
-    ax.tick_params(axis='y', labelsize=mfs)
-    ax.tick_params(axis='x', labelsize=mfs)
-    ax.grid(axis='y', alpha=0.25, linewidth=0.5, linestyle='--')
+    ax.tick_params(axis='y', labelsize=FS, length=2)
+    ax.tick_params(axis='x', labelsize=FS, length=2)
+    ax.grid(axis='y', alpha=0.2, linewidth=0.4, linestyle='--')
     for sp in ['top','right']:   ax.spines[sp].set_visible(False)
-    for sp in ['left','bottom']: ax.spines[sp].set_color('#E5E7EB')
-    # First NTA annotation (left side)
+    for sp in ['left','bottom']: ax.spines[sp].set_color('#cccccc')
+
+    # Start/end annotations
     ax.annotate(f'{ntas[0]:.4f}', xy=(0, ntas[0]),
-        xytext=(5, 8), textcoords='offset points',
-        fontsize=mfs, color='#1565C0', fontweight='bold', ha='left')
-    # Last NTA annotation (right side)
+        xytext=(4, 6), textcoords='offset points',
+        fontsize=FS + 0.5, color='#1565C0', fontweight='bold', ha='left')
     ax.annotate(f'{ntas[-1]:.4f}', xy=(len(ntas)-1, ntas[-1]),
-        xytext=(-5, 8), textcoords='offset points',
-        fontsize=mfs, color='#1565C0', fontweight='bold', ha='right')
-    plt.tight_layout(pad=0.3, rect=[0, 0, 1, 1])
+        xytext=(-4, 6), textcoords='offset points',
+        fontsize=FS + 0.5, color='#1565C0', fontweight='bold', ha='right')
+
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=DPI)
+    fig.savefig(buf, format='png', transparent=True,
+                bbox_inches='tight', pad_inches=0.02, dpi=DPI)
     plt.close(fig); buf.seek(0)
     return Image(buf, width=width, height=height)
 
@@ -535,63 +540,68 @@ def _donut(labels, values, size=(55*mm,55*mm)):
 
 
 def _bar_chart(labels, values, width, height=60*mm):
-    """Horizontal bar chart for sector allocation — legend below bars."""
+    """Horizontal bar chart — bars top, colour legend below, crisp text."""
     import matplotlib; matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import matplotlib.ticker as mticker
+    from matplotlib.patches import Patch
     if not values or sum(values) == 0: return None
-    colors = [CC[i % len(CC)] for i in range(len(labels))]
-    n = len(labels)
 
-    # dpi=150 for crisp output; figsize calculated so fonts match PDF pts
-    # At dpi=150: 1pt in PDF = 150/72 ≈ 2.08 pixels → use fontsize × 72/150
-    DPI = 150
-    legend_rows = -(-n // 2)
-    w_in  = width  / 72
-    h_in  = height / 72 + legend_rows * 0.28
-    fs    = 8   # desired pt size in PDF → matplotlib fontsize = 8 * DPI/72 ≈ 16... 
-    # Actually: figure renders at w_in*DPI pixels, inserted at width pts in PDF
-    # scale = pts / pixels = width / (w_in*DPI) = 72/DPI
-    # font in PDF = matplotlib_fs × scale = matplotlib_fs × 72/DPI
-    # To get 8pt in PDF: matplotlib_fs = 8 × DPI/72 ≈ 16.7
-    mfs = round(8 * DPI / 72)   # ~17pt matplotlib = 8pt in PDF
+    n      = len(labels)
+    colors = [CC[i % len(CC)] for i in range(n)]
+
+    # Key insight: render at NATIVE PDF resolution
+    # figsize in inches = pts/72  →  dpi=72  →  1px = 1pt → no scaling distortion
+    # Use higher DPI only for antialiasing, but keep figsize consistent
+    DPI    = 96                          # safe for all backends
+    w_in   = width  / 72                 # exact PDF width in inches
+    # Height: bars + legend rows (0.22in each)
+    leg_r  = -(-n // 2)                 # ceil(n/2) legend rows
+    h_bars = height / 72
+    h_leg  = leg_r * 0.22
+    h_in   = h_bars + h_leg
+
+    # At DPI=96, figsize=(w_in, h_in): 1pt matplotlib = 1pt × (DPI/72) ≈ 1.33pt in PDF
+    # → use fontsize = desired_pt / (DPI/72) = desired_pt × 72/DPI
+    # For 7pt in PDF: mfs = 7 * 72/96 = 5.25 → round to 5
+    # Actually simpler: just use small fonts and let bbox_inches='tight' handle layout
+    FS = 6.5   # matplotlib fontsize → looks ~6-7pt in PDF at DPI=96
 
     fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=DPI)
+    # Leave bottom margin for legend
+    fig.subplots_adjust(top=0.97, bottom=h_leg/h_in + 0.02, left=0.02, right=0.98)
+
     y_pos = list(range(n - 1, -1, -1))
-    bars  = ax.barh(y_pos, values, color=colors, height=0.6, zorder=3)
+    bars  = ax.barh(y_pos, values, color=colors, height=0.55, zorder=3, edgecolor='none')
 
     for bar, val in zip(bars, values):
         bw = bar.get_width()
-        if bw > 2:
+        if bw > 4:
             ax.text(bw / 2, bar.get_y() + bar.get_height() / 2,
                     f'{val:.1f}%', ha='center', va='center',
-                    fontsize=mfs, color='white', fontweight='bold')
+                    fontsize=FS, color='white', fontweight='bold')
 
     ax.set_yticks([])
-    ax.set_xlim(0, max(values) * 1.10)
+    ax.set_xlim(0, max(values) * 1.08)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}%'))
-    ax.tick_params(axis='x', labelsize=mfs)
-    ax.grid(axis='x', alpha=0.25, linewidth=0.8, linestyle='--', zorder=0)
+    ax.tick_params(axis='x', labelsize=FS, length=2, pad=2)
+    ax.grid(axis='x', alpha=0.2, linewidth=0.5, linestyle='--', zorder=0)
     for sp in ['top','right','left']: ax.spines[sp].set_visible(False)
-    ax.spines['bottom'].set_color('#E5E7EB')
-    ax.spines['bottom'].set_linewidth(0.8)
+    ax.spines['bottom'].set_color('#cccccc')
 
-    from matplotlib.patches import Patch
-    legend_handles = [
-        Patch(facecolor=colors[i], label=f'{labels[i]}  {values[i]:.1f}%')
-        for i in range(n)
-    ]
-    ax.legend(handles=legend_handles, loc='upper center',
-              bbox_to_anchor=(0.5, -0.04),
-              ncol=2, fontsize=mfs, frameon=False,
-              handlelength=1.2, handleheight=1.0,
-              columnspacing=1.5, labelspacing=0.5)
+    handles = [Patch(facecolor=colors[i], label=f'{labels[i]}  {values[i]:.1f}%')
+               for i in range(n)]
+    ax.legend(handles=handles, loc='upper center',
+              bbox_to_anchor=(0.5, -(0.02 + (h_bars/h_in)*0.05)),
+              ncol=2, fontsize=FS, frameon=False,
+              handlelength=1.0, handleheight=0.8,
+              columnspacing=1.0, labelspacing=0.3)
 
-    plt.tight_layout(pad=0.5)
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=DPI)
+    fig.savefig(buf, format='png', transparent=True,
+                bbox_inches='tight', pad_inches=0.02, dpi=DPI)
     plt.close(fig); buf.seek(0)
-    return Image(buf, width=width, height=height + legend_rows * 7*mm)
+    return Image(buf, width=width, height=height + leg_r * 6*mm)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -844,11 +854,16 @@ def generate_redemption(investor, cashflow_record):
     units_r  = abs(float(cashflow_record.get('units',0)))   # units redeemed (positive)
     nta_d    = cashflow_record.get('nta_at_date')
 
-    # From redemption_ledger (passed by admin.py auto-gen)
-    avg_cost_pre  = float(cashflow_record.get('avg_cost_at_redemption',0))
-    redeem_value  = float(cashflow_record.get('redemption_value', 0)) or                     (units_r * float(nta_d) if nta_d else 0)
-    cost_basis    = float(cashflow_record.get('cost_basis', 0)) or                     (units_r * avg_cost_pre)
-    realized_pl   = float(cashflow_record.get('realized_pl',0)) or                     (redeem_value - cost_basis)
+    # From redemption_ledger (passed by admin.py when available)
+    avg_cost_pre = float(cashflow_record.get('avg_cost_at_redemption') or 0)
+    redeem_value = float(cashflow_record.get('redemption_value') or 0)
+    cost_basis   = float(cashflow_record.get('cost_basis') or 0)
+    realized_pl  = float(cashflow_record.get('realized_pl') or 0)
+
+    # Compute redeem_value from NTA if not provided
+    nta_f = float(nta_d) if nta_d else 0
+    if redeem_value == 0 and nta_f > 0:
+        redeem_value = units_r * nta_f
 
     # Opening: compute from prior cashflows (VWAP method)
     prior = cashflow_record.get('prior_cashflows', [])
@@ -862,6 +877,11 @@ def generate_redemption(investor, cashflow_record):
             op_units = max(0.0, op_units - abs(u))
             op_cost  = max(0.0, op_cost  - abs(u) * avg)
     op_avg = (op_cost / op_units) if op_units > 0 else avg_cost_pre
+
+    # Use op_avg as the definitive VWAP; recompute cost_basis and realized_pl if needed
+    if op_avg > 0 and cost_basis == 0:
+        cost_basis  = units_r * op_avg
+        realized_pl = redeem_value - cost_basis
 
     # AVCO: closing cost = opening cost minus cost_basis of redeemed units
     # Average cost DOES NOT CHANGE after redemption under AVCO method
