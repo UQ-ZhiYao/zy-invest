@@ -480,8 +480,8 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
     pad    = max((hi - lo) * 0.15, 0.05)
     y_min  = round((lo - pad) / 0.05) * 0.05
     y_max  = round((hi + pad) / 0.05 + 1) * 0.05
-    DPI  = 96
-    FS   = 6.0   # clean small font at this DPI
+    DPI  = 192
+    FS   = 9.0   # at DPI=192 renders crisp and readable
     w_in = width  / 72
     h_in = height / 72
     fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=DPI)
@@ -513,7 +513,7 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
 
     buf = io.BytesIO()
     fig.savefig(buf, format='png', transparent=True,
-                bbox_inches='tight', pad_inches=0.02, dpi=DPI)
+                bbox_inches='tight', pad_inches=0.05, dpi=DPI)
     plt.close(fig); buf.seek(0)
     return Image(buf, width=width, height=height)
 
@@ -553,7 +553,7 @@ def _bar_chart(labels, values, width, height=60*mm):
     # Key insight: render at NATIVE PDF resolution
     # figsize in inches = pts/72  →  dpi=72  →  1px = 1pt → no scaling distortion
     # Use higher DPI only for antialiasing, but keep figsize consistent
-    DPI    = 96                          # safe for all backends
+    DPI    = 192                         # 2x retina → crisp in PDF viewer
     w_in   = width  / 72                 # exact PDF width in inches
     # Height: bars + legend rows (0.22in each)
     leg_r  = -(-n // 2)                 # ceil(n/2) legend rows
@@ -565,7 +565,7 @@ def _bar_chart(labels, values, width, height=60*mm):
     # → use fontsize = desired_pt / (DPI/72) = desired_pt × 72/DPI
     # For 7pt in PDF: mfs = 7 * 72/96 = 5.25 → round to 5
     # Actually simpler: just use small fonts and let bbox_inches='tight' handle layout
-    FS = 6.5   # matplotlib fontsize → looks ~6-7pt in PDF at DPI=96
+    FS = 9   # at DPI=192 renders crisp and readable in PDF
 
     fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=DPI)
     # Leave bottom margin for legend
@@ -599,9 +599,9 @@ def _bar_chart(labels, values, width, height=60*mm):
 
     buf = io.BytesIO()
     fig.savefig(buf, format='png', transparent=True,
-                bbox_inches='tight', pad_inches=0.02, dpi=DPI)
+                bbox_inches='tight', pad_inches=0.05, dpi=DPI)
     plt.close(fig); buf.seek(0)
-    return Image(buf, width=width, height=height + leg_r * 6*mm)
+    return Image(buf, width=width, height=height + leg_r * 7*mm)
 
 
 # ══════════════════════════════════════════════════════════════
