@@ -1222,40 +1222,6 @@ async def admin_download_document(
 
 
 # ── Statement Generation ──────────────────────────────────────
-@router.post("/statements/generate")
-async def generate_statement(
-    body: dict,
-    admin: dict = Depends(require_admin),
-    db: Database = Depends(get_db)
-):
-    """Generate PDF statement and store in documents table."""
-    import io, base64, traceback as _tb
-    from services.pdf_statements import (
-        generate_factsheet, generate_subscription, generate_redemption,
-        generate_dividend_statement, generate_account_statement
-    )
-
-    stmt_type   = body.get('statement_type')   # factsheet|subscription|dividend|account
-    investor_id = body.get('investor_id')       # None for factsheet
-    fin_year    = body.get('financial_year', '')
-    period      = body.get('period', '')
-
-    pdf_bytes = None
-    title     = ''
-    visibility = 'fund'
-    inv_id_for_doc = None
-
-    try:
-        # ── Fetch common fund data ────────────────────────────
-        overview = await db.fetchrow("SELECT * FROM v_fund_overview")
-        fund_data = dict(overview) if overview else {}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Breakdown error: {str(e)}")
-
-
 @router.post("/distributions/{dist_id}/compute-breakdown")
 async def compute_distribution_breakdown(
     dist_id: str,
