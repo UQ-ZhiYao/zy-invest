@@ -365,6 +365,8 @@ async function generateStatement() {
           selected_distribution: selectedDist,
         };
         const res = await api.post('/api/admin/statements/generate', body);
+        if (!res) throw new Error('Server returned empty response (possible auth issue — try logging out and back in)');
+        if (!res.title) throw new Error(`Unexpected response: ${JSON.stringify(res)}`);
         generated.unshift(res);
         renderGenerated();
         showToast(`Generated: ${res.title}`, 'success');

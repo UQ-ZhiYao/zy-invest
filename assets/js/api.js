@@ -10,7 +10,7 @@ async function apiFetch(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...options.headers };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  if (res.status === 401) { authLogout(); return null; }
+  if (res.status === 401) { authLogout(); throw new Error('Session expired — please log in again'); }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || `HTTP ${res.status}`);

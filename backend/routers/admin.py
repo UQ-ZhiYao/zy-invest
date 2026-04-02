@@ -1229,7 +1229,7 @@ async def generate_statement(
     db: Database = Depends(get_db)
 ):
     """Generate PDF statement and store in documents table."""
-    import io, base64
+    import io, base64, traceback as _tb
     from services.pdf_statements import (
         generate_factsheet, generate_subscription, generate_redemption,
         generate_dividend_statement, generate_account_statement
@@ -1438,7 +1438,7 @@ async def generate_statement(
     db: Database = Depends(get_db)
 ):
     """Generate PDF statement and store in documents table."""
-    import io, base64
+    import io, base64, traceback as _tb
     from services.pdf_statements import (
         generate_factsheet, generate_subscription, generate_redemption,
         generate_dividend_statement, generate_account_statement
@@ -1768,7 +1768,7 @@ async def generate_statement(
         "title": title,
         "file_name": file_name,
         "file_size_kb": file_size,
-        "pdf_b64": file_b64,      # frontend can trigger download directly
+        "pdf_b64": file_b64,
     }
 
 # ── Auto-generate Account Statements for completed FYs ────────
