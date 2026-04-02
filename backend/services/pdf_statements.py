@@ -10,11 +10,6 @@ Fixes vs v6:
 import io, os, copy
 from datetime import date, datetime
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
-
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
@@ -477,6 +472,9 @@ def _dtbl(s, headers, rows, col_w, total_row=None):
 
 # ── Charts ──────────────────────────────────────────────────────
 def _nta_chart(dates, ntas, width=CW, height=58*mm):
+    import matplotlib; matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as mticker
     if not ntas: return None
     lo, hi = min(ntas), max(ntas)
     pad    = max((hi - lo) * 0.15, 0.05)
@@ -516,6 +514,8 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
 
 
 def _donut(labels, values, size=(55*mm,55*mm)):
+    import matplotlib; matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
     if not values or sum(values) == 0: return None
     fig, ax = plt.subplots(figsize=(2.2,2.2), dpi=150)
     _, _, autotexts = ax.pie(
