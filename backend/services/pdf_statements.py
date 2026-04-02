@@ -484,23 +484,24 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
     y_max  = round((hi + pad) / 0.05 + 1) * 0.05
     fig, ax = plt.subplots(figsize=(width/mm/3.78, height/mm/3.78), dpi=150)
     x = list(range(len(dates)))
-    ax.plot(x, ntas, color='#1565C0', linewidth=1.4, zorder=3)
-    ax.fill_between(x, ntas, y_min, alpha=0.08, color='#1565C0')
+    ax.plot(x, ntas, color='#1565C0', linewidth=2.0, zorder=3)
+    ax.fill_between(x, ntas, y_min, alpha=0.10, color='#1565C0')
     step = max(1, len(dates)//10)
     ax.set_xticks(x[::step])
-    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=5.5, rotation=30, ha='right')
+    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=8, rotation=30, ha='right')
     ax.set_ylim(y_min, y_max)
     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
-    ax.tick_params(axis='y', labelsize=5.5)
-    ax.grid(axis='y', alpha=0.25, linewidth=0.4, linestyle='--')
+    ax.tick_params(axis='y', labelsize=8)
+    ax.tick_params(axis='x', labelsize=8)
+    ax.grid(axis='y', alpha=0.25, linewidth=0.5, linestyle='--')
     for sp in ['top','right']:   ax.spines[sp].set_visible(False)
     for sp in ['left','bottom']: ax.spines[sp].set_color('#E5E7EB')
     for idx, lbl in [(0, f'{ntas[0]:.4f}'), (len(ntas)-1, f'{ntas[-1]:.4f}')]:
         ax.annotate(lbl, xy=(idx, ntas[idx]),
-            xytext=(6 if idx else -6, 5), textcoords='offset points',
-            fontsize=5.5, color='#1565C0', fontweight='bold',
+            xytext=(8 if idx else -8, 6), textcoords='offset points',
+            fontsize=9, color='#1565C0', fontweight='bold',
             ha='left' if idx else 'right')
-    plt.tight_layout(pad=0.3)
+    plt.tight_layout(pad=0.5)
     buf = io.BytesIO()
     fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=150)
     plt.close(fig); buf.seek(0)
@@ -527,35 +528,53 @@ def _donut(labels, values, size=(55*mm,55*mm)):
 
 
 def _bar_chart(labels, values, width, height=60*mm):
-    """Horizontal stacked bar chart for sector allocation — cleaner than donut."""
+    """Horizontal bar chart for sector allocation — legend below bars."""
     if not values or sum(values) == 0: return None
-    total = sum(values)
-    fig, ax = plt.subplots(figsize=(width/mm/3.78, height/mm/3.78), dpi=150)
-    # Draw horizontal bars
-    y_pos = list(range(len(labels)-1, -1, -1))  # reverse so first is at top
     colors = [CC[i % len(CC)] for i in range(len(labels))]
-    bars = ax.barh(y_pos, values, color=colors, height=0.55, zorder=3)
-    # Data labels inside bars
+    n = len(labels)
+
+    # Height: bar area + legend rows below
+    legend_rows = -(-n // 2)   # ceil(n/2) — 2 per row
+    fig_h = height/mm/3.78 + legend_rows * 0.35
+    fig, ax = plt.subplots(figsize=(width/mm/3.78, fig_h), dpi=150)
+
+    y_pos = list(range(n - 1, -1, -1))  # top to bottom
+    bars  = ax.barh(y_pos, values, color=colors, height=0.6, zorder=3)
+
+    # Value labels inside bars (bold, white)
     for bar, val in zip(bars, values):
         w = bar.get_width()
-        if w > 3:
-            ax.text(w/2, bar.get_y() + bar.get_height()/2,
+        if w > 2:
+            ax.text(w / 2, bar.get_y() + bar.get_height() / 2,
                     f'{val:.1f}%', ha='center', va='center',
-                    fontsize=6, color='white', fontweight='bold')
-    # Y axis labels
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(labels, fontsize=6.5)
-    ax.set_xlim(0, max(values) * 1.15)
+                    fontsize=9, color='white', fontweight='bold')
+
+    ax.set_yticks([])                       # no y tick labels — use legend below
+    ax.set_xlim(0, max(values) * 1.08)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}%'))
-    ax.tick_params(axis='x', labelsize=6)
-    ax.grid(axis='x', alpha=0.3, linewidth=0.4, linestyle='--', zorder=0)
-    for sp in ['top','right','bottom']: ax.spines[sp].set_visible(False)
-    ax.spines['left'].set_color('#E5E7EB')
-    plt.tight_layout(pad=0.3)
+    ax.tick_params(axis='x', labelsize=8)
+    ax.grid(axis='x', alpha=0.25, linewidth=0.5, linestyle='--', zorder=0)
+    for sp in ['top','right','left']: ax.spines[sp].set_visible(False)
+    ax.spines['bottom'].set_color('#E5E7EB')
+
+    # Legend below — coloured square + label + percentage
+    from matplotlib.patches import Patch
+    legend_handles = [
+        Patch(facecolor=colors[i], label=f'{labels[i]}  {values[i]:.1f}%')
+        for i in range(n)
+    ]
+    ax.legend(handles=legend_handles, loc='upper center',
+              bbox_to_anchor=(0.5, -0.08),
+              ncol=2, fontsize=8, frameon=False,
+              handlelength=1.0, handleheight=0.9,
+              columnspacing=1.2, labelspacing=0.4)
+
+    plt.tight_layout(pad=0.4)
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=150)
+    fig.savefig(buf, format='png', transparent=True,
+                bbox_inches='tight', dpi=150)
     plt.close(fig); buf.seek(0)
-    return Image(buf, width=width, height=height)
+    return Image(buf, width=width, height=height + legend_rows * 8*mm)
 
 
 # ══════════════════════════════════════════════════════════════

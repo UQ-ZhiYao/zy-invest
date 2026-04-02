@@ -1311,8 +1311,10 @@ async def generate_statement(
         if not target: raise HTTPException(404, "No subscription record found")
         prior_cfs = await db.fetch("""
             SELECT * FROM principal_cashflows
-            WHERE investor_id=$1 AND created_at < $2 ORDER BY date ASC
-        """, investor_id, target['created_at'])
+            WHERE investor_id=$1
+              AND (date < $2 OR (date = $2 AND created_at < $3))
+            ORDER BY date ASC
+        """, investor_id, target['date'], target['created_at'])
         cf_rec = dict(target)
         cf_rec['prior_cashflows'] = [dict(c) for c in (prior_cfs or [])]
         pdf_bytes = generate_subscription(investor=dict(inv), cashflow_record=cf_rec)
@@ -1352,8 +1354,10 @@ async def generate_statement(
         if not target: raise HTTPException(404, "No redemption record found")
         prior_cfs = await db.fetch("""
             SELECT * FROM principal_cashflows
-            WHERE investor_id=$1 AND created_at < $2 ORDER BY date ASC
-        """, investor_id, target['created_at'])
+            WHERE investor_id=$1
+              AND (date < $2 OR (date = $2 AND created_at < $3))
+            ORDER BY date ASC
+        """, investor_id, target['date'], target['created_at'])
         red_rec = await db.fetchrow("""
             SELECT * FROM redemption_ledger
             WHERE cashflow_id=$1 ORDER BY created_at DESC LIMIT 1
@@ -1425,6 +1429,14 @@ async def generate_statement(
         summary = await db.fetchrow("SELECT * FROM v_investor_profile WHERE id = $1", investor_id)
         if not summary:
             raise HTTPException(404, "Investor profile not found")
+        # Override realized_pl with sum from redemption_ledger (pure redemption P&L only)
+        redemption_pl = await db.fetchval("""
+            SELECT COALESCE(SUM(realized_pl), 0)
+            FROM redemption_ledger
+            WHERE investor_id = $1::uuid
+        """, investor_id)
+        summary = dict(summary)
+        summary['realized_pl'] = float(redemption_pl or 0)
 
         # Parse FY period dates (Dec 1 - Nov 30)
         if fin_year and fin_year.startswith('FY'):
