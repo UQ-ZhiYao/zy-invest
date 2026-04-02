@@ -530,12 +530,9 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
     s = S(); story = []
     today = date.today()
 
-    # Title block (right-aligned inside body — factsheet has no letter header)
-    story.append(Paragraph('<b>ZY Family Vision Portfolio</b>',
-        ParagraphStyle('ft', fontName='Helvetica-Bold', fontSize=15,
-                       textColor=G1, alignment=TA_RIGHT)))
+    # Period label below header (title is on canvas)
     story.append(Paragraph(today.strftime('%B %Y'),
-        ParagraphStyle('fp', fontName='Helvetica', fontSize=10,
+        ParagraphStyle('fp', fontName='Helvetica-Bold', fontSize=10,
                        textColor=G2, alignment=TA_RIGHT, spaceAfter=3)))
     story.append(HRFlowable(width=CW, thickness=0.4, color=G5, spaceAfter=4))
     story.append(Paragraph(
@@ -678,8 +675,8 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
         'Past performance is not indicative of future results. This update is intended strictly '
         'for family members only and does not constitute a financial prospectus.', s['notice']))
 
-    # Factsheet: no letter header, no disclaimer in footer zone
-    return _build(story, title='', name='', addr='', meta_rows=None, extra_top=0)
+    # Factsheet: title on canvas header (no letter block — no name/address)
+    return _build(story, title='ZY FAMILY VISION PORTFOLIO', name='', addr='', meta_rows=None, extra_top=0)
 
 
 # ── Personal statement builder ──────────────────────────────────
@@ -698,26 +695,63 @@ def _personal(story, inv, title, issued, stmt_type, stmt_period, page='1 of 1'):
 # 2.  SUBSCRIPTION STATEMENT
 # ══════════════════════════════════════════════════════════════
 def generate_subscription(investor, cashflow_record):
+    """
+    Opening  = cumulative position BEFORE this subscription
+    This row = new subscription (no avg cost shown — NTA is the price paid)
+    Closing  = cumulative position AFTER (total invested, total units, new VWAP)
+    """
     s = S(); story = []
     today    = date.today()
     inv_date = cashflow_record.get('date','')
-    amt      = float(cashflow_record.get('amount',0))
+    amt      = abs(float(cashflow_record.get('amount',0)))
     units    = float(cashflow_record.get('units',0))
     nta_d    = cashflow_record.get('nta_at_date')
 
+    # Compute opening balance from prior cashflows
+    prior = cashflow_record.get('prior_cashflows', [])
+    op_units = 0.0; op_cost = 0.0
+    for cf in prior:
+        u = float(cf.get('units',0)); a = float(cf.get('amount',0))
+        op_units += u
+        if a > 0: op_cost += abs(a)          # subscription adds cost
+        # redemption: cost_basis was removed when we implemented redemption_ledger
+        # approximate: reduce cost proportionally
+        elif a < 0 and op_units > 0:
+            prev_units = op_units - u  # units before this redemption
+            if prev_units > 0:
+                cost_per_unit = op_cost / prev_units
+                op_cost = max(0, op_cost + u * cost_per_unit)  # u is negative
+    op_avg   = (op_cost / op_units) if op_units > 0 else 0
+
+    # Closing balance
+    cl_units = op_units + units
+    cl_cost  = op_cost  + amt
+    cl_avg   = (cl_cost / cl_units) if cl_units > 0 else 0
+
     story += _inv_block(s, investor)
     story += _sec(s, 'Principal Transaction')
-    # Table: 6 cols — sum must = CW
-    # 26+44+32+30+28+25 = 185mm … CW≈186mm → use exact
     c1,c2,c3,c4,c5,c6 = 26*mm,44*mm,32*mm,30*mm,28*mm,CW-160*mm
     story.append(_dtbl(s,
         headers=['Date','Description','Investment Value','Subscription Price','Unit Balanced','Average Cost'],
         rows=[
-            [fd(inv_date),'Opening','—','—','—','—'],
-            [fd(inv_date),'Fund Subscription',
-             fm(abs(amt)), fn(nta_d,4) if nta_d else '—', fn(units,4), fn(nta_d,4) if nta_d else '—'],
-            [fd(inv_date),'Closing',
-             fm(abs(amt)),'—', fn(units,4), fn(nta_d,4) if nta_d else '—'],
+            # Opening: prior cumulative position
+            [fd(inv_date), 'Opening',
+             fm(op_cost) if op_cost > 0 else '—',
+             '—',
+             fn(op_units,4) if op_units > 0 else '—',
+             fn(op_avg,4)   if op_units > 0 else '—'],
+            # This subscription: no avg cost (it IS the subscription price)
+            [fd(inv_date), 'Fund Subscription',
+             fm(amt),
+             fn(nta_d,4) if nta_d else '—',
+             fn(units,4),
+             '—'],
+            # Closing: new cumulative
+            [fd(inv_date), 'Closing',
+             fm(cl_cost),
+             '—',
+             fn(cl_units,4),
+             fn(cl_avg,4)],
         ], col_w=[c1,c2,c3,c4,c5,c6]))
 
     return _personal(story, investor,
@@ -731,24 +765,82 @@ def generate_subscription(investor, cashflow_record):
 # 3.  REDEMPTION STATEMENT
 # ══════════════════════════════════════════════════════════════
 def generate_redemption(investor, cashflow_record):
+    """
+    Redemption value = units_redeemed × NTA_at_date
+    Cost basis       = units_redeemed × avg_cost_before_redemption
+    Realized P&L     = Redemption value − Cost basis
+    Closing shows remaining units and remaining invested cost.
+    """
     s = S(); story = []
     today    = date.today()
     inv_date = cashflow_record.get('date','')
-    amt      = float(cashflow_record.get('amount',0))
-    units    = abs(float(cashflow_record.get('units',0)))
+    units_r  = abs(float(cashflow_record.get('units',0)))   # units redeemed (positive)
     nta_d    = cashflow_record.get('nta_at_date')
 
+    # From redemption_ledger (passed by admin.py auto-gen)
+    avg_cost_pre  = float(cashflow_record.get('avg_cost_at_redemption',0))
+    redeem_value  = float(cashflow_record.get('redemption_value', 0)) or                     (units_r * float(nta_d) if nta_d else 0)
+    cost_basis    = float(cashflow_record.get('cost_basis', 0)) or                     (units_r * avg_cost_pre)
+    realized_pl   = float(cashflow_record.get('realized_pl',0)) or                     (redeem_value - cost_basis)
+
+    # Opening: compute from prior cashflows
+    prior = cashflow_record.get('prior_cashflows', [])
+    op_units = 0.0; op_cost = 0.0
+    for cf in prior:
+        u = float(cf.get('units',0)); a = float(cf.get('amount',0))
+        op_units += u
+        if a > 0: op_cost += abs(a)
+        elif a < 0 and op_units > 0:
+            prev_u = op_units - u
+            if prev_u > 0:
+                op_cost = max(0, op_cost + u * (op_cost / prev_u))
+    op_avg   = (op_cost / op_units) if op_units > 0 else avg_cost_pre
+
+    # Closing after redemption
+    cl_units = max(0, op_units - units_r)
+    cl_cost  = max(0, op_cost  - cost_basis)
+
+    pl_color = GREEN if realized_pl >= 0 else RED
+
     story += _inv_block(s, investor)
+
+    # ── Redemption Transaction table ─────────────────────────
     story += _sec(s, 'Redemption Transaction')
     c1,c2,c3,c4,c5,c6 = 26*mm,44*mm,32*mm,30*mm,28*mm,CW-160*mm
     story.append(_dtbl(s,
-        headers=['Date','Description','Redemption Value','Redemption Price','Units Redeemed','Average Cost'],
+        headers=['Date','Description','Investment Value','NTA / Price','Units','Avg. Cost'],
         rows=[
-            [fd(inv_date),'Opening','—','—','—','—'],
-            [fd(inv_date),'Fund Redemption',
-             fm(abs(amt)), fn(nta_d,4) if nta_d else '—', fn(units,4), fn(nta_d,4) if nta_d else '—'],
-            [fd(inv_date),'Closing', fm(abs(amt)),'—', fn(units,4),'—'],
+            [fd(inv_date), 'Opening',
+             fm(op_cost) if op_cost > 0 else '—', '—',
+             fn(op_units,4) if op_units > 0 else '—',
+             fn(op_avg,4)   if op_units > 0 else '—'],
+            [fd(inv_date), 'Fund Redemption',
+             fm(redeem_value), fn(nta_d,4) if nta_d else '—',
+             fn(units_r,4), fn(avg_cost_pre,4) if avg_cost_pre else '—'],
+            [fd(inv_date), 'Closing',
+             fm(cl_cost), '—',
+             fn(cl_units,4), fn(cl_cost/cl_units,4) if cl_units > 0 else '—'],
         ], col_w=[c1,c2,c3,c4,c5,c6]))
+
+    # ── Realized P&L breakdown ────────────────────────────────
+    story += _sec(s, 'Realized Profit & Loss')
+    pl_sign = '+' if realized_pl >= 0 else ''
+    story.append(_dtbl(s,
+        headers=['Description','Units Redeemed','Avg. Cost','NTA at Redemption','Cost Basis','Realized P&L'],
+        rows=[[
+            'Fund Redemption',
+            fn(units_r,4),
+            fn(avg_cost_pre,4) if avg_cost_pre else '—',
+            fn(nta_d,4) if nta_d else '—',
+            fm(cost_basis),
+            Paragraph(f'<b>{pl_sign}{fm(realized_pl)}</b>',
+                ParagraphStyle('_rpl', fontName='Helvetica-Bold', fontSize=8,
+                               textColor=pl_color, alignment=TA_RIGHT)),
+        ]],
+        col_w=[40*mm,26*mm,24*mm,28*mm,26*mm,CW-144*mm]))
+    story.append(Paragraph(
+        'Formula: Realized P&L = (NTA at Redemption − Average Cost) × Units Redeemed',
+        s['tiny']))
 
     return _personal(story, investor,
         title='FUND REDEMPTION STATEMENT',
@@ -860,7 +952,7 @@ def generate_account_statement(investor, summary, cashflows, dist_history,
         [_pr('(a)'), _pr('Latest Fund Price'),                _pr(fn(units_v,4),TA_RIGHT), _pr(fn(nta_v,4),TA_RIGHT),  _pr(fm(mv_v),TA_RIGHT)],
         [_pr('(b)'), _pr('Subscription Cost'),                _pr(fn(units_v,4),TA_RIGHT), _pr(fn(avg_c,4),TA_RIGHT),  _pr(f'({fm(cost_v)})',TA_RIGHT)],
         [_pr('(c)'), _pr('Unrealized P&L:  (a) + (b)'),      _pr(''),                      _pr(''),                     _pr(fm(unr_v),TA_RIGHT)],
-        [_pr('(d)'), _pr('Realized Profit & Loss'),           _pr(''),                      _pr(''),                     _pr(fm(rea_v) if rea_v else '—',TA_RIGHT)],
+        [_pr('(d)'), _pr('Realized P&L (Redemptions)'),       _pr(''),                      _pr(''),                     _pr(fm(rea_v) if rea_v else '—',TA_RIGHT)],
         [_pr('(e)'), _pr('Dividend Received'),                _pr(''),                      _pr(''),                     _pr(fm(div_v) if div_v else '—',TA_RIGHT)],
         [_pr('(f)'), _pr(f'Adjustment / Fund Switching {fm(abs(adj_v))}'),
                                                               _pr(''),                      _pr(''),

@@ -35,7 +35,7 @@ function authSave(data) {
 
 function authLogout() {
   ['zy_token','zy_role','zy_name','zy_investor_id'].forEach(k => localStorage.removeItem(k));
-  window.location.href = '/zy-invest/login.html';
+  window.location.href = '/login.html';
 }
 
 function authUser() {
@@ -49,14 +49,14 @@ function authUser() {
 
 function authRequired() {
   const { token } = authUser();
-  if (!token) { window.location.href = '/zy-invest/login.html'; return false; }
+  if (!token) { window.location.href = '/login.html'; return false; }
   return true;
 }
 
 function adminRequired() {
   const { token, role } = authUser();
-  if (!token) { window.location.href = '/zy-invest/login.html'; return false; }
-  if (role !== 'admin') { window.location.href = '/zy-invest/dashboard/index.html'; return false; }
+  if (!token) { window.location.href = '/login.html'; return false; }
+  if (role !== 'admin') { window.location.href = '/dashboard/index.html'; return false; }
   return true;
 }
 

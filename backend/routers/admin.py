@@ -598,34 +598,109 @@ async def add_principal(
     )
     # Update investor's running unit total
     sign = 1 if cashflow_type in ('subscription', 'transfer') else -1
+
+    # For redemption: compute realized P&L BEFORE updating units/costs
+    realized_pl_delta = 0.0
+    if cashflow_type == 'redemption' and body.get('nta_at_date'):
+        inv_now = await db.fetchrow(
+            "SELECT units, total_costs FROM investors WHERE id=$1", body['investor_id'])
+        if inv_now and float(inv_now['units']) > 0:
+            current_units = float(inv_now['units'])
+            current_costs = float(inv_now['total_costs'])
+            avg_cost      = current_costs / current_units if current_units > 0 else 0
+            u_redeemed    = abs(units)
+            nta_now       = float(body['nta_at_date'])
+            redeem_value  = u_redeemed * nta_now
+            cost_basis    = u_redeemed * avg_cost
+            realized_pl_delta = redeem_value - cost_basis
+            # Insert redemption ledger record
+            try:
+                cf_id_row = await db.fetchval(
+                    """SELECT id FROM principal_cashflows
+                       WHERE investor_id=$1 ORDER BY created_at DESC LIMIT 1""",
+                    body['investor_id'])
+                await db.execute("""
+                    INSERT INTO redemption_ledger
+                    (investor_id, cashflow_id, date, units_redeemed,
+                     avg_cost_at_redemption, nta_at_date, redemption_value,
+                     cost_basis, realized_pl, notes)
+                    VALUES ($1,$2,$3::date,$4,$5,$6,$7,$8,$9,$10)
+                """,
+                    body['investor_id'], cf_id_row,
+                    body['date'], u_redeemed, avg_cost, nta_now,
+                    redeem_value, cost_basis, realized_pl_delta,
+                    body.get('notes'))
+            except Exception:
+                pass  # table may not exist yet; non-fatal
+
     await db.execute(
-        "UPDATE investors SET units = units + $1, updated_at = NOW() WHERE id = $2",
-        sign * units, body['investor_id']
+        """UPDATE investors
+           SET units       = units + $1,
+               total_costs = GREATEST(total_costs + $2, 0),
+               realized_pl = realized_pl + $3,
+               updated_at  = NOW()
+           WHERE id = $4""",
+        sign * units,
+        -abs(float(body.get('amount', 0))) if cashflow_type == 'redemption' else 0,
+        realized_pl_delta,
+        body['investor_id']
     )
     # Auto-generate daily subscription or redemption statement (per record)
     try:
         from services.pdf_statements import generate_subscription, generate_redemption
         import base64
         inv_full = await db.fetchrow("""
-            SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
-                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
+            SELECT i.*,
+                   u.email, u.phone, u.bank_name, u.bank_account_no,
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country,
+                   COALESCE(
+                       CURRENT_DATE - i.joined_date,
+                       CURRENT_DATE - (SELECT MIN(date) FROM principal_cashflows
+                                       WHERE investor_id=i.id),
+                       0
+                   )::int AS days_held
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, body['investor_id'])
-        # Get the most recently inserted record for this investor+date
+        # Get the most recently inserted record + ALL prior cashflows for opening balance
         cf_rec = await db.fetchrow("""
             SELECT * FROM principal_cashflows
             WHERE investor_id=$1 AND date=$2::date
             ORDER BY created_at DESC LIMIT 1
         """, body['investor_id'],
             body['date'] if isinstance(body['date'], str) else str(body['date']))
+        # All cashflows BEFORE this record (for computing opening balance)
+        prior_cfs = await db.fetch("""
+            SELECT * FROM principal_cashflows
+            WHERE investor_id=$1 AND created_at < (
+                SELECT created_at FROM principal_cashflows
+                WHERE investor_id=$1 AND date=$2::date
+                ORDER BY created_at DESC LIMIT 1
+            )
+            ORDER BY date ASC
+        """, body['investor_id'],
+            body['date'] if isinstance(body['date'], str) else str(body['date']))
+        # Redemption ledger for this cashflow
+        red_record = None
+        if cf_rec and float(cf_rec['amount']) < 0:
+            red_record = await db.fetchrow("""
+                SELECT * FROM redemption_ledger
+                WHERE cashflow_id=$1 ORDER BY created_at DESC LIMIT 1
+            """, cf_rec['id'])
         if inv_full and cf_rec:
             is_red = float(cf_rec['amount']) < 0
+            cf_dict  = dict(cf_rec)
+            cf_dict['prior_cashflows'] = [dict(c) for c in (prior_cfs or [])]
+            if red_record:
+                cf_dict['realized_pl']     = float(red_record['realized_pl'])
+                cf_dict['cost_basis']      = float(red_record['cost_basis'])
+                cf_dict['redemption_value']= float(red_record['redemption_value'])
+                cf_dict['avg_cost_at_redemption'] = float(red_record['avg_cost_at_redemption'])
             if is_red:
-                pdf_b = generate_redemption(dict(inv_full), dict(cf_rec))
+                pdf_b = generate_redemption(dict(inv_full), cf_dict)
                 lbl   = 'Redemption'
             else:
-                pdf_b = generate_subscription(dict(inv_full), dict(cf_rec))
+                pdf_b = generate_subscription(dict(inv_full), cf_dict)
                 lbl   = 'Subscription'
             b64  = base64.b64encode(pdf_b).decode()
             nm   = inv_full['name']
@@ -1207,8 +1282,15 @@ async def generate_statement(
         if not investor_id:
             raise HTTPException(400, "investor_id required")
         inv = await db.fetchrow("""
-            SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
-                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
+            SELECT i.*,
+                   u.email, u.phone, u.bank_name, u.bank_account_no,
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country,
+                   COALESCE(
+                       CURRENT_DATE - i.joined_date,
+                       CURRENT_DATE - (SELECT MIN(date) FROM principal_cashflows
+                                       WHERE investor_id=i.id),
+                       0
+                   )::int AS days_held
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, investor_id)
@@ -1230,8 +1312,15 @@ async def generate_statement(
         if not investor_id:
             raise HTTPException(400, "investor_id required")
         inv = await db.fetchrow("""
-            SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
-                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
+            SELECT i.*,
+                   u.email, u.phone, u.bank_name, u.bank_account_no,
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country,
+                   COALESCE(
+                       CURRENT_DATE - i.joined_date,
+                       CURRENT_DATE - (SELECT MIN(date) FROM principal_cashflows
+                                       WHERE investor_id=i.id),
+                       0
+                   )::int AS days_held
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, investor_id)
@@ -1251,8 +1340,15 @@ async def generate_statement(
         if not investor_id:
             raise HTTPException(400, "investor_id required")
         inv = await db.fetchrow("""
-            SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
-                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
+            SELECT i.*,
+                   u.email, u.phone, u.bank_name, u.bank_account_no,
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country,
+                   COALESCE(
+                       CURRENT_DATE - i.joined_date,
+                       CURRENT_DATE - (SELECT MIN(date) FROM principal_cashflows
+                                       WHERE investor_id=i.id),
+                       0
+                   )::int AS days_held
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
             WHERE i.id = $1
         """, investor_id)
