@@ -482,30 +482,32 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
     pad    = max((hi - lo) * 0.15, 0.05)
     y_min  = round((lo - pad) / 0.05) * 0.05
     y_max  = round((hi + pad) / 0.05 + 1) * 0.05
-    # figsize in inches = pts/72 so 1pt font = 1pt in PDF at dpi=72
+    # dpi=150 for crisp output; fontsize scaled accordingly (mfs = desired_pt × DPI/72)
+    DPI = 150
     w_in = width / 72; h_in = height / 72
-    fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=72)
+    mfs  = round(7 * DPI / 72)   # ~14.6pt matplotlib = 7pt in PDF
+    fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=DPI)
     x = list(range(len(dates)))
     ax.plot(x, ntas, color='#1565C0', linewidth=1.5, zorder=3)
     ax.fill_between(x, ntas, y_min, alpha=0.10, color='#1565C0')
     step = max(1, len(dates)//10)
     ax.set_xticks(x[::step])
-    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=7, rotation=30, ha='right')
+    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=mfs, rotation=30, ha='right')
     ax.set_ylim(y_min, y_max)
     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
-    ax.tick_params(axis='y', labelsize=7)
-    ax.tick_params(axis='x', labelsize=7)
+    ax.tick_params(axis='y', labelsize=mfs)
+    ax.tick_params(axis='x', labelsize=mfs)
     ax.grid(axis='y', alpha=0.25, linewidth=0.5, linestyle='--')
     for sp in ['top','right']:   ax.spines[sp].set_visible(False)
     for sp in ['left','bottom']: ax.spines[sp].set_color('#E5E7EB')
     for idx, lbl in [(0, f'{ntas[0]:.4f}'), (len(ntas)-1, f'{ntas[-1]:.4f}')]:
         ax.annotate(lbl, xy=(idx, ntas[idx]),
             xytext=(8 if idx else -8, 6), textcoords='offset points',
-            fontsize=8, color='#1565C0', fontweight='bold',
+            fontsize=round(8*DPI/72), color='#1565C0', fontweight='bold',
             ha='left' if idx else 'right')
     plt.tight_layout(pad=0.5)
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=150)
+    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=DPI)
     plt.close(fig); buf.seek(0)
     return Image(buf, width=width, height=height)
 
@@ -535,29 +537,38 @@ def _bar_chart(labels, values, width, height=60*mm):
     colors = [CC[i % len(CC)] for i in range(len(labels))]
     n = len(labels)
 
-    # figsize in inches = pts/72 for 1:1 font mapping in PDF
-    legend_rows = -(-n // 2)   # ceil(n/2)
+    # dpi=150 for crisp output; figsize calculated so fonts match PDF pts
+    # At dpi=150: 1pt in PDF = 150/72 ≈ 2.08 pixels → use fontsize × 72/150
+    DPI = 150
+    legend_rows = -(-n // 2)
     w_in  = width  / 72
-    h_in  = height / 72 + legend_rows * 0.25
-    fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=72)
+    h_in  = height / 72 + legend_rows * 0.28
+    fs    = 8   # desired pt size in PDF → matplotlib fontsize = 8 * DPI/72 ≈ 16... 
+    # Actually: figure renders at w_in*DPI pixels, inserted at width pts in PDF
+    # scale = pts / pixels = width / (w_in*DPI) = 72/DPI
+    # font in PDF = matplotlib_fs × scale = matplotlib_fs × 72/DPI
+    # To get 8pt in PDF: matplotlib_fs = 8 × DPI/72 ≈ 16.7
+    mfs = round(8 * DPI / 72)   # ~17pt matplotlib = 8pt in PDF
 
+    fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=DPI)
     y_pos = list(range(n - 1, -1, -1))
     bars  = ax.barh(y_pos, values, color=colors, height=0.6, zorder=3)
 
     for bar, val in zip(bars, values):
-        w = bar.get_width()
-        if w > 2:
-            ax.text(w / 2, bar.get_y() + bar.get_height() / 2,
+        bw = bar.get_width()
+        if bw > 2:
+            ax.text(bw / 2, bar.get_y() + bar.get_height() / 2,
                     f'{val:.1f}%', ha='center', va='center',
-                    fontsize=7, color='white', fontweight='bold')
+                    fontsize=mfs, color='white', fontweight='bold')
 
     ax.set_yticks([])
-    ax.set_xlim(0, max(values) * 1.08)
+    ax.set_xlim(0, max(values) * 1.10)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}%'))
-    ax.tick_params(axis='x', labelsize=7)
-    ax.grid(axis='x', alpha=0.25, linewidth=0.5, linestyle='--', zorder=0)
+    ax.tick_params(axis='x', labelsize=mfs)
+    ax.grid(axis='x', alpha=0.25, linewidth=0.8, linestyle='--', zorder=0)
     for sp in ['top','right','left']: ax.spines[sp].set_visible(False)
     ax.spines['bottom'].set_color('#E5E7EB')
+    ax.spines['bottom'].set_linewidth(0.8)
 
     from matplotlib.patches import Patch
     legend_handles = [
@@ -565,16 +576,16 @@ def _bar_chart(labels, values, width, height=60*mm):
         for i in range(n)
     ]
     ax.legend(handles=legend_handles, loc='upper center',
-              bbox_to_anchor=(0.5, -0.06),
-              ncol=2, fontsize=7, frameon=False,
-              handlelength=1.0, handleheight=0.9,
-              columnspacing=1.2, labelspacing=0.4)
+              bbox_to_anchor=(0.5, -0.04),
+              ncol=2, fontsize=mfs, frameon=False,
+              handlelength=1.2, handleheight=1.0,
+              columnspacing=1.5, labelspacing=0.5)
 
-    plt.tight_layout(pad=0.4)
+    plt.tight_layout(pad=0.5)
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=72)
+    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=DPI)
     plt.close(fig); buf.seek(0)
-    return Image(buf, width=width, height=height + legend_rows * 6*mm)
+    return Image(buf, width=width, height=height + legend_rows * 7*mm)
 
 
 # ══════════════════════════════════════════════════════════════

@@ -8,45 +8,50 @@
   <link rel="stylesheet" href="../../assets/css/dashboard.css">
   <style>
     .stmt-cards { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-bottom:24px; }
-    .stmt-card  { border:2px solid var(--border); border-radius:var(--radius-lg); padding:20px; cursor:pointer;
-                  transition:border-color .2s, background .2s; background:var(--white); }
+    .stmt-card  { border:2px solid var(--border); border-radius:var(--radius-lg); padding:20px;
+                  cursor:pointer; transition:border-color .2s, background .2s; background:var(--white); }
     .stmt-card:hover    { border-color:var(--blue); background:var(--blue-bg); }
     .stmt-card.selected { border-color:var(--blue); background:var(--blue-bg); }
     .stmt-card h4  { margin:0 0 6px; font-size:0.95rem; color:var(--gray-900); }
     .stmt-card p   { margin:0; font-size:0.82rem; color:var(--text-muted); }
     .stmt-icon     { font-size:1.6rem; margin-bottom:10px; }
     .form-group    { margin-bottom:16px; }
-    .form-label    { display:block; font-size:0.85rem; font-weight:600; color:var(--gray-700); margin-bottom:7px; }
-    .form-input    { width:100%; padding:10px 14px; font-family:var(--font-body); font-size:0.88rem;
-                     background:var(--gray-50); border:1.5px solid var(--border);
-                     border-radius:var(--radius-md); color:var(--text); outline:none; }
-    .form-input:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(21,101,192,0.1); background:var(--white); }
+    .form-label    { display:block; font-size:0.85rem; font-weight:600;
+                     color:var(--gray-700); margin-bottom:7px; }
+    .form-input    { width:100%; padding:10px 14px; font-family:var(--font-body);
+                     font-size:0.88rem; background:var(--gray-50);
+                     border:1.5px solid var(--border); border-radius:var(--radius-md);
+                     color:var(--text); outline:none; box-sizing:border-box; }
+    .form-input:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(21,101,192,.1);
+                        background:var(--white); }
     .form-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
     .generated-list { display:flex; flex-direction:column; gap:10px; }
-    .gen-item  { display:flex; flex-direction:column; gap:8px;
-                 padding:12px 16px; border:1px solid var(--border);
-                 border-radius:var(--radius-md); background:var(--off-white); }
-    .gen-item-info { display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .gen-item { display:flex; flex-direction:column; gap:8px; padding:12px 16px;
+                border:1px solid var(--border); border-radius:var(--radius-md);
+                background:var(--off-white); }
     .gen-item-name { font-weight:600; font-size:0.85rem; color:var(--gray-900);
                      white-space:normal; word-break:break-word; }
     .gen-item-meta { font-size:0.75rem; color:var(--text-muted); word-break:break-all; }
-    .gen-item-actions { display:flex; gap:8px; flex-shrink:0; }
+    .gen-item-actions { display:flex; gap:8px; }
     @media(max-width:680px){ .stmt-cards{grid-template-columns:1fr;} .form-row{grid-template-columns:1fr;} }
   </style>
 </head>
 <body>
 <div class="dash-root">
-  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99"
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99"
        onclick="document.getElementById('sidebar').classList.remove('mobile-open');this.style.display='none'"></div>
   <aside class="sidebar" id="sidebar"></aside>
   <div class="dash-main" id="dash-main">
     <header class="dash-topbar">
       <div class="topbar-left">
         <button class="mobile-menu-btn"
-          onclick="document.getElementById('sidebar').classList.toggle('mobile-open');document.getElementById('sidebar-overlay').style.display='block'">☰</button>
+          onclick="document.getElementById('sidebar').classList.toggle('mobile-open');
+                   document.getElementById('sidebar-overlay').style.display='block'">☰</button>
         <span class="topbar-title" id="topbar-title">Generate Statements</span>
       </div>
-      <div class="topbar-right"><span class="topbar-date" id="topbar-date"></span></div>
+      <div class="topbar-right">
+        <span class="topbar-date" id="topbar-date"></span>
+      </div>
     </header>
 
     <div class="dash-content">
@@ -56,14 +61,13 @@
           <span>Admin</span><span>›</span><span>Generate Statements</span>
         </div>
         <h1>Generate Statements</h1>
-        <p>Generate PDF statements for individual members or fund-wide. Statements are stored in the Documents library and members can download them.</p>
+        <p>Generate PDF statements for individual members or fund-wide.
+           Statements are stored in the Documents library.</p>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 360px;gap:24px;align-items:start">
-
-        <!-- Left: form -->
         <div>
-          <!-- Statement type selector -->
+          <!-- Step 1: Type -->
           <div class="panel" style="margin-bottom:20px">
             <div class="panel-header"><h3>1. Select Statement Type</h3></div>
             <div class="panel-body">
@@ -71,64 +75,50 @@
                 <div class="stmt-card selected" id="card-factsheet" onclick="selectType('factsheet')">
                   <div class="stmt-icon">📊</div>
                   <h4>Monthly Factsheet</h4>
-                  <p>Fund-wide portfolio report. Sent to all members. Includes performance, holdings, sector allocation and distribution history.</p>
+                  <p>Fund-wide portfolio report with performance, holdings, sector allocation.</p>
                 </div>
                 <div class="stmt-card" id="card-subscription" onclick="selectType('subscription')">
                   <div class="stmt-icon">💳</div>
                   <h4>Subscription Statement</h4>
-                  <p>Per investor. Shows all subscriptions with NTA price and unit balances.</p>
+                  <p>Per investor. Shows subscriptions with opening/closing balance and VWAP.</p>
                 </div>
                 <div class="stmt-card" id="card-redemption" onclick="selectType('redemption')">
                   <div class="stmt-icon">💸</div>
                   <h4>Redemption Statement</h4>
-                  <p>Per investor. Shows all redemptions with NTA price and units redeemed.</p>
+                  <p>Per investor. Shows redemption with realized P&amp;L under AVCO method.</p>
                 </div>
                 <div class="stmt-card" id="card-dividend" onclick="selectType('dividend')">
                   <div class="stmt-icon">💰</div>
                   <h4>Dividend Payment Statement</h4>
-                  <p>Per investor. Shows distribution entitlements with DPS, EPS, payout ratio and dividend amounts received.</p>
+                  <p>Per investor. Shows distribution entitlements with DPS and amounts.</p>
                 </div>
                 <div class="stmt-card" id="card-account" onclick="selectType('account')">
-                  <div class="stmt-icon">📄</div>
+                  <div class="stmt-icon">📋</div>
                   <h4>Investment Account Statement</h4>
-                  <p>Per investor, annual. Full P&amp;L summary, principal transactions, and distribution history for a financial year.</p>
+                  <p>Per investor, annual. Full P&amp;L summary and transaction history.</p>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Parameters -->
+          <!-- Step 2: Parameters -->
           <div class="panel" style="margin-bottom:20px">
             <div class="panel-header"><h3>2. Set Parameters</h3></div>
             <div class="panel-body">
 
-              <!-- Investor selector (hidden for factsheet) -->
+              <!-- Investor selector -->
               <div id="investor-group" style="display:none" class="form-group">
                 <label class="form-label">Select Investor</label>
                 <select id="investor-select" class="form-input">
-                  <option value="">Loading investors...</option>
+                  <option value="">— Select investor —</option>
                 </select>
               </div>
 
-              <!-- Date picker (shown for subscription + redemption) -->
+              <!-- Transaction date picker (subscription / redemption) -->
               <div id="date-group" style="display:none" class="form-group">
-                <label class="form-label">Transaction Date</label>
-                <select id="date-select" class="form-input">
-                  <option value="">Latest record</option>
-                </select>
-              </div>
-
-              <!-- Distribution picker (shown for dividend) -->
-              <div id="dist-group" style="display:none" class="form-group">
-                <label class="form-label">Distribution</label>
-                <select id="dist-select" class="form-input">
-                  <option value="">Latest distribution</option>
-                </select>
-              </div>
-
-              <!-- Date picker (subscription/redemption) -->
-              <div id="date-group" style="display:none" class="form-group">
-                <label class="form-label">Transaction Date</label>
+                <label class="form-label">Transaction Date
+                  <span style="font-weight:400;color:var(--text-muted)">(select specific record)</span>
+                </label>
                 <select id="date-select" class="form-input">
                   <option value="">Latest record</option>
                 </select>
@@ -142,7 +132,7 @@
                 </select>
               </div>
 
-              <!-- FY selector (shown for dividend + account) -->
+              <!-- FY selector (dividend + account) -->
               <div id="fy-group" style="display:none" class="form-row">
                 <div class="form-group">
                   <label class="form-label">Financial Year</label>
@@ -156,27 +146,28 @@
                   </select>
                 </div>
                 <div class="form-group">
-                  <label class="form-label">Statement Period <span style="font-weight:400;color:var(--text-muted)">(optional label)</span></label>
+                  <label class="form-label">Statement Period <span style="font-weight:400;color:var(--text-muted)">(label)</span></label>
                   <input type="text" id="period-input" class="form-input" placeholder="e.g. 1/12/2024 - 30/11/2025">
                 </div>
               </div>
 
-              <!-- Period for factsheet -->
+              <!-- Period/Month for factsheet — end-of-month dropdown -->
               <div id="period-group" class="form-group">
                 <label class="form-label">Period / Month</label>
-                <input type="text" id="factsheet-period" class="form-input"
-                  placeholder="e.g. February 2026" value="">
+                <select id="factsheet-period" class="form-input"></select>
               </div>
 
-              <!-- Manager comment (factsheet only) -->
+              <!-- Manager comment (factsheet) -->
               <div id="comment-group" class="form-group">
-                <label class="form-label">Manager's Comments <span style="font-weight:400;color:var(--text-muted)">(required for factsheet)</span></label>
+                <label class="form-label">Manager's Comments
+                  <span style="font-weight:400;color:var(--text-muted)">(required for factsheet)</span>
+                </label>
                 <textarea id="manager-comment" class="form-input" rows="5"
-                  placeholder="Write the manager's market commentary for this month...&#10;&#10;e.g. Our portfolio maintains a heavy concentration in Zetrix AI despite headwinds from Ringgit appreciation..."
+                  placeholder="Write the manager's market commentary for this month..."
                   style="resize:vertical;font-size:0.85rem;line-height:1.5"></textarea>
               </div>
 
-              <!-- Bulk generate for factsheet -->
+              <!-- Bulk for factsheet -->
               <div id="bulk-group" style="display:none" class="form-group">
                 <label class="form-label">Generate For</label>
                 <select id="bulk-select" class="form-input">
@@ -186,9 +177,7 @@
               </div>
 
               <button class="btn btn-primary" id="gen-btn" onclick="generateStatement()"
-                style="margin-top:8px;padding:10px 24px">
-                ⚙ Generate PDF
-              </button>
+                style="margin-top:8px;padding:10px 24px">⚙ Generate PDF</button>
             </div>
           </div>
         </div>
@@ -204,37 +193,39 @@
               No statements generated yet.<br>Select a type and click Generate.
             </div>
           </div>
-          <div class="panel-footer">Statements are saved to the Documents library and visible to the relevant member.</div>
-        <div style="padding:12px 16px;border-top:1px solid var(--border)">
-          <button class="btn btn-outline" style="width:100%;font-size:0.82rem"
-            onclick="generateAllFY()">⚙ Auto-Generate All FY Account Statements</button>
-          <div style="font-size:0.75rem;color:var(--text-muted);margin-top:6px;text-align:center">
-            Generates FY22–FY25 for all active investors (skips already generated)
+          <div class="panel-footer">
+            Statements are saved to the Documents library and visible to the relevant member.
+          </div>
+          <div style="padding:12px 16px;border-top:1px solid var(--border)">
+            <button class="btn btn-outline" style="width:100%;font-size:0.82rem"
+              onclick="generateAllFY()">⚙ Auto-Generate All FY Account Statements</button>
+            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:6px;text-align:center">
+              Generates FY22–FY25 for all active investors (skips already generated)
+            </div>
           </div>
         </div>
-        </div>
 
-      </div>
-    </div>
-  </div>
-</div>
+      </div><!-- /grid -->
+    </div><!-- /dash-content -->
+  </div><!-- /dash-main -->
+</div><!-- /dash-root -->
 
 <script src="../../assets/js/api.js"></script>
 <script src="../../assets/js/dashboard.js"></script>
 <script>
+/* ── Bootstrap ───────────────────────────────────────────── */
+initDashboard('admin-statements', 'Generate Statements');
+if (!adminRequired()) throw new Error('Not admin');
+
 let selectedType = 'factsheet';
 let allInvestors = [];
-let generated = [];
+let generated    = [];
 
+/* ── Init ────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', async () => {
-  initDashboard('admin-statements', 'Generate Statements');
+  buildMonthDropdown();
+  selectType('factsheet');
 
-  // Set default period to current month
-  const now = new Date();
-  document.getElementById('factsheet-period').value =
-    now.toLocaleString('en-MY', { month:'long', year:'numeric' });
-
-  // Load investors
   try {
     allInvestors = await api.get('/api/admin/investors') || [];
     const sel = document.getElementById('investor-select');
@@ -244,33 +235,49 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch(e) { showToast('Failed to load investors', 'error'); }
 });
 
+/* ── Build end-of-month dropdown for factsheet ───────────── */
+function buildMonthDropdown() {
+  const sel = document.getElementById('factsheet-period');
+  sel.innerHTML = '';
+  const now = new Date();
+  // Generate last 24 months end-of-month dates
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i + 1, 0); // last day of month
+    const label = d.toLocaleDateString('en-MY', { month: 'long', year: 'numeric' });
+    const value = d.toISOString().slice(0, 10); // YYYY-MM-DD
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = label;
+    if (i === 0) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+/* ── Select type ─────────────────────────────────────────── */
 function selectType(type) {
   selectedType = type;
   document.querySelectorAll('.stmt-card').forEach(c => c.classList.remove('selected'));
   document.getElementById('card-' + type).classList.add('selected');
 
-  // Show/hide fields
-  const isFactsheet    = type === 'factsheet';
-  const needsFY        = type === 'dividend' || type === 'account';
-  const needsInvestor  = type !== 'factsheet';
+  const isFactsheet = type === 'factsheet';
+  const needsFY     = type === 'dividend' || type === 'account';
+  const needsInv    = type !== 'factsheet';
+  const needsDate   = type === 'subscription' || type === 'redemption';
+  const needsDist   = type === 'dividend';
 
-  const needsDate = type === 'subscription' || type === 'redemption';
-  const needsDist = type === 'dividend';
+  document.getElementById('investor-group').style.display = needsInv    ? 'block' : 'none';
+  document.getElementById('date-group').style.display     = needsDate   ? 'block' : 'none';
+  document.getElementById('dist-group').style.display     = needsDist   ? 'block' : 'none';
+  document.getElementById('fy-group').style.display       = needsFY     ? 'grid'  : 'none';
+  document.getElementById('period-group').style.display   = isFactsheet ? 'block' : 'none';
+  document.getElementById('comment-group').style.display  = isFactsheet ? 'block' : 'none';
+  document.getElementById('bulk-group').style.display     = needsInv    ? 'block' : 'none';
 
-  document.getElementById('investor-group').style.display  = needsInvestor ? 'block' : 'none';
-  document.getElementById('date-group').style.display      = needsDate     ? 'block' : 'none';
-  document.getElementById('dist-group').style.display      = needsDist     ? 'block' : 'none';
-  document.getElementById('fy-group').style.display        = needsFY       ? 'grid'  : 'none';
-  document.getElementById('period-group').style.display    = isFactsheet   ? 'block' : 'none';
-  document.getElementById('comment-group').style.display   = isFactsheet   ? 'block' : 'none';
-  document.getElementById('bulk-group').style.display      = needsInvestor ? 'block' : 'none';
-
-  // Reload dates/distributions for current investor
-  if (needsDate || needsDist) {
-    loadCashflowOptions();
-  }
+  // Reload cashflow options when type changes (if investor already selected)
+  if (needsDate || needsDist) loadCashflowOptions();
 }
 
+/* ── Load cashflow dates / distributions ─────────────────── */
 async function loadCashflowOptions() {
   const invId = document.getElementById('investor-select').value;
   if (!invId) return;
@@ -279,83 +286,63 @@ async function loadCashflowOptions() {
     const dateSel = document.getElementById('date-select');
     dateSel.innerHTML = '<option value="">Loading...</option>';
     try {
-      const rows = await api.get(`/api/admin/investors/${invId}/cashflow-dates`);
-      const filtered = rows.filter(r =>
+      const rows = await api.get(`/api/admin/investors/${encodeURIComponent(invId)}/cashflow-dates`);
+      const filtered = (rows || []).filter(r =>
         selectedType === 'subscription' ? r.amount > 0 : r.amount < 0);
       dateSel.innerHTML = '<option value="">Latest record</option>' +
         filtered.map(r => {
-          const d = new Date(r.date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
-          const amt = Math.abs(r.amount).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
-          return `<option value="${r.date}">${d} — RM ${amt}</option>`;
+          const d   = new Date(r.date + 'T00:00:00');
+          const lbl = d.toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'});
+          const amt = Math.abs(Number(r.amount)).toLocaleString('en-MY', {minimumFractionDigits:2, maximumFractionDigits:2});
+          return `<option value="${r.date}">${lbl} — RM ${amt}</option>`;
         }).join('');
-    } catch(e) { dateSel.innerHTML = '<option value="">Error loading</option>'; }
+    } catch(e) {
+      dateSel.innerHTML = '<option value="">— Error loading dates —</option>';
+      console.error('cashflow-dates error:', e);
+    }
   }
 
   if (selectedType === 'dividend') {
     const distSel = document.getElementById('dist-select');
     distSel.innerHTML = '<option value="">Loading...</option>';
     try {
-      const rows = await api.get(`/api/admin/investors/${invId}/distribution-list`);
+      const rows = await api.get(`/api/admin/investors/${encodeURIComponent(invId)}/distribution-list`);
       distSel.innerHTML = '<option value="">Latest distribution</option>' +
-        rows.map(r => {
-          const d = r.pmt_date ? new Date(r.pmt_date).toLocaleDateString('en-GB') : '';
+        (rows || []).map(r => {
+          const d = r.pmt_date ? new Date(r.pmt_date + 'T00:00:00').toLocaleDateString('en-GB') : '';
           return `<option value="${r.title}">${r.title} (${r.financial_year}) ${d}</option>`;
         }).join('');
-    } catch(e) { distSel.innerHTML = '<option value="">Error loading</option>'; }
+    } catch(e) {
+      distSel.innerHTML = '<option value="">— Error loading —</option>';
+      console.error('distribution-list error:', e);
+    }
   }
 }
 
-async function loadCashflowOptions() {
-  const invId = document.getElementById('investor-select').value;
-  if (!invId) return;
-  if (selectedType === 'subscription' || selectedType === 'redemption') {
-    const dateSel = document.getElementById('date-select');
-    dateSel.innerHTML = '<option value="">Loading...</option>';
-    try {
-      const rows = await api.get(`/api/admin/investors/${invId}/cashflow-dates`);
-      const filtered = rows.filter(r => selectedType === 'subscription' ? r.amount > 0 : r.amount < 0);
-      dateSel.innerHTML = '<option value="">Latest record</option>' +
-        filtered.map(r => {
-          const d = new Date(r.date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
-          const amt = Math.abs(r.amount).toLocaleString('en-MY',{minimumFractionDigits:2});
-          return `<option value="${r.date}">${d} — RM ${amt}</option>`;
-        }).join('');
-    } catch(e) { dateSel.innerHTML = '<option value="">—</option>'; }
-  }
-  if (selectedType === 'dividend') {
-    const distSel = document.getElementById('dist-select');
-    distSel.innerHTML = '<option value="">Loading...</option>';
-    try {
-      const rows = await api.get(`/api/admin/investors/${invId}/distribution-list`);
-      distSel.innerHTML = '<option value="">Latest distribution</option>' +
-        rows.map(r => {
-          const d = r.pmt_date ? new Date(r.pmt_date).toLocaleDateString('en-GB') : '';
-          return `<option value="${r.title}">${r.title} (${r.financial_year}) ${d}</option>`;
-        }).join('');
-    } catch(e) { distSel.innerHTML = '<option value="">—</option>'; }
-  }
-}
-
+/* ── Generate PDF ────────────────────────────────────────── */
 async function generateStatement() {
   const btn = document.getElementById('gen-btn');
   btn.disabled = true; btn.textContent = '⏳ Generating...';
 
   try {
-    const investorId = document.getElementById('investor-select').value;
-    const finYear    = document.getElementById('fy-select').value;
-    const period     = selectedType === 'factsheet'
+    const investorId     = document.getElementById('investor-select').value;
+    const finYear        = document.getElementById('fy-select').value;
+    const selectedDate   = document.getElementById('date-select').value || null;
+    const selectedDist   = document.getElementById('dist-select').value || null;
+    const managerComment = document.getElementById('manager-comment').value.trim();
+    const bulk           = document.getElementById('bulk-select').value;
+
+    // For factsheet: use the end-of-month period date
+    const period = selectedType === 'factsheet'
       ? document.getElementById('factsheet-period').value
       : document.getElementById('period-input').value;
-    const bulk       = document.getElementById('bulk-select').value;
 
-    // Validate
     if (selectedType !== 'factsheet' && !investorId && bulk !== 'all') {
       showToast('Please select an investor', 'error');
       btn.disabled = false; btn.textContent = '⚙ Generate PDF';
       return;
     }
 
-    // Build target list
     let targets = [];
     if (selectedType === 'factsheet') {
       targets = [{ investor_id: null }];
@@ -368,30 +355,24 @@ async function generateStatement() {
 
     for (const target of targets) {
       try {
-        const res = await api.post('/api/admin/statements/generate', {
-          statement_type:         selectedType,
-          investor_id:            target.investor_id,
-          financial_year:         finYear,
-          period:                 period,
-          manager_comment:        document.getElementById('manager-comment').value.trim(),
-          selected_date:          document.getElementById('date-select').value || null,
-          selected_distribution:  document.getElementById('dist-select').value || null,
-        });
-
+        const body = {
+          statement_type:        selectedType,
+          investor_id:           target.investor_id,
+          financial_year:        finYear,
+          period:                period,
+          manager_comment:       managerComment,
+          selected_date:         selectedDate,
+          selected_distribution: selectedDist,
+        };
+        const res = await api.post('/api/admin/statements/generate', body);
         generated.unshift(res);
         renderGenerated();
         showToast(`Generated: ${res.title}`, 'success');
-
-        // Auto-download if single
-        if (targets.length === 1) {
-          downloadPdf(res.pdf_b64, res.file_name);
-        }
-
+        if (targets.length === 1) downloadPdf(res.pdf_b64, res.file_name);
       } catch(e) {
         showToast(`Failed for ${target.name || 'fund'}: ${e.message}`, 'error');
       }
     }
-
   } catch(e) {
     showToast('Generation failed: ' + e.message, 'error');
   }
@@ -399,6 +380,7 @@ async function generateStatement() {
   btn.disabled = false; btn.textContent = '⚙ Generate PDF';
 }
 
+/* ── Render generated list ───────────────────────────────── */
 function renderGenerated() {
   const list = document.getElementById('generated-list');
   document.getElementById('gen-count').textContent = generated.length;
@@ -406,146 +388,40 @@ function renderGenerated() {
     list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted);font-size:0.88rem">No statements generated yet.</div>';
     return;
   }
-  list.innerHTML = '<div class="generated-list">' + generated.map((g, i) => `
-    <div class="gen-item">
-      <div class="gen-item-info">
-        <span class="gen-item-name">${g.title}</span>
-        <span class="gen-item-meta">📄 ${g.file_name} · ${g.file_size_kb} KB</span>
-      </div>
-      <div class="gen-item-actions">
-        <button class="btn btn-outline" style="padding:5px 12px;font-size:0.78rem"
-          onclick="downloadPdf('${g.pdf_b64}','${g.file_name}')">↓ Download</button>
-      </div>
-    </div>`).join('') + '</div>';
+  list.innerHTML = '<div class="generated-list">' +
+    generated.map(g => `
+      <div class="gen-item">
+        <div class="gen-item-info">
+          <span class="gen-item-name">${g.title}</span>
+          <span class="gen-item-meta">📄 ${g.file_name} · ${g.file_size_kb} KB</span>
+        </div>
+        <div class="gen-item-actions">
+          <button class="btn btn-outline" style="padding:5px 12px;font-size:0.78rem"
+            onclick="downloadPdf('${g.pdf_b64}','${g.file_name}')">↓ Download</button>
+        </div>
+      </div>`).join('') + '</div>';
 }
 
+/* ── Auto-generate FY account statements ─────────────────── */
 async function generateAllFY() {
   const btn = event.target;
   btn.disabled = true; btn.textContent = '⏳ Generating...';
   try {
     const r = await api.post('/api/admin/statements/generate-fy-statements', {});
-    showToast(`Generated ${r.generated} account statements.${r.errors?.length ? ' Some errors: '+r.errors[0] : ''}`, 'success');
+    showToast(`Generated ${r.generated} account statements.` +
+      (r.errors?.length ? ` Some errors: ${r.errors[0]}` : ''), 'success');
   } catch(e) { showToast('Failed: ' + e.message, 'error'); }
   btn.disabled = false; btn.textContent = '⚙ Auto-Generate All FY Account Statements';
 }
 
+/* ── Download PDF blob ───────────────────────────────────── */
 function downloadPdf(b64, filename) {
-  const bytes   = atob(b64);
-  const buffer  = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) buffer[i] = bytes.charCodeAt(i);
-  const blob    = new Blob([buffer], { type: 'application/pdf' });
-  const url     = URL.createObjectURL(blob);
-  const a       = document.createElement('a');
-  a.href        = url;
-  a.download    = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-</script>
-</body>
-</html>
-async function generateStatement() {
-  const btn = document.getElementById('gen-btn');
-  btn.disabled = true; btn.textContent = '⏳ Generating...';
-
-  try {
-    const investorId = document.getElementById('investor-select').value;
-    const finYear    = document.getElementById('fy-select').value;
-    const period     = selectedType === 'factsheet'
-      ? document.getElementById('factsheet-period').value
-      : document.getElementById('period-input').value;
-    const bulk       = document.getElementById('bulk-select').value;
-
-    // Validate
-    if (selectedType !== 'factsheet' && !investorId && bulk !== 'all') {
-      showToast('Please select an investor', 'error');
-      btn.disabled = false; btn.textContent = '⚙ Generate PDF';
-      return;
-    }
-
-    // Build target list
-    let targets = [];
-    if (selectedType === 'factsheet') {
-      targets = [{ investor_id: null }];
-    } else if (bulk === 'all') {
-      targets = allInvestors.map(i => ({ investor_id: i.id, name: i.name }));
-    } else {
-      const inv = allInvestors.find(i => i.id === investorId);
-      targets = [{ investor_id: investorId, name: inv?.name || '' }];
-    }
-
-    for (const target of targets) {
-      try {
-        const res = await api.post('/api/admin/statements/generate', {
-          statement_type:         selectedType,
-          investor_id:            target.investor_id,
-          financial_year:         finYear,
-          period:                 period,
-          manager_comment:        document.getElementById('manager-comment').value.trim(),
-          selected_date:          document.getElementById('date-select').value || null,
-          selected_distribution:  document.getElementById('dist-select').value || null,
-        });
-
-        generated.unshift(res);
-        renderGenerated();
-        showToast(`Generated: ${res.title}`, 'success');
-
-        // Auto-download if single
-        if (targets.length === 1) {
-          downloadPdf(res.pdf_b64, res.file_name);
-        }
-
-      } catch(e) {
-        showToast(`Failed for ${target.name || 'fund'}: ${e.message}`, 'error');
-      }
-    }
-
-  } catch(e) {
-    showToast('Generation failed: ' + e.message, 'error');
-  }
-
-  btn.disabled = false; btn.textContent = '⚙ Generate PDF';
-}
-
-function renderGenerated() {
-  const list = document.getElementById('generated-list');
-  document.getElementById('gen-count').textContent = generated.length;
-  if (!generated.length) {
-    list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted);font-size:0.88rem">No statements generated yet.</div>';
-    return;
-  }
-  list.innerHTML = '<div class="generated-list">' + generated.map((g, i) => `
-    <div class="gen-item">
-      <div class="gen-item-info">
-        <span class="gen-item-name">${g.title}</span>
-        <span class="gen-item-meta">📄 ${g.file_name} · ${g.file_size_kb} KB</span>
-      </div>
-      <div class="gen-item-actions">
-        <button class="btn btn-outline" style="padding:5px 12px;font-size:0.78rem"
-          onclick="downloadPdf('${g.pdf_b64}','${g.file_name}')">↓ Download</button>
-      </div>
-    </div>`).join('') + '</div>';
-}
-
-async function generateAllFY() {
-  const btn = event.target;
-  btn.disabled = true; btn.textContent = '⏳ Generating...';
-  try {
-    const r = await api.post('/api/admin/statements/generate-fy-statements', {});
-    showToast(`Generated ${r.generated} account statements.${r.errors?.length ? ' Some errors: '+r.errors[0] : ''}`, 'success');
-  } catch(e) { showToast('Failed: ' + e.message, 'error'); }
-  btn.disabled = false; btn.textContent = '⚙ Auto-Generate All FY Account Statements';
-}
-
-function downloadPdf(b64, filename) {
-  const bytes   = atob(b64);
-  const buffer  = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) buffer[i] = bytes.charCodeAt(i);
-  const blob    = new Blob([buffer], { type: 'application/pdf' });
-  const url     = URL.createObjectURL(blob);
-  const a       = document.createElement('a');
-  a.href        = url;
-  a.download    = filename;
+  const bytes  = atob(b64);
+  const buf    = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+  const blob = new Blob([buf], { type: 'application/pdf' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
   a.click();
   URL.revokeObjectURL(url);
 }
