@@ -265,13 +265,9 @@ function selectType(type) {
   document.getElementById('comment-group').style.display   = isFactsheet   ? 'block' : 'none';
   document.getElementById('bulk-group').style.display      = needsInvestor ? 'block' : 'none';
 
-  // Load dates/distributions when investor changes
+  // Reload dates/distributions for current investor
   if (needsDate || needsDist) {
-    const sel = document.getElementById('investor-select');
-    if (!sel._hasListener) {
-      sel.addEventListener('change', () => loadCashflowOptions());
-      sel._hasListener = true;
-    }
+    loadCashflowOptions();
   }
 }
 
@@ -340,6 +336,114 @@ async function loadCashflowOptions() {
   }
 }
 
+async function generateStatement() {
+  const btn = document.getElementById('gen-btn');
+  btn.disabled = true; btn.textContent = '⏳ Generating...';
+
+  try {
+    const investorId = document.getElementById('investor-select').value;
+    const finYear    = document.getElementById('fy-select').value;
+    const period     = selectedType === 'factsheet'
+      ? document.getElementById('factsheet-period').value
+      : document.getElementById('period-input').value;
+    const bulk       = document.getElementById('bulk-select').value;
+
+    // Validate
+    if (selectedType !== 'factsheet' && !investorId && bulk !== 'all') {
+      showToast('Please select an investor', 'error');
+      btn.disabled = false; btn.textContent = '⚙ Generate PDF';
+      return;
+    }
+
+    // Build target list
+    let targets = [];
+    if (selectedType === 'factsheet') {
+      targets = [{ investor_id: null }];
+    } else if (bulk === 'all') {
+      targets = allInvestors.map(i => ({ investor_id: i.id, name: i.name }));
+    } else {
+      const inv = allInvestors.find(i => i.id === investorId);
+      targets = [{ investor_id: investorId, name: inv?.name || '' }];
+    }
+
+    for (const target of targets) {
+      try {
+        const res = await api.post('/api/admin/statements/generate', {
+          statement_type:         selectedType,
+          investor_id:            target.investor_id,
+          financial_year:         finYear,
+          period:                 period,
+          manager_comment:        document.getElementById('manager-comment').value.trim(),
+          selected_date:          document.getElementById('date-select').value || null,
+          selected_distribution:  document.getElementById('dist-select').value || null,
+        });
+
+        generated.unshift(res);
+        renderGenerated();
+        showToast(`Generated: ${res.title}`, 'success');
+
+        // Auto-download if single
+        if (targets.length === 1) {
+          downloadPdf(res.pdf_b64, res.file_name);
+        }
+
+      } catch(e) {
+        showToast(`Failed for ${target.name || 'fund'}: ${e.message}`, 'error');
+      }
+    }
+
+  } catch(e) {
+    showToast('Generation failed: ' + e.message, 'error');
+  }
+
+  btn.disabled = false; btn.textContent = '⚙ Generate PDF';
+}
+
+function renderGenerated() {
+  const list = document.getElementById('generated-list');
+  document.getElementById('gen-count').textContent = generated.length;
+  if (!generated.length) {
+    list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted);font-size:0.88rem">No statements generated yet.</div>';
+    return;
+  }
+  list.innerHTML = '<div class="generated-list">' + generated.map((g, i) => `
+    <div class="gen-item">
+      <div class="gen-item-info">
+        <span class="gen-item-name">${g.title}</span>
+        <span class="gen-item-meta">📄 ${g.file_name} · ${g.file_size_kb} KB</span>
+      </div>
+      <div class="gen-item-actions">
+        <button class="btn btn-outline" style="padding:5px 12px;font-size:0.78rem"
+          onclick="downloadPdf('${g.pdf_b64}','${g.file_name}')">↓ Download</button>
+      </div>
+    </div>`).join('') + '</div>';
+}
+
+async function generateAllFY() {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = '⏳ Generating...';
+  try {
+    const r = await api.post('/api/admin/statements/generate-fy-statements', {});
+    showToast(`Generated ${r.generated} account statements.${r.errors?.length ? ' Some errors: '+r.errors[0] : ''}`, 'success');
+  } catch(e) { showToast('Failed: ' + e.message, 'error'); }
+  btn.disabled = false; btn.textContent = '⚙ Auto-Generate All FY Account Statements';
+}
+
+function downloadPdf(b64, filename) {
+  const bytes   = atob(b64);
+  const buffer  = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) buffer[i] = bytes.charCodeAt(i);
+  const blob    = new Blob([buffer], { type: 'application/pdf' });
+  const url     = URL.createObjectURL(blob);
+  const a       = document.createElement('a');
+  a.href        = url;
+  a.download    = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
 async function generateStatement() {
   const btn = document.getElementById('gen-btn');
   btn.disabled = true; btn.textContent = '⏳ Generating...';

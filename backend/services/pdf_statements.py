@@ -482,24 +482,26 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
     pad    = max((hi - lo) * 0.15, 0.05)
     y_min  = round((lo - pad) / 0.05) * 0.05
     y_max  = round((hi + pad) / 0.05 + 1) * 0.05
-    fig, ax = plt.subplots(figsize=(width/mm/3.78, height/mm/3.78), dpi=150)
+    # figsize in inches = pts/72 so 1pt font = 1pt in PDF at dpi=72
+    w_in = width / 72; h_in = height / 72
+    fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=72)
     x = list(range(len(dates)))
-    ax.plot(x, ntas, color='#1565C0', linewidth=2.0, zorder=3)
+    ax.plot(x, ntas, color='#1565C0', linewidth=1.5, zorder=3)
     ax.fill_between(x, ntas, y_min, alpha=0.10, color='#1565C0')
     step = max(1, len(dates)//10)
     ax.set_xticks(x[::step])
-    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=8, rotation=30, ha='right')
+    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=7, rotation=30, ha='right')
     ax.set_ylim(y_min, y_max)
     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
-    ax.tick_params(axis='y', labelsize=8)
-    ax.tick_params(axis='x', labelsize=8)
+    ax.tick_params(axis='y', labelsize=7)
+    ax.tick_params(axis='x', labelsize=7)
     ax.grid(axis='y', alpha=0.25, linewidth=0.5, linestyle='--')
     for sp in ['top','right']:   ax.spines[sp].set_visible(False)
     for sp in ['left','bottom']: ax.spines[sp].set_color('#E5E7EB')
     for idx, lbl in [(0, f'{ntas[0]:.4f}'), (len(ntas)-1, f'{ntas[-1]:.4f}')]:
         ax.annotate(lbl, xy=(idx, ntas[idx]),
             xytext=(8 if idx else -8, 6), textcoords='offset points',
-            fontsize=9, color='#1565C0', fontweight='bold',
+            fontsize=8, color='#1565C0', fontweight='bold',
             ha='left' if idx else 'right')
     plt.tight_layout(pad=0.5)
     buf = io.BytesIO()
@@ -533,48 +535,46 @@ def _bar_chart(labels, values, width, height=60*mm):
     colors = [CC[i % len(CC)] for i in range(len(labels))]
     n = len(labels)
 
-    # Height: bar area + legend rows below
-    legend_rows = -(-n // 2)   # ceil(n/2) — 2 per row
-    fig_h = height/mm/3.78 + legend_rows * 0.35
-    fig, ax = plt.subplots(figsize=(width/mm/3.78, fig_h), dpi=150)
+    # figsize in inches = pts/72 for 1:1 font mapping in PDF
+    legend_rows = -(-n // 2)   # ceil(n/2)
+    w_in  = width  / 72
+    h_in  = height / 72 + legend_rows * 0.25
+    fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=72)
 
-    y_pos = list(range(n - 1, -1, -1))  # top to bottom
+    y_pos = list(range(n - 1, -1, -1))
     bars  = ax.barh(y_pos, values, color=colors, height=0.6, zorder=3)
 
-    # Value labels inside bars (bold, white)
     for bar, val in zip(bars, values):
         w = bar.get_width()
         if w > 2:
             ax.text(w / 2, bar.get_y() + bar.get_height() / 2,
                     f'{val:.1f}%', ha='center', va='center',
-                    fontsize=9, color='white', fontweight='bold')
+                    fontsize=7, color='white', fontweight='bold')
 
-    ax.set_yticks([])                       # no y tick labels — use legend below
+    ax.set_yticks([])
     ax.set_xlim(0, max(values) * 1.08)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}%'))
-    ax.tick_params(axis='x', labelsize=8)
+    ax.tick_params(axis='x', labelsize=7)
     ax.grid(axis='x', alpha=0.25, linewidth=0.5, linestyle='--', zorder=0)
     for sp in ['top','right','left']: ax.spines[sp].set_visible(False)
     ax.spines['bottom'].set_color('#E5E7EB')
 
-    # Legend below — coloured square + label + percentage
     from matplotlib.patches import Patch
     legend_handles = [
         Patch(facecolor=colors[i], label=f'{labels[i]}  {values[i]:.1f}%')
         for i in range(n)
     ]
     ax.legend(handles=legend_handles, loc='upper center',
-              bbox_to_anchor=(0.5, -0.08),
-              ncol=2, fontsize=8, frameon=False,
+              bbox_to_anchor=(0.5, -0.06),
+              ncol=2, fontsize=7, frameon=False,
               handlelength=1.0, handleheight=0.9,
               columnspacing=1.2, labelspacing=0.4)
 
     plt.tight_layout(pad=0.4)
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', transparent=True,
-                bbox_inches='tight', dpi=150)
+    fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=72)
     plt.close(fig); buf.seek(0)
-    return Image(buf, width=width, height=height + legend_rows * 8*mm)
+    return Image(buf, width=width, height=height + legend_rows * 6*mm)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -846,9 +846,11 @@ def generate_redemption(investor, cashflow_record):
             op_cost  = max(0.0, op_cost  - abs(u) * avg)
     op_avg = (op_cost / op_units) if op_units > 0 else avg_cost_pre
 
-    # Closing after redemption
+    # AVCO: closing cost = opening cost minus cost_basis of redeemed units
+    # Average cost DOES NOT CHANGE after redemption under AVCO method
     cl_units = max(0, op_units - units_r)
-    cl_cost  = max(0, op_cost  - cost_basis)
+    cl_cost  = max(0, op_cost  - cost_basis)   # reduces by cost basis, not redeem value
+    cl_avg   = op_avg   # AVCO: avg cost unchanged by redemption
 
     pl_color = GREEN if realized_pl >= 0 else RED
 
@@ -869,7 +871,7 @@ def generate_redemption(investor, cashflow_record):
              fn(units_r,4), fn(avg_cost_pre,4) if avg_cost_pre else '—'],
             [fd(inv_date), 'Closing',
              fm(cl_cost), '—',
-             fn(cl_units,4), fn(cl_cost/cl_units,4) if cl_units > 0 else '—'],
+             fn(cl_units,4), fn(cl_avg,4) if cl_units > 0 else '—'],
         ], col_w=[c1,c2,c3,c4,c5,c6]))
 
     # ── Realized P&L breakdown ────────────────────────────────
@@ -880,7 +882,7 @@ def generate_redemption(investor, cashflow_record):
         rows=[[
             'Fund Redemption',
             fn(units_r,4),
-            fn(avg_cost_pre,4) if avg_cost_pre else '—',
+            fn(op_avg,4) if op_avg else (fn(avg_cost_pre,4) if avg_cost_pre else '—'),
             fn(nta_d,4) if nta_d else '—',
             fm(cost_basis),
             Paragraph(f'<b>{pl_sign}{fm(realized_pl)}</b>',

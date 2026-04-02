@@ -601,6 +601,7 @@ async def add_principal(
 
     # For redemption: compute realized P&L BEFORE updating units/costs
     realized_pl_delta = 0.0
+    cost_basis = 0.0  # AVCO cost reduction for redemption
     if cashflow_type == 'redemption' and body.get('nta_at_date'):
         inv_now = await db.fetchrow(
             "SELECT units, total_costs FROM investors WHERE id=$1", body['investor_id'])
@@ -633,6 +634,9 @@ async def add_principal(
             except Exception:
                 pass  # table may not exist yet; non-fatal
 
+    # AVCO: for redemption, reduce total_costs by cost_basis (units × avg_cost)
+    # NOT by the redemption value (units × NTA)
+    cost_reduction = -cost_basis if cashflow_type == 'redemption' else 0
     await db.execute(
         """UPDATE investors
            SET units       = units + $1,
@@ -641,7 +645,7 @@ async def add_principal(
                updated_at  = NOW()
            WHERE id = $4""",
         sign * units,
-        -abs(float(body.get('amount', 0))) if cashflow_type == 'redemption' else 0,
+        cost_reduction,
         realized_pl_delta,
         body['investor_id']
     )
@@ -654,9 +658,12 @@ async def add_principal(
                    u.email, u.phone, u.bank_name, u.bank_account_no,
                    u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country,
                    COALESCE(
-                       CURRENT_DATE - i.joined_date,
-                       CURRENT_DATE - (SELECT MIN(date) FROM principal_cashflows
-                                       WHERE investor_id=i.id),
+                       CASE WHEN i.joined_date IS NOT NULL
+                            THEN (CURRENT_DATE - i.joined_date)
+                            ELSE (SELECT CURRENT_DATE - MIN(date)
+                                  FROM principal_cashflows
+                                  WHERE investor_id=i.id)
+                       END,
                        0
                    )::int AS days_held
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
@@ -1286,9 +1293,12 @@ async def generate_statement(
                    u.email, u.phone, u.bank_name, u.bank_account_no,
                    u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country,
                    COALESCE(
-                       CURRENT_DATE - i.joined_date,
-                       CURRENT_DATE - (SELECT MIN(date) FROM principal_cashflows
-                                       WHERE investor_id=i.id),
+                       CASE WHEN i.joined_date IS NOT NULL
+                            THEN (CURRENT_DATE - i.joined_date)
+                            ELSE (SELECT CURRENT_DATE - MIN(date)
+                                  FROM principal_cashflows
+                                  WHERE investor_id=i.id)
+                       END,
                        0
                    )::int AS days_held
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
@@ -1330,9 +1340,12 @@ async def generate_statement(
                    u.email, u.phone, u.bank_name, u.bank_account_no,
                    u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country,
                    COALESCE(
-                       CURRENT_DATE - i.joined_date,
-                       CURRENT_DATE - (SELECT MIN(date) FROM principal_cashflows
-                                       WHERE investor_id=i.id),
+                       CASE WHEN i.joined_date IS NOT NULL
+                            THEN (CURRENT_DATE - i.joined_date)
+                            ELSE (SELECT CURRENT_DATE - MIN(date)
+                                  FROM principal_cashflows
+                                  WHERE investor_id=i.id)
+                       END,
                        0
                    )::int AS days_held
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
@@ -1380,9 +1393,12 @@ async def generate_statement(
                    u.email, u.phone, u.bank_name, u.bank_account_no,
                    u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country,
                    COALESCE(
-                       CURRENT_DATE - i.joined_date,
-                       CURRENT_DATE - (SELECT MIN(date) FROM principal_cashflows
-                                       WHERE investor_id=i.id),
+                       CASE WHEN i.joined_date IS NOT NULL
+                            THEN (CURRENT_DATE - i.joined_date)
+                            ELSE (SELECT CURRENT_DATE - MIN(date)
+                                  FROM principal_cashflows
+                                  WHERE investor_id=i.id)
+                       END,
                        0
                    )::int AS days_held
             FROM investors i LEFT JOIN users u ON u.investor_id = i.id
