@@ -1250,6 +1250,214 @@ async def generate_statement(
         overview = await db.fetchrow("SELECT * FROM v_fund_overview")
         fund_data = dict(overview) if overview else {}
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Breakdown error: {str(e)}")
+
+
+@router.post("/distributions/{dist_id}/compute-breakdown")
+async def compute_distribution_breakdown(
+    dist_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Force recompute breakdown from principal_cashflows at ex-date."""
+    await db.execute("DELETE FROM distribution_ledger WHERE distribution_id = $1", dist_id)
+    return await get_distribution_breakdown(dist_id, admin, db)
+
+
+# ── Settlement admin ──────────────────────────────────────────
+@router.get("/settlement")
+async def get_settlement(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    rows = await db.fetch("SELECT * FROM settlement ORDER BY date DESC")
+    return [serialise(r) for r in rows]
+
+
+# ── Users admin ───────────────────────────────────────────────
+@router.post("/users")
+async def create_user(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    import bcrypt
+    pw_hash = bcrypt.hashpw(body['new_password'].encode(), bcrypt.gensalt()).decode()
+    await db.execute("""
+        INSERT INTO users (name, email, phone, role, password_hash, is_active, investor_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+    """,
+        body['name'], body['email'], body.get('phone'),
+        body.get('role','member'), pw_hash,
+        body.get('is_active', True),
+        body.get('investor_id'),
+    )
+    return {"message": "User created"}
+
+
+@router.put("/users/{user_id}")
+async def update_user(
+    user_id: str,
+    body: UserUpdate,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Update user profile including bank, address, role, and optionally reset password."""
+    import bcrypt as _bcrypt
+    await db.execute("""
+        UPDATE users
+        SET name=$1, email=$2, phone=$3, role=$4,
+            is_active=$5, investor_id=$6,
+            bank_name=$7, bank_account_no=$8,
+            address_line1=$9, address_line2=$10,
+            city=$11, postcode=$12, state=$13, country=$14,
+            updated_at=NOW()
+        WHERE id=$15
+    """,
+        body.name, body.email, body.phone,
+        body.role or 'member', body.is_active if body.is_active is not None else True,
+        body.investor_id or None,
+        body.bank_name, body.bank_account_no,
+        body.address_line1, body.address_line2,
+        body.city, body.postcode,
+        body.state, body.country,
+        user_id,
+    )
+    if body.new_password:
+        if len(body.new_password) < 8:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        pw_hash = _bcrypt.hashpw(body.new_password.encode(), _bcrypt.gensalt()).decode()
+        await db.execute(
+            "UPDATE users SET password_hash=$1 WHERE id=$2",
+            pw_hash, user_id
+        )
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, table_name, record_id) VALUES ($1,$2,$3,$4)",
+        str(admin["id"]), "UPDATE", "users", user_id
+    )
+    return {"message": "User updated"}
+
+
+# ── Admin Document Management ─────────────────────────────────
+@router.get("/documents")
+async def list_documents(
+    doc_type: str = None,
+    investor_id: str = None,
+    financial_year: str = None,
+    visibility: str = None,
+    search: str = None,
+    page: int = 1,
+    limit: int = 50,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """List all documents with filters. Admin only."""
+    where = ["1=1"]
+    params = []
+    i = 1
+    if doc_type:
+        where.append(f"d.doc_type = ${i}"); params.append(doc_type); i+=1
+    if investor_id:
+        where.append(f"d.investor_id = ${i}::uuid"); params.append(investor_id); i+=1
+    if financial_year:
+        where.append(f"d.financial_year = ${i}"); params.append(financial_year); i+=1
+    if visibility:
+        where.append(f"d.visibility = ${i}"); params.append(visibility); i+=1
+    if search:
+        where.append(f"(LOWER(d.title) LIKE ${i} OR LOWER(COALESCE(inv.name,'')) LIKE ${i+1})")
+        params.append(f"%{search.lower()}%")
+        params.append(f"%{search.lower()}%"); i+=2
+
+    where_sql = " AND ".join(where)
+    offset = (page-1)*limit
+    params.extend([limit, offset])
+
+    rows = await db.fetch(f"""
+        SELECT d.id, d.title, d.doc_type, d.file_name, d.file_size_kb,
+               d.visibility, d.financial_year, d.created_at,
+               inv.name AS investor_name,
+               u2.name AS uploaded_by_name
+        FROM documents d
+        LEFT JOIN investors inv ON inv.id = d.investor_id
+        LEFT JOIN users u2 ON u2.id = d.uploaded_by
+        WHERE {where_sql}
+        ORDER BY d.created_at DESC
+        LIMIT ${i} OFFSET ${i+1}
+    """, *params)
+
+    total = await db.fetchval(f"""
+        SELECT COUNT(*) FROM documents d
+        LEFT JOIN investors inv ON inv.id = d.investor_id
+        WHERE {where_sql}
+    """, *params[:-2])
+
+    return {"data": [serialise(r) for r in rows], "total": total, "page": page}
+
+
+@router.delete("/documents/{doc_id}")
+async def delete_document(
+    doc_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Delete a document. Admin only."""
+    doc = await db.fetchrow("SELECT id, title FROM documents WHERE id=$1::uuid", doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    await db.execute("DELETE FROM documents WHERE id=$1::uuid", doc_id)
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, table_name) VALUES ($1,$2,$3)",
+        str(admin['id']), f"DELETE doc:{doc['title']}", "documents"
+    )
+    return {"message": "Document deleted"}
+
+
+@router.get("/documents/{doc_id}/download")
+async def admin_download_document(
+    doc_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Get document file URL for download. Admin only."""
+    doc = await db.fetchrow(
+        "SELECT file_url, title, file_name FROM documents WHERE id=$1::uuid", doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    return {"url": doc["file_url"], "title": doc["title"], "file_name": doc["file_name"]}
+
+
+# ── Statement Generation ──────────────────────────────────────
+@router.post("/statements/generate")
+async def generate_statement(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Generate PDF statement and store in documents table."""
+    import io, base64
+    from services.pdf_statements import (
+        generate_factsheet, generate_subscription, generate_redemption,
+        generate_dividend_statement, generate_account_statement
+    )
+
+    stmt_type   = body.get('statement_type')   # factsheet|subscription|dividend|account
+    investor_id = body.get('investor_id')       # None for factsheet
+    fin_year    = body.get('financial_year', '')
+    period      = body.get('period', '')
+
+    pdf_bytes = None
+    title     = ''
+    visibility = 'fund'
+    inv_id_for_doc = None
+
+    # ── Fetch common fund data ────────────────────────────
+    overview = await db.fetchrow("SELECT * FROM v_fund_overview")
+    fund_data = dict(overview) if overview else {}
+
     if stmt_type == 'factsheet':
         holdings = await db.fetch("""
             SELECT instrument, total_cost,
@@ -1530,17 +1738,8 @@ async def generate_statement(
     else:
         raise HTTPException(400, f"Unknown statement_type: {stmt_type}")
 
-    except HTTPException:
-        raise
-    except Exception as exc:
-        import traceback
-        tb = traceback.format_exc()
-        print(f"[generate_statement ERROR] {exc}
-{tb}")
-        raise HTTPException(500, f"Statement generation failed: {str(exc)}")
-
     if not pdf_bytes:
-        raise HTTPException(500, "PDF generation failed — no bytes returned")
+        raise HTTPException(500, "PDF generation failed")
 
     # Store in documents table (file_url = base64 data URI for now)
     import base64
