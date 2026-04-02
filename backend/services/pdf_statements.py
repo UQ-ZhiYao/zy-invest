@@ -500,12 +500,15 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
     ax.grid(axis='y', alpha=0.25, linewidth=0.5, linestyle='--')
     for sp in ['top','right']:   ax.spines[sp].set_visible(False)
     for sp in ['left','bottom']: ax.spines[sp].set_color('#E5E7EB')
-    for idx, lbl in [(0, f'{ntas[0]:.4f}'), (len(ntas)-1, f'{ntas[-1]:.4f}')]:
-        ax.annotate(lbl, xy=(idx, ntas[idx]),
-            xytext=(8 if idx else -8, 6), textcoords='offset points',
-            fontsize=round(8*DPI/72), color='#1565C0', fontweight='bold',
-            ha='left' if idx else 'right')
-    plt.tight_layout(pad=0.5)
+    # First NTA annotation (left side)
+    ax.annotate(f'{ntas[0]:.4f}', xy=(0, ntas[0]),
+        xytext=(5, 8), textcoords='offset points',
+        fontsize=mfs, color='#1565C0', fontweight='bold', ha='left')
+    # Last NTA annotation (right side)
+    ax.annotate(f'{ntas[-1]:.4f}', xy=(len(ntas)-1, ntas[-1]),
+        xytext=(-5, 8), textcoords='offset points',
+        fontsize=mfs, color='#1565C0', fontweight='bold', ha='right')
+    plt.tight_layout(pad=0.3, rect=[0, 0, 1, 1])
     buf = io.BytesIO()
     fig.savefig(buf, format='png', transparent=True, bbox_inches='tight', dpi=DPI)
     plt.close(fig); buf.seek(0)
@@ -871,25 +874,28 @@ def generate_redemption(investor, cashflow_record):
     story += _sec(s, 'Redemption Transaction')
     c1,c2,c3,c4,c5,c6 = 26*mm,44*mm,32*mm,30*mm,28*mm,CW-160*mm
     story.append(_dtbl(s,
-        headers=['Date','Description','Investment Value','NTA / Price','Units','Avg. Cost'],
+        headers=['Date','Description','Investment Value','NTA / Entry','Units','Avg. Cost (VWAP)'],
         rows=[
             [fd(inv_date), 'Opening',
-             fm(op_cost) if op_cost > 0 else '—', '—',
+             fm(op_cost)  if op_cost  > 0 else '—', '—',
              fn(op_units,4) if op_units > 0 else '—',
              fn(op_avg,4)   if op_units > 0 else '—'],
             [fd(inv_date), 'Fund Redemption',
-             fm(redeem_value), fn(nta_d,4) if nta_d else '—',
-             fn(units_r,4), fn(avg_cost_pre,4) if avg_cost_pre else '—'],
+             fm(redeem_value),
+             fn(nta_d,4) if nta_d else '—',
+             fn(units_r,4),
+             fn(op_avg,4) if op_avg else '—'],   # AVCO = opening avg cost
             [fd(inv_date), 'Closing',
-             fm(cl_cost), '—',
-             fn(cl_units,4), fn(cl_avg,4) if cl_units > 0 else '—'],
+             fm(cl_cost), '—',                    # op_cost - cost_basis (AVCO)
+             fn(cl_units,4),
+             fn(cl_avg,4) if cl_units > 0 else '—'],  # unchanged under AVCO
         ], col_w=[c1,c2,c3,c4,c5,c6]))
 
     # ── Realized P&L breakdown ────────────────────────────────
     story += _sec(s, 'Realized Profit & Loss')
     pl_sign = '+' if realized_pl >= 0 else ''
     story.append(_dtbl(s,
-        headers=['Description','Units Redeemed','Avg. Cost','NTA at Redemption','Cost Basis','Realized P&L'],
+        headers=['Description','Units Redeemed','Avg. Cost (VWAP)','NTA at Redemption','Cost Basis','Realized P&L'],
         rows=[[
             'Fund Redemption',
             fn(units_r,4),

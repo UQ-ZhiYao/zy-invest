@@ -1245,9 +1245,10 @@ async def generate_statement(
     visibility = 'fund'
     inv_id_for_doc = None
 
-    # ── Fetch common fund data ──────────────────────────────
-    overview = await db.fetchrow("SELECT * FROM v_fund_overview")
-    fund_data = dict(overview) if overview else {}
+    try:
+        # ── Fetch common fund data ────────────────────────────
+        overview = await db.fetchrow("SELECT * FROM v_fund_overview")
+        fund_data = dict(overview) if overview else {}
 
     if stmt_type == 'factsheet':
         holdings = await db.fetch("""
@@ -1529,8 +1530,17 @@ async def generate_statement(
     else:
         raise HTTPException(400, f"Unknown statement_type: {stmt_type}")
 
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[generate_statement ERROR] {exc}
+{tb}")
+        raise HTTPException(500, f"Statement generation failed: {str(exc)}")
+
     if not pdf_bytes:
-        raise HTTPException(500, "PDF generation failed")
+        raise HTTPException(500, "PDF generation failed — no bytes returned")
 
     # Store in documents table (file_url = base64 data URI for now)
     import base64
