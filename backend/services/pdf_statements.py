@@ -536,6 +536,9 @@ def _donut(labels, values, size=(55*mm,55*mm)):
 
 def _bar_chart(labels, values, width, height=60*mm):
     """Horizontal bar chart for sector allocation — legend below bars."""
+    import matplotlib; matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as mticker
     if not values or sum(values) == 0: return None
     colors = [CC[i % len(CC)] for i in range(len(labels))]
     n = len(labels)
