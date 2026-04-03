@@ -176,21 +176,22 @@ function initDashboard(activePage, pageTitle) {
     weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
   });
 
-  // Avatar + logout in topbar-right
+  // Append avatar + logout widget to topbar-right (preserve existing buttons)
   const user = authUser();
   const initials = (user.name || 'U').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
   const topbarRight = document.querySelector('.topbar-right');
-  if (topbarRight) {
-    topbarRight.innerHTML = `
-      <span class="topbar-date" id="topbar-date">${new Date().toLocaleDateString('en-MY',{weekday:'short',year:'numeric',month:'short',day:'numeric'})}</span>
-      <div class="topbar-user">
-        <div class="topbar-avatar" title="${user.name || ''}">${initials}</div>
-        <div class="topbar-user-info">
-          <span class="topbar-user-name">${user.name || 'Member'}</span>
-          <span class="topbar-user-role">${user.role || 'member'}</span>
-        </div>
-        <button class="topbar-logout" onclick="handleLogout()" title="Sign Out">⏻</button>
-      </div>`;
+  if (topbarRight && !document.getElementById('topbar-user-widget')) {
+    const widget = document.createElement('div');
+    widget.id = 'topbar-user-widget';
+    widget.className = 'topbar-user';
+    widget.innerHTML = `
+      <div class="topbar-avatar" title="${user.name || ''}">${initials}</div>
+      <div class="topbar-user-info">
+        <span class="topbar-user-name">${user.name || 'Member'}</span>
+        <span class="topbar-user-role">${user.role || 'member'}</span>
+      </div>
+      <button class="topbar-logout" onclick="handleLogout()" title="Sign Out">⏻</button>`;
+    topbarRight.appendChild(widget);
   }
 
   initSidebar();
