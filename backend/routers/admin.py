@@ -212,16 +212,14 @@ async def record_fee_withdrawal(
     admin: dict = Depends(require_admin),
     db:   Database = Depends(get_db)
 ):
-    """
-    Record a management or performance fee withdrawal.
-    Deducts the amount from cash in the historical record for that date,
-    and zeroes/reduces the corresponding fee liability (mng_fees / perf_fees).
-    """
-    from datetime import date as date_t
-    fee_type   = body.get('fee_type')           # 'management' or 'performance'
-    amount     = float(body.get('amount', 0))   # positive RM value
-    w_date     = body.get('date')               # YYYY-MM-DD
-    notes      = body.get('notes', '')
+    """Record a fee withdrawal — updates cash + fee liability in historical, recomputes NTA."""
+    import traceback as _tb
+    from datetime import date as _dt
+
+    fee_type = body.get('fee_type')
+    amount   = float(body.get('amount', 0))
+    w_date   = body.get('date')
+    notes    = body.get('notes', '') or ''
 
     if fee_type not in ('management', 'performance'):
         raise HTTPException(400, "fee_type must be 'management' or 'performance'")
@@ -230,65 +228,87 @@ async def record_fee_withdrawal(
     if not w_date:
         raise HTTPException(400, "date required")
 
-    # Determine which historical liability column to update
+    # Convert date string → date object for asyncpg
+    try:
+        date_obj = _dt.fromisoformat(str(w_date))
+    except ValueError:
+        raise HTTPException(400, f"Invalid date format: {w_date}")
+
     fee_col = 'mng_fees' if fee_type == 'management' else 'perf_fees'
 
-    # Check a historical record exists for this date
+    # Check historical record exists
     hist = await db.fetchrow(
-        "SELECT id, cash, mng_fees, perf_fees FROM historical WHERE date = $1::date",
-        w_date)
+        "SELECT id, cash, mng_fees, perf_fees FROM historical WHERE date = $1",
+        date_obj)
     if not hist:
-        raise HTTPException(404, f"No historical record for {w_date}. "
-                                  "Please ensure NTA data exists for this date.")
+        raise HTTPException(404,
+            f"No historical record for {w_date}. Add NTA data for this date first.")
 
-    # Validate sufficient cash and fee accrual
-    cash_bal   = float(hist['cash'])
-    fee_bal    = float(hist[fee_col])
+    cash_bal = float(hist['cash'])
+    fee_bal  = float(hist[fee_col])
+
     if amount > cash_bal:
         raise HTTPException(400,
-            f"Insufficient cash: available RM {cash_bal:,.2f}, requested RM {amount:,.2f}")
+            f"Insufficient cash: available RM {cash_bal:,.2f}, "
+            f"requested RM {amount:,.2f}")
 
-    # Update historical: reduce cash and reduce fee liability
-    await db.execute(f"""
-        UPDATE historical
-        SET cash     = cash     - $1,
-            {fee_col} = GREATEST({fee_col} - $1, 0),
-            source   = 'admin_override'
-        WHERE date = $2::date
-    """, amount, w_date)
+    try:
+        # Update historical — use separate queries to avoid f-string SQL injection risk
+        if fee_type == 'management':
+            await db.execute("""
+                UPDATE historical
+                SET cash     = cash - $1,
+                    mng_fees = GREATEST(mng_fees - $1, 0),
+                    source   = 'admin_override'
+                WHERE date = $2
+            """, amount, date_obj)
+        else:
+            await db.execute("""
+                UPDATE historical
+                SET cash      = cash - $1,
+                    perf_fees = GREATEST(perf_fees - $1, 0),
+                    source    = 'admin_override'
+                WHERE date = $2
+            """, amount, date_obj)
 
-    # Record in fee_withdrawals table
-    rec_id = await db.fetchval("""
-        INSERT INTO fee_withdrawals
-        (fee_type, amount, date, notes, created_by)
-        VALUES ($1, $2, $3::date, $4, $5::uuid)
-        RETURNING id
-    """, fee_type, amount, w_date, notes, str(admin['id']))
+        # Insert withdrawal record
+        rec_id = await db.fetchval("""
+            INSERT INTO fee_withdrawals
+                (fee_type, amount, date, notes, created_by)
+            VALUES ($1, $2, $3, $4, $5::uuid)
+            RETURNING id
+        """, fee_type, amount, date_obj, notes, str(admin['id']))
 
-    # Recompute NTA for that date
-    updated = await db.fetchrow(
-        "SELECT * FROM historical WHERE date = $1::date", w_date)
-    if updated:
-        row = dict(updated)
-        total_assets = (row['securities'] + row['reits'] + row['bonds'] +
-                        row['money_market'] + row['derivatives'] +
-                        row['receivables'] + row['cash'])
-        total_liab   = (row['mng_fees'] + row['perf_fees'] +
-                        row['ints_on_fees'] + row['loans'] + row['ints_on_loans'])
-        nav = total_assets - total_liab
-        new_nta = nav / row['total_units'] if row['total_units'] > 0 else 0
-        await db.execute(
-            "UPDATE historical SET nta = $1 WHERE date = $2::date",
-            round(new_nta, 6), w_date)
+        # Recompute NTA
+        row = await db.fetchrow("SELECT * FROM historical WHERE date = $1", date_obj)
+        if row:
+            r = dict(row)
+            assets = (float(r.get('securities',0)) + float(r.get('reits',0)) +
+                      float(r.get('bonds',0))       + float(r.get('money_market',0)) +
+                      float(r.get('derivatives',0)) + float(r.get('receivables',0)) +
+                      float(r.get('cash',0)))
+            liab   = (float(r.get('mng_fees',0))   + float(r.get('perf_fees',0)) +
+                      float(r.get('ints_on_fees',0))+ float(r.get('loans',0)) +
+                      float(r.get('ints_on_loans',0)))
+            units  = float(r.get('total_units', 0))
+            new_nta = round((assets - liab) / units, 6) if units > 0 else 0
+            await db.execute(
+                "UPDATE historical SET nta = $1 WHERE date = $2",
+                new_nta, date_obj)
+
+    except Exception as exc:
+        print(f"[fee-withdrawal] {exc}")
+        print(_tb.format_exc())
+        raise HTTPException(500, f"Database error: {str(exc)}")
 
     return {
-        "message": "Fee withdrawal recorded",
-        "id": str(rec_id),
-        "date": w_date,
-        "fee_type": fee_type,
-        "amount": amount,
-        "new_cash": cash_bal - amount,
-        "new_fee_liability": max(0, fee_bal - amount),
+        "message":          "Fee withdrawal recorded",
+        "id":               str(rec_id),
+        "date":             w_date,
+        "fee_type":         fee_type,
+        "amount":           amount,
+        "new_cash":         round(cash_bal - amount, 2),
+        "new_fee_liability":round(max(0, fee_bal - amount), 2),
     }
 
 
