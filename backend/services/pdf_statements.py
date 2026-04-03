@@ -534,48 +534,51 @@ def _donut(labels, values, size=(55*mm,55*mm)):
 
 
 def _pie_chart(labels, values, width=55*mm):
-    """Pie chart with no axes, legend below in two columns."""
+    """Pie chart — perfect circle, centred, legend below."""
     import matplotlib; matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
     if not values or sum(v for v in values if v > 0) == 0: return None
 
-    colors = [CC[i % len(CC)] for i in range(len(labels))]
-    DPI   = 192
-    w_in  = width / 72
-    # Square pie area + legend rows below
-    leg_r = -(-len(labels) // 2)
-    h_in  = w_in + leg_r * 0.22   # pie is square, add legend height
+    colors  = [CC[i % len(CC)] for i in range(len(labels))]
+    DPI     = 192
+    w_in    = width / 72          # exact PDF column width in inches
+    leg_r   = -(-len(labels) // 2)
+    leg_h   = leg_r * 0.20        # inches per legend row
+    tot_h   = w_in + leg_h        # total figure height
 
-    fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=DPI)
-    # Reserve bottom for legend
-    fig.subplots_adjust(top=1.0, bottom=(leg_r * 0.22) / h_in + 0.02,
-                        left=0.02, right=0.98)
+    # TWO subplot rows: pie (square) on top, invisible legend axis below
+    fig = plt.figure(figsize=(w_in, tot_h), dpi=DPI)
 
-    wedges, _ = ax.pie(
+    # Pie axes — square, centred, occupies top portion
+    pie_frac = w_in / tot_h       # fraction of figure height for pie
+    ax_pie = fig.add_axes([0.0, leg_h / tot_h, 1.0, pie_frac])  # [l,b,w,h]
+    ax_pie.set_aspect('equal')
+
+    ax_pie.pie(
         values,
         colors=colors,
-        startangle=0,
-        wedgeprops=dict(edgecolor='white', linewidth=0.8),
+        startangle=90,            # 12 o'clock start, standard finance convention
+        wedgeprops=dict(edgecolor='white', linewidth=1.2),
+        counterclock=False,
     )
-    ax.set_aspect('equal')
 
-    # Legend below — no axes labels on the pie itself
+    # Legend axes — invisible, just used for placing legend
+    ax_leg = fig.add_axes([0.0, 0.0, 1.0, leg_h / tot_h])
+    ax_leg.axis('off')
     handles = [Patch(facecolor=colors[i],
                      label=f'{labels[i]}  {values[i]:.1f}%')
                for i in range(len(labels))]
-    ax.legend(handles=handles, loc='upper center',
-              bbox_to_anchor=(0.5, -(0.03 + (w_in / h_in) * 0.05)),
-              ncol=2, fontsize=4.5 * DPI / 72, frameon=False,
-              handlelength=1.0, handleheight=0.85,
-              columnspacing=1.0, labelspacing=0.3)
+    ax_leg.legend(handles=handles, loc='center',
+                  ncol=2, fontsize=4.0 * DPI / 72, frameon=False,
+                  handlelength=1.0, handleheight=0.8,
+                  columnspacing=0.8, labelspacing=0.25)
 
     buf = io.BytesIO()
     fig.savefig(buf, format='png', transparent=True,
-                bbox_inches='tight', pad_inches=0.02, dpi=DPI)
+                bbox_inches='tight', pad_inches=0.0, dpi=DPI)
     plt.close(fig); buf.seek(0)
-    # Return image with height = pie + legend
-    return Image(buf, width=width, height=(w_in + leg_r * 0.22) * 72 * mm / mm)
+    return Image(buf, width=width, height=tot_h * 72 * mm / mm)
 
 
 def _bar_chart(labels, values, width, height=60*mm):
