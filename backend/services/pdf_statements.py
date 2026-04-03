@@ -552,8 +552,8 @@ def _pie_chart(labels, values, width=55*mm):
 
     # Pie axes — square, centred, occupies top portion
     pie_frac = w_in / tot_h       # fraction of figure height for pie
-    ax_pie = fig.add_axes([0.0, leg_h / tot_h, 1.0, pie_frac])  # [l,b,w,h]
-    ax_pie.set_aspect('equal')
+    ax_pie = fig.add_axes([0.0, leg_h / tot_h, 1.0, pie_frac])
+    ax_pie.set_aspect('equal', anchor='C')
 
     ax_pie.pie(
         values,
