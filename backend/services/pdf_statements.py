@@ -533,6 +533,52 @@ def _donut(labels, values, size=(55*mm,55*mm)):
     return Image(buf, width=size[0], height=size[1])
 
 
+def _pie_chart(labels, values, width=80*mm):
+    """Pie chart with no axes, legend below in two columns."""
+    import matplotlib; matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+    if not values or sum(v for v in values if v > 0) == 0: return None
+
+    colors = [CC[i % len(CC)] for i in range(len(labels))]
+    DPI   = 192
+    w_in  = width / 72
+    # Square pie area + legend rows below
+    leg_r = -(-len(labels) // 2)
+    h_in  = w_in + leg_r * 0.22   # pie is square, add legend height
+
+    fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=DPI)
+    # Reserve bottom for legend
+    fig.subplots_adjust(top=1.0, bottom=(leg_r * 0.22) / h_in + 0.02,
+                        left=0.02, right=0.98)
+
+    wedges, _ = ax.pie(
+        values,
+        colors=colors,
+        startangle=90,
+        wedgeprops=dict(edgecolor='white', linewidth=0.8),
+        counterclock=False,
+    )
+    ax.set_aspect('equal')
+
+    # Legend below — no axes labels on the pie itself
+    handles = [Patch(facecolor=colors[i],
+                     label=f'{labels[i]}  {values[i]:.1f}%')
+               for i in range(len(labels))]
+    ax.legend(handles=handles, loc='upper center',
+              bbox_to_anchor=(0.5, -(0.03 + (w_in / h_in) * 0.05)),
+              ncol=2, fontsize=7 * DPI / 72, frameon=False,
+              handlelength=1.0, handleheight=0.85,
+              columnspacing=1.0, labelspacing=0.3)
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', transparent=True,
+                bbox_inches='tight', pad_inches=0.02, dpi=DPI)
+    plt.close(fig); buf.seek(0)
+    # Return image with height = pie + legend
+    return Image(buf, width=width, height=(w_in + leg_r * 0.22) * 72 * mm / mm)
+
+
 def _bar_chart(labels, values, width, height=60*mm):
     """Horizontal bar chart — bars top, colour legend below, crisp text."""
     import matplotlib; matplotlib.use('Agg')
@@ -609,22 +655,22 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
                        as_of_date=None):
     s = S(); story = []
 
-    # Resolve as_of date for subtitle and filtering label
+    # Resolve as_of date for subtitle
     if as_of_date:
-        _ao = as_of_date if hasattr(as_of_date,'strftime') else               __import__('datetime').date.fromisoformat(str(as_of_date))
+        _ao = as_of_date if hasattr(as_of_date, 'strftime') else               __import__('datetime').date.fromisoformat(str(as_of_date))
     else:
         _ao = date.today()
     period = _ao.strftime('%d %B %Y')
 
     _justify = ParagraphStyle('_jus', parent=s['body'],
-        alignment=TA_JUSTIFY, leading=14, spaceAfter=3)
+        alignment=TA_JUSTIFY, leading=13, spaceAfter=2)
 
-    # ── Intro paragraph ───────────────────────────────────────
+    # ── Intro ─────────────────────────────────────────────────
     story.append(Spacer(1, 3*mm))
     story.append(Paragraph(
-        'The portfolio aims to provide our investors with capital appreciation higher than the '
-        'prevailing fixed-deposit rate by investing in a high-growth portfolio of stocks and '
-        'fixed income instruments.', _justify))
+        'The portfolio aims to provide investors with capital appreciation higher than '
+        'prevailing fixed-deposit rates by investing in a high-growth portfolio of '
+        'equities and fixed income instruments.', _justify))
     story.append(Spacer(1, 4*mm))
 
     # ── PAGE 1: Fund Details | Sector Allocation ─────────────
@@ -660,20 +706,23 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
         ('TEXTCOLOR',      (0,0), (0,-1),  G2),
     ]))
 
-    right = [Paragraph('Sector Allocation*', s['h3']),
+    # Right: pie chart with legend below
+    right = [Paragraph('Asset Allocation*', s['h3']),
              HRFlowable(width='100%', thickness=0.6, color=BLUE, spaceAfter=3)]
     if sector_data:
         lbls = [r.get('asset_class') or r.get('sector', '') for r in sector_data[:8]]
         vals = [max(float(r.get('weight_pct', 0)), 0)       for r in sector_data[:8]]
-        bar  = _bar_chart(lbls, vals, width=R_W, height=min(8 + len(lbls)*8, 65)*mm)
-        if bar: right.append(bar)
+        pie  = _pie_chart(lbls, vals, width=R_W)
+        if pie: right.append(pie)
     else:
         right.append(Paragraph('No data', s['small']))
+    right.append(Paragraph('* As % of NAV', s['tiny']))
 
     def _col(items, w):
         t = Table([[it] for it in items], colWidths=[w])
         t.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),0),
-            ('RIGHTPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0),
+            ('RIGHTPADDING',(0,0),(-1,-1),0),
+            ('TOPPADDING',(0,0),(-1,-1),0),
             ('BOTTOMPADDING',(0,0),(-1,-1),1)]))
         return t
 
@@ -687,43 +736,20 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
     story.append(two_col)
     story.append(Spacer(1, 4*mm))
 
-    # ── Investment Strategy ───────────────────────────────────
-    story += _sec(s, 'Investment Strategy')
-    story.append(Paragraph(
-        'The fund maintains a strategic asset allocation with equities comprising '
-        'a minimum of 60% and a maximum of 98% of NAV, targeting high-growth listed equities '
-        'on Bursa Malaysia and international markets with strong fundamentals. '
-        'Fixed-income securities and money market instruments are allocated between 2% and 40% '
-        'of NAV to provide liquidity and capital preservation. Derivatives are limited to a '
-        'maximum of 5% of NAV and are used selectively for hedging purposes only. '
-        'Each investment position is supported by a clear investment thesis, defined risk '
-        'parameters, and a predetermined exit strategy, with all positions reviewed regularly.',
-        _justify))
-    story.append(Spacer(1, 4*mm))
-
-    # ── Manager's Comments ────────────────────────────────────
-    story += _sec(s, "Manager's Comments")
-    story.append(Paragraph(manager_comment or
-        'Our portfolio maintains its current strategic positions. We continue to monitor '
-        'market developments and macroeconomic conditions closely.', _justify))
-    story.append(Spacer(1, 3*mm))
-
-    # ── PAGE 2: Portfolio Performance Analysis ────────────────
-    story.append(PageBreak())
-
+    # ── Portfolio Performance Analysis (Page 1) ───────────────
     if nta_history:
         story += _sec(s, 'Portfolio Performance Analysis')
         dates, ntas = [], []
         for r in nta_history:
             try:
                 dt = datetime.fromisoformat(str(r.get('date', '')))
-                dates.append(dt.strftime('%m/%y'))   # "12/21" format
+                dates.append(dt.strftime('%m/%y'))
                 ntas.append(float(r.get('nta', 1)))
             except: pass
         if ntas:
-            ch = _nta_chart(dates, ntas, width=CW, height=65*mm)
+            ch = _nta_chart(dates, ntas, width=CW, height=62*mm)
             if ch: story.append(ch); story.append(Spacer(1, 2*mm))
-        perf = performance.get('period_returns', {})
+        perf      = performance.get('period_returns', {})
         total_ret = performance.get('total_return_pct',
                     fund_data.get('total_return_pct', 0))
         c1 = 28*mm; cn = round((CW - c1) / 6)
@@ -734,7 +760,19 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
             col_w=[c1, cn, cn, cn, cn, cn, CW - c1 - cn*5]))
         story.append(Spacer(1, 4*mm))
 
-    # ── Distribution History ──────────────────────────────────
+    # ── PAGE 2 ────────────────────────────────────────────────
+    story.append(PageBreak())
+
+    # Investment Strategy — short, justified
+    story += _sec(s, 'Investment Strategy')
+    story.append(Paragraph(
+        'Equities: 60–98% of NAV. Fixed-income & money market: 2–40% of NAV. '
+        'Derivatives: max 5% of NAV, for hedging only. '
+        'Each position requires a clear thesis, defined risk parameters, and an exit plan.',
+        _justify))
+    story.append(Spacer(1, 4*mm))
+
+    # Distribution History
     if distributions:
         story += _sec(s, 'Distribution History')
         story.append(_dtbl(s,
@@ -746,7 +784,7 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
             col_w=[20*mm, CW - 78*mm, 30*mm, 28*mm]))
         story.append(Spacer(1, 4*mm))
 
-    # ── Largest Holdings ──────────────────────────────────────
+    # Largest Holdings
     if holdings:
         story += _sec(s, 'Largest Holdings*')
         story.append(_dtbl(s,
@@ -756,22 +794,28 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
             col_w=[CW - 30*mm, 30*mm]))
         story.append(Paragraph(
             '* As percentage of Net Asset Value (NAV) of the fund', s['tiny']))
-        story.append(Spacer(1, 3*mm))
+        story.append(Spacer(1, 4*mm))
 
-    # ── Disclaimer ────────────────────────────────────────────
+    # Manager's Comments
+    story += _sec(s, "Manager's Comments")
+    story.append(Paragraph(manager_comment or
+        'Our portfolio maintains its current strategic positions. We continue to '
+        'monitor market developments and macroeconomic conditions closely.', _justify))
+    story.append(Spacer(1, 3*mm))
+
+    # Disclaimer
     story.append(HRFlowable(width=CW, thickness=0.5, color=G5))
     story.append(Spacer(1, 2*mm))
     story.append(Paragraph('<b>Disclaimer</b>',
         ParagraphStyle('_d', fontName='Helvetica-Bold', fontSize=8, textColor=G1)))
     story.append(Paragraph(
         'Investment involves significant risk, including the potential loss of principal. '
-        'Past performance is not indicative of future results. This update is intended strictly '
-        'for family members only and does not constitute a financial prospectus.', s['notice']))
+        'Past performance is not indicative of future results. This update is intended '
+        'strictly for family members only and does not constitute a financial prospectus.',
+        s['notice']))
 
     return _build(story, title='MONTHLY FACTSHEET', subtitle=period,
                   name='', addr='', meta_rows=None, extra_top=0)
-
-
 # ── Personal statement builder ──────────────────────────────────
 def _personal(story, inv, title, issued, stmt_type, stmt_period, page='1 of 1'):
     """Build and return PDF bytes for a personal statement."""
