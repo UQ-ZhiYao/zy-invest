@@ -45,7 +45,11 @@ async def compute_daily_nta(db, target_date: date = None) -> Optional[dict]:
 
     # Get fund settings
     settings = await db.fetchrow("SELECT * FROM fund_settings WHERE id = 1")
-    total_units = float(settings["total_units"])
+
+    # total_units: use SUM of investors.units (always current from subscriptions/redemptions)
+    # Fall back to fund_settings if no investors
+    units_row = await db.fetchrow("SELECT COALESCE(SUM(units), 0) AS total FROM investors WHERE is_active = TRUE")
+    total_units = float(units_row["total"]) if units_row and float(units_row["total"]) > 0                   else float(settings["total_units"])
     if total_units <= 0:
         logger.warning("total_units is zero — cannot compute NTA")
         return None
@@ -62,19 +66,52 @@ async def compute_daily_nta(db, target_date: date = None) -> Optional[dict]:
 
     # Get cash balance (from last historical row)
     prev_hist = await db.fetchrow(
-        "SELECT cash FROM historical WHERE date < $1 ORDER BY date DESC LIMIT 1",
+        "SELECT cash, date FROM historical WHERE date < $1 ORDER BY date DESC LIMIT 1",
         target_date
     )
     cash = float(prev_hist["cash"]) if prev_hist else 0.0
+    prev_hist_date = prev_hist["date"] if prev_hist else None
+
+    # Add net principal cashflows since last historical record
+    # Subscriptions add cash; redemptions remove cash
+    if prev_hist_date:
+        cashflows = await db.fetch("""
+            SELECT SUM(amount) AS net_cash
+            FROM principal_cashflows
+            WHERE date > $1 AND date <= $2
+        """, prev_hist_date, target_date)
+    else:
+        cashflows = await db.fetch("""
+            SELECT SUM(amount) AS net_cash
+            FROM principal_cashflows
+            WHERE date <= $1
+        """, target_date)
+    if cashflows and cashflows[0]["net_cash"]:
+        cash += float(cashflows[0]["net_cash"])
+
+    # Add net others income (interest, misc) since last historical record
+    if prev_hist_date:
+        others = await db.fetch("""
+            SELECT SUM(amount) AS net_other
+            FROM others
+            WHERE record_date > $1 AND record_date <= $2
+        """, prev_hist_date, target_date)
+        if others and others[0]["net_other"]:
+            cash += float(others[0]["net_other"])
 
     # Deduct any fee withdrawals on this date from cash
-    fee_w = await db.fetch(
-        "SELECT fee_type, amount FROM fee_withdrawals WHERE date = $1",
-        target_date
-    )
-    mgmt_withdrawn = sum(float(r["amount"]) for r in fee_w if r["fee_type"] == "management")
-    perf_withdrawn = sum(float(r["amount"]) for r in fee_w if r["fee_type"] == "performance")
-    cash -= (mgmt_withdrawn + perf_withdrawn)
+    mgmt_withdrawn = 0.0
+    perf_withdrawn = 0.0
+    try:
+        fee_w = await db.fetch(
+            "SELECT fee_type, amount FROM fee_withdrawals WHERE date = $1",
+            target_date
+        )
+        mgmt_withdrawn = sum(float(r["amount"]) for r in fee_w if r["fee_type"] == "management")
+        perf_withdrawn = sum(float(r["amount"]) for r in fee_w if r["fee_type"] == "performance")
+        cash -= (mgmt_withdrawn + perf_withdrawn)
+    except Exception:
+        pass  # table may not exist yet; non-fatal
 
     gross_aum = securities_value + cash
     gross_nta = gross_aum / total_units if total_units > 0 else 0

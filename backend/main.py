@@ -16,7 +16,38 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Database connection warning: {e}")
         print("Will retry on first request...")
+
+    # Start daily price fetch + NTA compute scheduler (6:05 PM MYT = 10:05 UTC)
+    scheduler = None
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from services.price_fetcher import run_daily_price_fetch
+        from services.nta_engine import compute_daily_nta
+
+        async def daily_job():
+            try:
+                print("Scheduler: running daily price fetch...")
+                result = await run_daily_price_fetch(engine)
+                print(f"Scheduler: price fetch done — {result.get('total_fetched',0)} prices updated")
+                print("Scheduler: computing NTA...")
+                nta = await compute_daily_nta(engine)
+                if nta:
+                    print(f"Scheduler: NTA computed — {nta.get('net_nta')}")
+            except Exception as e:
+                print(f"Scheduler: daily job error — {e}")
+
+        scheduler = AsyncIOScheduler(timezone="Asia/Kuala_Lumpur")
+        scheduler.add_job(daily_job, CronTrigger(hour=18, minute=5))  # 6:05 PM MYT
+        scheduler.start()
+        print("Scheduler: daily NTA job started (6:05 PM MYT)")
+    except Exception as e:
+        print(f"Scheduler: could not start — {e}")
+
     yield
+
+    if scheduler:
+        scheduler.shutdown(wait=False)
     try:
         await engine.disconnect()
     except Exception:
