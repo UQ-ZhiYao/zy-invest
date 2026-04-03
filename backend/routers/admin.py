@@ -401,7 +401,7 @@ async def create_transaction(
             units, price, amount, total_fees, net_amount, theme, notes)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)""",
         date_type.fromisoformat(body['date']),
-        body['investor_id'],
+        body.get('investor_id') or None,
         body.get('region', 'MY'),
         body.get('asset_class', 'Securities [H]'),
         body.get('sector'),
@@ -697,7 +697,7 @@ async def add_principal(
         VALUES ($1,$2,$3,$4,$5,$6,$7)
     """,
         date_type.fromisoformat(body['date']),
-        body['investor_id'],
+        body.get('investor_id') or None,
         cashflow_type,
         amount,
         body.get('nta_at_date'),
@@ -735,7 +735,7 @@ async def add_principal(
                      cost_basis, realized_pl, notes)
                     VALUES ($1,$2,$3::date,$4,$5,$6,$7,$8,$9,$10)
                 """,
-                    body['investor_id'], cf_id_row,
+                    body.get('investor_id') or None, cf_id_row,
                     body['date'], u_redeemed, avg_cost, nta_now,
                     redeem_value, cost_basis, realized_pl_delta,
                     body.get('notes'))
