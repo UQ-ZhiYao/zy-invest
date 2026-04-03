@@ -378,9 +378,8 @@ async def list_all_transactions(
 ):
     offset = (page - 1) * limit
     rows = await db.fetch(
-        """SELECT t.*, i.name as investor_name
+        """SELECT t.*
            FROM transactions t
-           LEFT JOIN investors i ON i.id = t.investor_id
            ORDER BY t.date DESC LIMIT $1 OFFSET $2""",
         limit, offset
     )
