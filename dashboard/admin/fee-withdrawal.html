@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fee Withdrawal — ZY-Invest Admin</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="stylesheet" href="../../assets/css/dashboard.css">
+  <style>
+    .form-group  { margin-bottom:16px }
+    .form-label  { display:block;font-size:0.83rem;font-weight:600;color:var(--gray-700);margin-bottom:6px }
+    .form-input  { width:100%;padding:9px 12px;font-family:var(--font-body);font-size:0.88rem;
+                   background:var(--gray-50);border:1.5px solid var(--border);border-radius:var(--radius-md);
+                   color:var(--text);outline:none;box-sizing:border-box }
+    .form-input:focus { border-color:var(--blue);box-shadow:0 0 0 3px rgba(21,101,192,.1);background:var(--white) }
+    .form-grid   { display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px }
+    .summary-box { background:var(--blue-bg,#EBF4FF);border:1px solid var(--blue);border-radius:var(--radius-md);
+                   padding:14px 18px;margin-bottom:18px;display:none }
+    .summary-row { display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:4px }
+    .summary-row:last-child { margin-bottom:0;font-weight:600 }
+    .tag-mgmt  { background:#DBEAFE;color:#1E40AF;padding:2px 8px;border-radius:99px;font-size:0.75rem;font-weight:600 }
+    .tag-perf  { background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:99px;font-size:0.75rem;font-weight:600 }
+    .hist-item { display:flex;align-items:center;justify-content:space-between;padding:10px 0;
+                 border-bottom:1px solid var(--border);gap:12px }
+    .hist-item:last-child { border-bottom:none }
+    .hist-meta  { font-size:0.78rem;color:var(--text-muted);margin-top:2px }
+    .btn-reverse { padding:4px 10px;font-size:0.75rem;border-radius:var(--radius-md);cursor:pointer;
+                   background:transparent;border:1px solid var(--red,#DC2626);color:var(--red,#DC2626) }
+    .btn-reverse:hover { background:var(--red,#DC2626);color:white }
+    .empty-state { text-align:center;padding:32px;color:var(--text-muted);font-size:0.88rem }
+  </style>
+</head>
+<body>
+<div class="dash-root">
+  <div id="sidebar-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99"
+       onclick="document.getElementById('sidebar').classList.remove('mobile-open');this.style.display='none'"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="dash-main" id="dash-main">
+    <header class="dash-topbar">
+      <div class="topbar-left">
+        <button class="mobile-menu-btn"
+          onclick="document.getElementById('sidebar').classList.toggle('mobile-open');
+                   document.getElementById('sidebar-overlay').style.display='block'">☰</button>
+        <span class="topbar-title" id="topbar-title">Fee Withdrawal</span>
+      </div>
+      <div class="topbar-right">
+        <span class="topbar-date" id="topbar-date"></span>
+      </div>
+    </header>
+
+    <div class="dash-content">
+      <div class="page-header">
+        <div class="breadcrumb">
+          <a href="../../index.html">ZY-Invest</a><span>›</span>
+          <span>Admin</span><span>›</span><span>Fee Withdrawal</span>
+        </div>
+        <h1>Fee Withdrawal</h1>
+        <p>Record management fee or performance fee withdrawals. Updates cash balance
+           and NTA in the historical record for the selected date.</p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start">
+
+        <!-- Left: Record Withdrawal Form -->
+        <div class="panel">
+          <div class="panel-header"><h3>Record Fee Withdrawal</h3></div>
+          <div class="panel-body">
+
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">Fee Type</label>
+                <select id="fee-type" class="form-input" onchange="updatePreview()">
+                  <option value="management">Management Fee</option>
+                  <option value="performance">Performance Fee</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Date</label>
+                <input type="date" id="w-date" class="form-input" onchange="loadHistoricalPreview()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Amount (RM)</label>
+                <input type="number" id="w-amount" class="form-input" min="0" step="0.01"
+                       placeholder="0.00" oninput="updatePreview()">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Notes <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+              <input type="text" id="w-notes" class="form-input"
+                     placeholder="e.g. FY25 management fee — annual withdrawal">
+            </div>
+
+            <!-- Live preview box -->
+            <div class="summary-box" id="preview-box">
+              <div class="summary-row">
+                <span>Current Cash Balance</span>
+                <span id="prev-cash">—</span>
+              </div>
+              <div class="summary-row">
+                <span id="prev-fee-label">Accrued Management Fee</span>
+                <span id="prev-fee-bal">—</span>
+              </div>
+              <div class="summary-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:6px">
+                <span>Cash After Withdrawal</span>
+                <span id="prev-cash-after" style="color:var(--blue)">—</span>
+              </div>
+            </div>
+
+            <button class="btn btn-primary" onclick="submitWithdrawal()"
+                    style="width:100%;padding:11px">
+              💸 Record Withdrawal
+            </button>
+          </div>
+        </div>
+
+        <!-- Right: Withdrawal History -->
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Withdrawal History</h3>
+            <span class="pill pill-gray" id="hist-count">0</span>
+          </div>
+          <div class="panel-body" id="hist-list">
+            <div class="empty-state">No withdrawals recorded yet.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="../../assets/js/api.js"></script>
+<script src="../../assets/js/dashboard.js"></script>
+<script>
+initDashboard('fee-withdrawal', 'Fee Withdrawal');
+if (!adminRequired()) throw new Error('Not admin');
+
+let historicalData = null;
+
+document.addEventListener('DOMContentLoaded', async () => {
+  // Default date to today
+  document.getElementById('w-date').value = new Date().toISOString().slice(0,10);
+  await loadHistoricalPreview();
+  await loadHistory();
+});
+
+async function loadHistoricalPreview() {
+  const d = document.getElementById('w-date').value;
+  if (!d) return;
+  try {
+    const rows = await api.get(`/api/admin/historical?date_from=${d}&date_to=${d}`);
+    historicalData = rows && rows.data && rows.data[0] ? rows.data[0] : null;
+    updatePreview();
+  } catch(e) {
+    historicalData = null;
+    updatePreview();
+  }
+}
+
+function updatePreview() {
+  const box    = document.getElementById('preview-box');
+  const amount = parseFloat(document.getElementById('w-amount').value) || 0;
+  const type   = document.getElementById('fee-type').value;
+
+  if (!historicalData) { box.style.display = 'none'; return; }
+
+  const cash    = parseFloat(historicalData.cash) || 0;
+  const feeCol  = type === 'management' ? 'mng_fees' : 'perf_fees';
+  const feeBal  = parseFloat(historicalData[feeCol]) || 0;
+
+  document.getElementById('prev-cash').textContent      = `RM ${cash.toLocaleString('en-MY',{minimumFractionDigits:2})}`;
+  document.getElementById('prev-fee-bal').textContent   = `RM ${feeBal.toLocaleString('en-MY',{minimumFractionDigits:2})}`;
+  document.getElementById('prev-fee-label').textContent = type === 'management' ? 'Accrued Management Fee' : 'Accrued Performance Fee';
+
+  const after = cash - amount;
+  document.getElementById('prev-cash-after').textContent = `RM ${after.toLocaleString('en-MY',{minimumFractionDigits:2})}`;
+  document.getElementById('prev-cash-after').style.color = after < 0 ? 'var(--red,#DC2626)' : 'var(--blue)';
+
+  box.style.display = 'block';
+}
+
+async function submitWithdrawal() {
+  const feeType = document.getElementById('fee-type').value;
+  const date    = document.getElementById('w-date').value;
+  const amount  = parseFloat(document.getElementById('w-amount').value);
+  const notes   = document.getElementById('w-notes').value.trim();
+
+  if (!date)         { showToast('Please select a date', 'error'); return; }
+  if (!amount || amount <= 0) { showToast('Please enter a valid amount', 'error'); return; }
+
+  try {
+    const res = await api.post('/api/admin/fee-withdrawals', {
+      fee_type: feeType, amount, date, notes });
+    showToast(
+      `${feeType === 'management' ? 'Management' : 'Performance'} fee withdrawal of RM ${amount.toLocaleString('en-MY',{minimumFractionDigits:2})} recorded. ` +
+      `New cash: RM ${parseFloat(res.new_cash).toLocaleString('en-MY',{minimumFractionDigits:2})}`,
+      'success');
+    document.getElementById('w-amount').value = '';
+    document.getElementById('w-notes').value  = '';
+    await loadHistoricalPreview();
+    await loadHistory();
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+async function loadHistory() {
+  try {
+    const rows = await api.get('/api/admin/fee-withdrawals');
+    const list  = document.getElementById('hist-list');
+    document.getElementById('hist-count').textContent = rows.length;
+
+    if (!rows.length) {
+      list.innerHTML = '<div class="empty-state">No withdrawals recorded yet.</div>';
+      return;
+    }
+
+    list.innerHTML = rows.map(r => {
+      const d   = new Date(r.date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+      const amt = parseFloat(r.amount).toLocaleString('en-MY',{minimumFractionDigits:2});
+      const tag = r.fee_type === 'management'
+        ? '<span class="tag-mgmt">Management</span>'
+        : '<span class="tag-perf">Performance</span>';
+      return `
+        <div class="hist-item">
+          <div>
+            ${tag}
+            <div style="font-size:0.88rem;font-weight:600;margin-top:4px">RM ${amt}</div>
+            <div class="hist-meta">${d}${r.notes ? ' · ' + r.notes : ''}</div>
+          </div>
+          <button class="btn-reverse" onclick="reverseWithdrawal('${r.id}','${amt}')">↩ Reverse</button>
+        </div>`;
+    }).join('');
+  } catch(e) {
+    showToast('Failed to load history: ' + e.message, 'error');
+  }
+}
+
+async function reverseWithdrawal(id, amt) {
+  if (!confirm(`Reverse this withdrawal of RM ${amt}? Cash will be restored.`)) return;
+  try {
+    await api.delete(`/api/admin/fee-withdrawals/${id}`);
+    showToast('Withdrawal reversed — cash restored.', 'success');
+    await loadHistoricalPreview();
+    await loadHistory();
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+</script>
+</body>
+</html>

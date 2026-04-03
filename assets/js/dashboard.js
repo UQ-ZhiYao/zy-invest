@@ -118,6 +118,12 @@ function renderSidebar(activePage) {
       <a href="${base}dashboard/admin/fee-schedule.html" class="nav-item ${activePage==='fee-schedule'?'active':''}" data-tooltip="Fee Schedule">
         <span class="nav-icon">🗓</span><span class="nav-label">Fee Schedule</span>
       </a>
+      <a href="${base}dashboard/admin/fee-withdrawal.html" class="nav-item ${activePage==='fee-withdrawal'?'active':''}" data-tooltip="Fee Withdrawal">
+        <span class="nav-icon">💸</span><span class="nav-label">Fee Withdrawal</span>
+      </a>
+      <a href="${base}dashboard/admin/fee-withdrawal.html" class="nav-item ${activePage==='fee-withdrawal'?'active':''}" data-tooltip="Fee Withdrawal">
+        <span class="nav-icon">💸</span><span class="nav-label">Fee Withdrawal</span>
+      </a>
       <a href="${base}dashboard/admin/price-override.html" class="nav-item ${activePage==='price-override'?'active':''}" data-tooltip="Price Override">
         <span class="nav-icon">💱</span><span class="nav-label">Price Override</span>
       </a>
@@ -128,8 +134,6 @@ function renderSidebar(activePage) {
         <span class="nav-icon">📋</span><span class="nav-label">Generate Statements</span>
       </a>
 
-      <a href="${base}dashboard/admin/upload.html" class="nav-item ${activePage==='upload'?'active':''}" data-tooltip="Upload Excel">
-        <span class="nav-icon">📥</span><span class="nav-label">Upload Excel</span>
       </a>
     </div>
   ` : '';

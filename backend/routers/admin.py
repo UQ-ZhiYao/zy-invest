@@ -12,10 +12,9 @@ Endpoints included in v1.0.0:
   POST                 /api/admin/prices/override
   POST                 /api/admin/prices/fetch-now
   POST                 /api/admin/nta/compute
-  POST                 /api/admin/upload/excel
   GET                  /api/admin/audit-log
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date
@@ -86,6 +85,16 @@ class UserUpdate(BaseModel):
 
 
 # ── Fee Schedules ─────────────────────────────────────────────
+@router.get("/nta/latest")
+async def get_latest_nta(
+    admin: dict = Depends(require_admin),
+    db:   Database = Depends(get_db)
+):
+    """Return the most recent historical record (for fee accrual display)."""
+    row = await db.fetchrow("SELECT * FROM historical ORDER BY date DESC LIMIT 1")
+    return serialise(row) if row else {}
+
+
 @router.get("/fee-schedules")
 async def list_fee_schedules(
     admin: dict = Depends(require_admin),
@@ -184,21 +193,133 @@ async def trigger_nta_compute(
 
 
 # ── Excel Upload ──────────────────────────────────────────────
-@router.post("/upload/excel")
-async def upload_excel(
-    file: UploadFile = File(...),
+# ── Fee Withdrawal ────────────────────────────────────────────
+@router.get("/fee-withdrawals")
+async def list_fee_withdrawals(
     admin: dict = Depends(require_admin),
-    db: Database = Depends(get_db)
+    db:    Database = Depends(get_db)
 ):
-    if not file.filename.endswith((".xlsx", ".xlsm")):
-        raise HTTPException(status_code=400, detail="Only .xlsx or .xlsm files accepted")
-    content = await file.read()
-    # Import parser runs synchronously in executor
-    import asyncio
-    from services.excel_parser import parse_and_import
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, parse_and_import, content, db)
-    return result
+    """List all recorded fee withdrawals."""
+    rows = await db.fetch("""
+        SELECT * FROM fee_withdrawals ORDER BY date DESC
+    """)
+    return [serialise(r) for r in rows]
+
+
+@router.post("/fee-withdrawals")
+async def record_fee_withdrawal(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db:   Database = Depends(get_db)
+):
+    """
+    Record a management or performance fee withdrawal.
+    Deducts the amount from cash in the historical record for that date,
+    and zeroes/reduces the corresponding fee liability (mng_fees / perf_fees).
+    """
+    from datetime import date as date_t
+    fee_type   = body.get('fee_type')           # 'management' or 'performance'
+    amount     = float(body.get('amount', 0))   # positive RM value
+    w_date     = body.get('date')               # YYYY-MM-DD
+    notes      = body.get('notes', '')
+
+    if fee_type not in ('management', 'performance'):
+        raise HTTPException(400, "fee_type must be 'management' or 'performance'")
+    if amount <= 0:
+        raise HTTPException(400, "amount must be positive")
+    if not w_date:
+        raise HTTPException(400, "date required")
+
+    # Determine which historical liability column to update
+    fee_col = 'mng_fees' if fee_type == 'management' else 'perf_fees'
+
+    # Check a historical record exists for this date
+    hist = await db.fetchrow(
+        "SELECT id, cash, mng_fees, perf_fees FROM historical WHERE date = $1::date",
+        w_date)
+    if not hist:
+        raise HTTPException(404, f"No historical record for {w_date}. "
+                                  "Please ensure NTA data exists for this date.")
+
+    # Validate sufficient cash and fee accrual
+    cash_bal   = float(hist['cash'])
+    fee_bal    = float(hist[fee_col])
+    if amount > cash_bal:
+        raise HTTPException(400,
+            f"Insufficient cash: available RM {cash_bal:,.2f}, requested RM {amount:,.2f}")
+
+    # Update historical: reduce cash and reduce fee liability
+    await db.execute(f"""
+        UPDATE historical
+        SET cash     = cash     - $1,
+            {fee_col} = GREATEST({fee_col} - $1, 0),
+            source   = 'admin_override'
+        WHERE date = $2::date
+    """, amount, w_date)
+
+    # Record in fee_withdrawals table
+    rec_id = await db.fetchval("""
+        INSERT INTO fee_withdrawals
+        (fee_type, amount, date, notes, created_by)
+        VALUES ($1, $2, $3::date, $4, $5::uuid)
+        RETURNING id
+    """, fee_type, amount, w_date, notes, str(admin['id']))
+
+    # Recompute NTA for that date
+    updated = await db.fetchrow(
+        "SELECT * FROM historical WHERE date = $1::date", w_date)
+    if updated:
+        row = dict(updated)
+        total_assets = (row['securities'] + row['reits'] + row['bonds'] +
+                        row['money_market'] + row['derivatives'] +
+                        row['receivables'] + row['cash'])
+        total_liab   = (row['mng_fees'] + row['perf_fees'] +
+                        row['ints_on_fees'] + row['loans'] + row['ints_on_loans'])
+        nav = total_assets - total_liab
+        new_nta = nav / row['total_units'] if row['total_units'] > 0 else 0
+        await db.execute(
+            "UPDATE historical SET nta = $1 WHERE date = $2::date",
+            round(new_nta, 6), w_date)
+
+    return {
+        "message": "Fee withdrawal recorded",
+        "id": str(rec_id),
+        "date": w_date,
+        "fee_type": fee_type,
+        "amount": amount,
+        "new_cash": cash_bal - amount,
+        "new_fee_liability": max(0, fee_bal - amount),
+    }
+
+
+@router.delete("/fee-withdrawals/{withdrawal_id}")
+async def delete_fee_withdrawal(
+    withdrawal_id: str,
+    admin: dict = Depends(require_admin),
+    db:   Database = Depends(get_db)
+):
+    """Reverse a fee withdrawal — adds cash back and restores fee liability."""
+    row = await db.fetchrow(
+        "SELECT * FROM fee_withdrawals WHERE id = $1::uuid", withdrawal_id)
+    if not row:
+        raise HTTPException(404, "Withdrawal record not found")
+
+    amount   = float(row['amount'])
+    w_date   = str(row['date'])
+    fee_col  = 'mng_fees' if row['fee_type'] == 'management' else 'perf_fees'
+
+    await db.execute(f"""
+        UPDATE historical
+        SET cash     = cash     + $1,
+            {fee_col} = {fee_col} + $1,
+            source   = 'admin_override'
+        WHERE date = $2::date
+    """, amount, w_date)
+
+    await db.execute(
+        "DELETE FROM fee_withdrawals WHERE id = $1::uuid", withdrawal_id)
+
+    return {"message": "Withdrawal reversed", "amount_restored": amount}
 
 
 # ── Audit Log ─────────────────────────────────────────────────
