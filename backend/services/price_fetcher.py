@@ -1,7 +1,6 @@
 """
-Price fetcher service  v2.0.0
-Fetches daily closing prices via yfinance.
-Falls back gracefully — marks instruments as needing manual input.
+Price fetcher service  v3.0.0
+Fetches daily closing prices via yahooquery.
 """
 import asyncio
 from datetime import date
@@ -11,58 +10,44 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _yfinance_fetch_sync(tickers: List[str]) -> Dict[str, float]:
-    """Synchronous yfinance fetch — run in thread executor."""
+def _fetch_sync(tickers: List[str]) -> Dict[str, float]:
+    """Synchronous yahooquery fetch — run in thread executor."""
     try:
-        import yfinance as yf
+        from yahooquery import Ticker
         prices = {}
-        for ticker in tickers:
-            try:
-                t = yf.Ticker(ticker)
-                info = t.fast_info
-                price = getattr(info, 'last_price', None)
+        t = Ticker(tickers, timeout=20)
+        quotes = t.price
+
+        for ticker, data in quotes.items():
+            if isinstance(data, dict):
+                price = data.get('regularMarketPrice')
                 if price and float(price) > 0:
                     prices[ticker] = float(price)
                     logger.info(f"Fetched {ticker}: {price}")
                 else:
-                    # Fallback: try history
-                    hist = t.history(period="2d")
-                    if not hist.empty:
-                        prices[ticker] = float(hist['Close'].iloc[-1])
-                        logger.info(f"Fetched {ticker} via history: {prices[ticker]}")
-                    else:
-                        logger.warning(f"No price data for {ticker}")
-            except Exception as e:
-                logger.warning(f"Failed to fetch {ticker}: {e}")
+                    logger.warning(f"No regularMarketPrice for {ticker}: {data}")
+            else:
+                logger.warning(f"Unexpected data for {ticker}: {data}")
         return prices
+
     except ImportError:
-        logger.error("yfinance not installed — run: pip install yfinance")
+        logger.error("yahooquery not installed")
         return {}
     except Exception as e:
-        logger.error(f"yfinance fetch error: {e}")
+        logger.error(f"yahooquery fetch error: {e}")
         return {}
 
 
 async def fetch_prices_yahoo(tickers: List[str]) -> Dict[str, float]:
-    """Fetch latest prices for a list of Yahoo Finance tickers."""
     if not tickers:
         return {}
-    try:
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _yfinance_fetch_sync, tickers)
-    except Exception as e:
-        logger.error(f"Price fetch failed: {e}")
-        return {}
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _fetch_sync, tickers)
 
 
 async def run_daily_price_fetch(db) -> dict:
-    """
-    Main daily price fetch routine.
-    Called by scheduler at 6:05 PM MYT after Bursa closes.
-    """
     today = date.today()
 
-    # Get all active instruments with Yahoo tickers
     instruments = await db.fetch("""
         SELECT tm.instrument, tm.yahoo_ticker, tm.is_manual
         FROM ticker_map tm
@@ -71,7 +56,6 @@ async def run_daily_price_fetch(db) -> dict:
     """)
 
     if not instruments:
-        logger.warning("No active holdings found in ticker_map")
         return {"date": str(today), "succeeded": [], "failed": [],
                 "manual_needed": [], "total_fetched": 0, "needs_attention": 0,
                 "error": "No active holdings in ticker_map"}
@@ -88,7 +72,6 @@ async def run_daily_price_fetch(db) -> dict:
             manual_needed.append(row["instrument"])
 
     logger.info(f"Fetching prices for: {auto_tickers}")
-
     fetched   = await fetch_prices_yahoo(auto_tickers)
     succeeded = []
     failed    = []
@@ -128,14 +111,11 @@ async def run_daily_price_fetch(db) -> dict:
             logger.error(f"Failed to save price for {instrument}: {e}")
             failed.append(instrument)
 
-    # Mark unfetched tickers as failed
     for yahoo_ticker in auto_tickers:
         if yahoo_ticker not in fetched:
             instrument = ticker_to_instr.get(yahoo_ticker)
             if instrument:
-                failed.append(f"{instrument} ({yahoo_ticker} — not returned by Yahoo)")
-
-    logger.info(f"Price fetch complete: {len(succeeded)} succeeded, {len(failed)} failed")
+                failed.append(f"{instrument} ({yahoo_ticker} — not returned)")
 
     return {
         "date":            str(today),
@@ -149,7 +129,6 @@ async def run_daily_price_fetch(db) -> dict:
 
 
 async def update_manual_price(db, instrument: str, price: float, admin_user_id: str):
-    """Admin manually sets price for OTC/warrant instruments."""
     today = date.today()
     await db.execute("""
         INSERT INTO price_history (instrument, date, price, source)
