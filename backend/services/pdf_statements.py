@@ -555,9 +555,8 @@ def _pie_chart(labels, values, width=55*mm):
     wedges, _ = ax.pie(
         values,
         colors=colors,
-        startangle=90,
+        startangle=0,
         wedgeprops=dict(edgecolor='white', linewidth=0.8),
-        counterclock=False,
     )
     ax.set_aspect('equal')
 
@@ -567,7 +566,7 @@ def _pie_chart(labels, values, width=55*mm):
                for i in range(len(labels))]
     ax.legend(handles=handles, loc='upper center',
               bbox_to_anchor=(0.5, -(0.03 + (w_in / h_in) * 0.05)),
-              ncol=2, fontsize=5.5 * DPI / 72, frameon=False,
+              ncol=2, fontsize=4.5 * DPI / 72, frameon=False,
               handlelength=1.0, handleheight=0.85,
               columnspacing=1.0, labelspacing=0.3)
 
