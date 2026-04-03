@@ -212,8 +212,10 @@ async def record_fee_withdrawal(
     admin: dict = Depends(require_admin),
     db:   Database = Depends(get_db)
 ):
-    """Record a fee withdrawal — updates cash + fee liability in historical, recomputes NTA."""
-    import traceback as _tb
+    """
+    Record a fee withdrawal in the database only.
+    NTA computation will pick this up when Compute NTA is run.
+    """
     from datetime import date as _dt
 
     fee_type = body.get('fee_type')
@@ -228,87 +230,23 @@ async def record_fee_withdrawal(
     if not w_date:
         raise HTTPException(400, "date required")
 
-    # Convert date string → date object for asyncpg
     try:
         date_obj = _dt.fromisoformat(str(w_date))
     except ValueError:
         raise HTTPException(400, f"Invalid date format: {w_date}")
 
-    fee_col = 'mng_fees' if fee_type == 'management' else 'perf_fees'
-
-    # Check historical record exists
-    hist = await db.fetchrow(
-        "SELECT id, cash, mng_fees, perf_fees FROM historical WHERE date = $1",
-        date_obj)
-    if not hist:
-        raise HTTPException(404,
-            f"No historical record for {w_date}. Add NTA data for this date first.")
-
-    cash_bal = float(hist['cash'])
-    fee_bal  = float(hist[fee_col])
-
-    if amount > cash_bal:
-        raise HTTPException(400,
-            f"Insufficient cash: available RM {cash_bal:,.2f}, "
-            f"requested RM {amount:,.2f}")
-
-    try:
-        # Update historical — use separate queries to avoid f-string SQL injection risk
-        if fee_type == 'management':
-            await db.execute("""
-                UPDATE historical
-                SET cash     = cash - $1,
-                    mng_fees = GREATEST(mng_fees - $1, 0),
-                    source   = 'admin_override'
-                WHERE date = $2
-            """, amount, date_obj)
-        else:
-            await db.execute("""
-                UPDATE historical
-                SET cash      = cash - $1,
-                    perf_fees = GREATEST(perf_fees - $1, 0),
-                    source    = 'admin_override'
-                WHERE date = $2
-            """, amount, date_obj)
-
-        # Insert withdrawal record
-        rec_id = await db.fetchval("""
-            INSERT INTO fee_withdrawals
-                (fee_type, amount, date, notes, created_by)
-            VALUES ($1, $2, $3, $4, $5::uuid)
-            RETURNING id
-        """, fee_type, amount, date_obj, notes, str(admin['id']))
-
-        # Recompute NTA
-        row = await db.fetchrow("SELECT * FROM historical WHERE date = $1", date_obj)
-        if row:
-            r = dict(row)
-            assets = (float(r.get('securities',0)) + float(r.get('reits',0)) +
-                      float(r.get('bonds',0))       + float(r.get('money_market',0)) +
-                      float(r.get('derivatives',0)) + float(r.get('receivables',0)) +
-                      float(r.get('cash',0)))
-            liab   = (float(r.get('mng_fees',0))   + float(r.get('perf_fees',0)) +
-                      float(r.get('ints_on_fees',0))+ float(r.get('loans',0)) +
-                      float(r.get('ints_on_loans',0)))
-            units  = float(r.get('total_units', 0))
-            new_nta = round((assets - liab) / units, 6) if units > 0 else 0
-            await db.execute(
-                "UPDATE historical SET nta = $1 WHERE date = $2",
-                new_nta, date_obj)
-
-    except Exception as exc:
-        print(f"[fee-withdrawal] {exc}")
-        print(_tb.format_exc())
-        raise HTTPException(500, f"Database error: {str(exc)}")
+    rec_id = await db.fetchval("""
+        INSERT INTO fee_withdrawals (fee_type, amount, date, notes, created_by)
+        VALUES ($1, $2, $3, $4, $5::uuid)
+        RETURNING id
+    """, fee_type, amount, date_obj, notes, str(admin['id']))
 
     return {
-        "message":          "Fee withdrawal recorded",
-        "id":               str(rec_id),
-        "date":             w_date,
-        "fee_type":         fee_type,
-        "amount":           amount,
-        "new_cash":         round(cash_bal - amount, 2),
-        "new_fee_liability":round(max(0, fee_bal - amount), 2),
+        "message":  "Fee withdrawal recorded",
+        "id":       str(rec_id),
+        "date":     w_date,
+        "fee_type": fee_type,
+        "amount":   amount,
     }
 
 
@@ -318,28 +256,14 @@ async def delete_fee_withdrawal(
     admin: dict = Depends(require_admin),
     db:   Database = Depends(get_db)
 ):
-    """Reverse a fee withdrawal — adds cash back and restores fee liability."""
+    """Delete a fee withdrawal record. Re-run Compute NTA to update historical."""
     row = await db.fetchrow(
-        "SELECT * FROM fee_withdrawals WHERE id = $1::uuid", withdrawal_id)
+        "SELECT id, amount FROM fee_withdrawals WHERE id = $1::uuid", withdrawal_id)
     if not row:
         raise HTTPException(404, "Withdrawal record not found")
-
-    amount   = float(row['amount'])
-    w_date   = str(row['date'])
-    fee_col  = 'mng_fees' if row['fee_type'] == 'management' else 'perf_fees'
-
-    await db.execute(f"""
-        UPDATE historical
-        SET cash     = cash     + $1,
-            {fee_col} = {fee_col} + $1,
-            source   = 'admin_override'
-        WHERE date = $2::date
-    """, amount, w_date)
-
     await db.execute(
         "DELETE FROM fee_withdrawals WHERE id = $1::uuid", withdrawal_id)
-
-    return {"message": "Withdrawal reversed", "amount_restored": amount}
+    return {"message": "Withdrawal deleted. Re-run Compute NTA to update."}
 
 
 # ── Audit Log ─────────────────────────────────────────────────

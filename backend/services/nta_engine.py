@@ -67,6 +67,15 @@ async def compute_daily_nta(db, target_date: date = None) -> Optional[dict]:
     )
     cash = float(prev_hist["cash"]) if prev_hist else 0.0
 
+    # Deduct any fee withdrawals on this date from cash
+    fee_w = await db.fetch(
+        "SELECT fee_type, amount FROM fee_withdrawals WHERE date = $1",
+        target_date
+    )
+    mgmt_withdrawn = sum(float(r["amount"]) for r in fee_w if r["fee_type"] == "management")
+    perf_withdrawn = sum(float(r["amount"]) for r in fee_w if r["fee_type"] == "performance")
+    cash -= (mgmt_withdrawn + perf_withdrawn)
+
     gross_aum = securities_value + cash
     gross_nta = gross_aum / total_units if total_units > 0 else 0
 
@@ -138,6 +147,9 @@ async def compute_daily_nta(db, target_date: date = None) -> Optional[dict]:
     )
     acc_mng  = float(prev_mng["mng_fees"] or 0)  + base_fee if prev_mng else base_fee
     acc_perf = float(prev_mng["perf_fees"] or 0) + perf_fee if prev_mng else perf_fee
+    # Reduce liabilities by fee withdrawals on this date
+    acc_mng  = max(0.0, acc_mng  - mgmt_withdrawn)
+    acc_perf = max(0.0, acc_perf - perf_withdrawn)
 
     # Upsert to historical
     await db.execute(
