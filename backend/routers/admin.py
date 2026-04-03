@@ -1417,10 +1417,20 @@ async def generate_statement(
 
     # Convert investor_id to uuid.UUID so asyncpg binds it correctly
     import uuid as _uuid_mod
+    from datetime import date as _date_type
     try:
         investor_id = _uuid_mod.UUID(str(_inv_id_raw)) if _inv_id_raw else None
     except (ValueError, AttributeError):
         raise HTTPException(400, f"Invalid investor_id format: {_inv_id_raw}")
+
+    # Convert selected_date string to datetime.date (asyncpg requires date object)
+    _sel_date_raw = body.get('selected_date')
+    selected_date_obj = None
+    if _sel_date_raw:
+        try:
+            selected_date_obj = _date_type.fromisoformat(str(_sel_date_raw))
+        except ValueError:
+            raise HTTPException(400, f"Invalid selected_date format: {_sel_date_raw}")
 
     try:
         pdf_bytes = None
@@ -1489,7 +1499,7 @@ async def generate_statement(
             """, investor_id)
             if not inv: raise HTTPException(404, "Investor not found")
             # Use selected_date if provided, otherwise latest
-            selected_date = body.get('selected_date')
+            selected_date = selected_date_obj
             if selected_date:
                 target = await db.fetchrow("""
                     SELECT * FROM principal_cashflows
@@ -1535,7 +1545,7 @@ async def generate_statement(
                 WHERE i.id = $1
             """, investor_id)
             if not inv: raise HTTPException(404, "Investor not found")
-            selected_date = body.get('selected_date')
+            selected_date = selected_date_obj
             if selected_date:
                 target = await db.fetchrow("""
                     SELECT * FROM principal_cashflows
