@@ -533,7 +533,7 @@ def _donut(labels, values, size=(55*mm,55*mm)):
     return Image(buf, width=size[0], height=size[1])
 
 
-def _pie_chart(labels, values, width=80*mm):
+def _pie_chart(labels, values, width=55*mm):
     """Pie chart with no axes, legend below in two columns."""
     import matplotlib; matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -567,7 +567,7 @@ def _pie_chart(labels, values, width=80*mm):
                for i in range(len(labels))]
     ax.legend(handles=handles, loc='upper center',
               bbox_to_anchor=(0.5, -(0.03 + (w_in / h_in) * 0.05)),
-              ncol=2, fontsize=7 * DPI / 72, frameon=False,
+              ncol=2, fontsize=5.5 * DPI / 72, frameon=False,
               handlelength=1.0, handleheight=0.85,
               columnspacing=1.0, labelspacing=0.3)
 
@@ -694,7 +694,7 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
         ('Distribution Policy',    'At least 80% of gross income'),
     ]
     fd_t = Table(
-        [[Paragraph(k, s['small']), Paragraph(v, s['bold'])] for k, v in fd_rows],
+        [[Paragraph(k, s['small']), Paragraph(v, s['body'])]  for k, v in fd_rows],
         colWidths=[40*mm, L_W - 40*mm])
     fd_t.setStyle(TableStyle([
         ('ROWBACKGROUNDS', (0,0), (-1,-1), [WHITE, G4]),
@@ -712,7 +712,7 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
     if sector_data:
         lbls = [r.get('asset_class') or r.get('sector', '') for r in sector_data[:8]]
         vals = [max(float(r.get('weight_pct', 0)), 0)       for r in sector_data[:8]]
-        pie  = _pie_chart(lbls, vals, width=R_W)
+        pie  = _pie_chart(lbls, vals, width=min(R_W, 60*mm))
         if pie: right.append(pie)
     else:
         right.append(Paragraph('No data', s['small']))
@@ -763,13 +763,21 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
     # ── PAGE 2 ────────────────────────────────────────────────
     story.append(PageBreak())
 
-    # Investment Strategy — short, justified
+    # Investment Strategy
     story += _sec(s, 'Investment Strategy')
+    _strat_intro = ParagraphStyle('_si', parent=s['body'],
+        alignment=TA_JUSTIFY, leading=13, spaceAfter=3)
+    _bullet_st = ParagraphStyle('_bs', parent=s['body'],
+        leftIndent=8*mm, spaceAfter=2, leading=13)
     story.append(Paragraph(
-        'Equities: 60–98% of NAV. Fixed-income & money market: 2–40% of NAV. '
-        'Derivatives: max 5% of NAV, for hedging only. '
-        'Each position requires a clear thesis, defined risk parameters, and an exit plan.',
-        _justify))
+        'The strategic limit on asset allocation of the fund is as follows:',
+        _strat_intro))
+    for pt in [
+        '• Equities: Minimum 60% and maximum 98%.',
+        '• Fixed-income securities: Minimum 2% and maximum 40%.',
+        '• Derivatives: Maximum 5%.  (Subject to Shareholder Approval)',
+    ]:
+        story.append(Paragraph(pt, _bullet_st))
     story.append(Spacer(1, 4*mm))
 
     # Distribution History
