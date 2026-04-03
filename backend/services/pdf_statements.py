@@ -488,7 +488,7 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
     fig.subplots_adjust(top=0.95, bottom=0.15, left=0.09, right=0.98)
 
     x = list(range(len(dates)))
-    ax.plot(x, ntas, color='#1565C0', linewidth=1.5, zorder=3)
+    ax.plot(x, ntas, color='#1565C0', linewidth=0.8, zorder=3)
     # No fill, no gridlines — clean line chart
     step = max(1, len(dates) // 10)
     ax.set_xticks(x[::step])
@@ -549,7 +549,7 @@ def _pie_chart(labels, values, width=55*mm):
 
     # Step 1: draw pie on a square figure → perfect circle guaranteed
     fig_pie, ax = plt.subplots(figsize=(w_in, w_in), dpi=DPI)
-    fig_pie.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    fig_pie.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
     ax.pie(values, colors=colors, startangle=90,
            wedgeprops=dict(edgecolor='white', linewidth=1.2),
            counterclock=False)
@@ -584,6 +584,7 @@ def _pie_chart(labels, values, width=55*mm):
     t = _T([[pie_img], [leg_img]], colWidths=[width])
     t.setStyle(_TS([
         ('ALIGN',    (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN',   (0,0), (-1,-1), 'MIDDLE'),
         ('TOPPADDING',  (0,0), (-1,-1), 0),
         ('BOTTOMPADDING',(0,0), (-1,-1), 0),
         ('LEFTPADDING',  (0,0), (-1,-1), 0),
