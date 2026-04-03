@@ -1443,6 +1443,15 @@ async def generate_statement(
         fund_data = dict(overview) if overview else {}
 
         if stmt_type == 'factsheet':
+            from datetime import date as date_type, timedelta as _td
+            import datetime as _dt
+
+            # Use selected period date (end-of-month date from dropdown)
+            # All data filtered UP TO this date
+            as_of = selected_date_obj or date_type.today()
+
+            # Holdings and sector as of the as_of date
+            # (holdings table is current; for historical we filter by date)
             holdings = await db.fetch("""
                 SELECT instrument, total_cost,
                        CASE WHEN units > 0 THEN total_cost / NULLIF((SELECT SUM(total_cost) FROM holdings WHERE units > 0.001),0)*100
@@ -1450,26 +1459,53 @@ async def generate_statement(
                 FROM holdings WHERE units > 0.001 ORDER BY total_cost DESC LIMIT 10
             """)
             sector_data = await db.fetch("SELECT * FROM v_holdings_by_class ORDER BY total_market_value DESC")
-            nta_hist = await db.fetch("SELECT date, nta FROM historical ORDER BY date ASC")
-            dists = await db.fetch("SELECT * FROM distributions ORDER BY ex_date DESC LIMIT 8")
-            # Period returns
-            from datetime import date as date_type
-            latest = await db.fetchrow("SELECT nta, date FROM historical ORDER BY date DESC LIMIT 1")
+
+            # NTA history up to as_of date
+            nta_hist = await db.fetch(
+                "SELECT date, nta FROM historical WHERE date <= $1 ORDER BY date ASC", as_of)
+
+            # Distributions up to as_of date
+            dists = await db.fetch(
+                "SELECT * FROM distributions WHERE ex_date <= $1 ORDER BY ex_date DESC LIMIT 8", as_of)
+
+            # Fund data as of the as_of date (NTA at that date)
+            latest = await db.fetchrow(
+                "SELECT nta, date FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1", as_of)
+            # Override fund_data with as_of values
+            if latest:
+                fund_data = dict(fund_data)
+                fund_data['current_nta'] = float(latest['nta'])
+                # AUM and units at as_of
+                aum_row = await db.fetchrow(
+                    "SELECT nta * total_units AS aum, total_units FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1", as_of)
+                if aum_row:
+                    fund_data['aum']         = float(aum_row['aum'])
+                    fund_data['total_units'] = float(aum_row['total_units'])
+
+            # Period returns relative to as_of date
             periods = {}
             if latest:
+                inception = await db.fetchrow("SELECT nta FROM historical ORDER BY date ASC LIMIT 1")
                 for label, days in [("1M",30),("3M",90),("6M",180),("1Y",365),("3Y",1095)]:
-                    ref_date = latest["date"] - __import__("datetime").timedelta(days=days)
+                    ref_date = as_of - _td(days=days)
                     ref = await db.fetchrow(
                         "SELECT nta FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1", ref_date)
                     if ref and ref["nta"]:
-                        periods[label] = round((float(latest["nta"])/float(ref["nta"])-1)*100,4)
-            perf_data = {'period_returns': periods,
-                         'total_return_pct': float(fund_data.get('total_return_pct',0))}
-            manager_comment = body.get('manager_comment','')
+                        periods[label] = round((float(latest["nta"]) / float(ref["nta"]) - 1) * 100, 4)
+                if inception and inception["nta"]:
+                    total_ret = round((float(latest["nta"]) / float(inception["nta"]) - 1) * 100, 4)
+                else:
+                    total_ret = float(fund_data.get('total_return_pct', 0))
+            else:
+                total_ret = 0.0
+
+            perf_data = {'period_returns': periods, 'total_return_pct': total_ret}
+            manager_comment = body.get('manager_comment', '')
             pdf_bytes = generate_factsheet(
                 fund_data=fund_data,
                 holdings=[dict(h) for h in holdings],
                 performance=perf_data,
+                as_of_date=as_of,
                 distributions=[dict(d) for d in dists],
                 nta_history=[dict(r) for r in nta_hist],
                 sector_data=[dict(r) for r in sector_data],

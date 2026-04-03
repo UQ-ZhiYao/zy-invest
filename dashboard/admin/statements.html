@@ -240,11 +240,11 @@ function buildMonthDropdown() {
   const sel = document.getElementById('factsheet-period');
   sel.innerHTML = '';
   const now = new Date();
-  // Generate last 24 months end-of-month dates
   for (let i = 0; i < 24; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i + 1, 0); // last day of month
-    const label = d.toLocaleDateString('en-MY', { month: 'long', year: 'numeric' });
-    const value = d.toISOString().slice(0, 10); // YYYY-MM-DD
+    // Format as "31 March 2026"
+    const label = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    const value = d.toISOString().slice(0, 10); // YYYY-MM-DD for backend
     const opt = document.createElement('option');
     opt.value = value;
     opt.textContent = label;

@@ -19,7 +19,7 @@ from reportlab.platypus import (
     BaseDocTemplate, Frame, PageTemplate, PageBreak,
     Paragraph, Spacer, Table, TableStyle, HRFlowable, Image
 )
-from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT, TA_JUSTIFY
 
 # ── Colours ────────────────────────────────────────────────────
 BLUE   = colors.HexColor('#1565C0')
@@ -485,23 +485,23 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
     w_in = width  / 72
     h_in = height / 72
     fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=DPI)
-    fig.subplots_adjust(top=0.92, bottom=0.18, left=0.10, right=0.97)
+    fig.subplots_adjust(top=0.95, bottom=0.20, left=0.08, right=0.98)
 
     x = list(range(len(dates)))
-    ax.plot(x, ntas, color='#1565C0', linewidth=1.2, zorder=3)
-    ax.fill_between(x, ntas, y_min, alpha=0.08, color='#1565C0')
-
+    ax.plot(x, ntas, color='#1565C0', linewidth=1.5, zorder=3)
+    # No fill, no gridlines — clean line chart
     step = max(1, len(dates) // 10)
     ax.set_xticks(x[::step])
-    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=FS,
-                        rotation=30, ha='right')
+    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=FS * 0.9,
+                        rotation=45, ha='right')
     ax.set_ylim(y_min, y_max)
     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
-    ax.tick_params(axis='y', labelsize=FS, length=2)
-    ax.tick_params(axis='x', labelsize=FS, length=2)
-    ax.grid(axis='y', alpha=0.2, linewidth=0.4, linestyle='--')
-    for sp in ['top','right']:   ax.spines[sp].set_visible(False)
-    for sp in ['left','bottom']: ax.spines[sp].set_color('#cccccc')
+    ax.tick_params(axis='y', labelsize=FS, length=0, pad=3)
+    ax.tick_params(axis='x', labelsize=FS * 0.9, length=0, pad=2)
+    ax.grid(False)  # no gridlines
+    for sp in ['top','right','bottom']: ax.spines[sp].set_visible(False)
+    ax.spines['left'].set_color('#cccccc')
+    ax.spines['left'].set_linewidth(0.5)
 
     # Start/end annotations
     ax.annotate(f'{ntas[0]:.4f}', xy=(0, ntas[0]),
@@ -576,24 +576,27 @@ def _bar_chart(labels, values, width, height=60*mm):
 
     for bar, val in zip(bars, values):
         bw = bar.get_width()
-        if bw > 4:
+        if bw > 10:
             ax.text(bw / 2, bar.get_y() + bar.get_height() / 2,
                     f'{val:.1f}%', ha='center', va='center',
                     fontsize=FS, color='white', fontweight='bold')
+        elif bw > 0:
+            ax.text(bw + max(values)*0.01, bar.get_y() + bar.get_height() / 2,
+                    f'{val:.1f}%', ha='left', va='center',
+                    fontsize=FS * 0.9, color='#444444')
 
     ax.set_yticks([])
     ax.set_xlim(0, max(values) * 1.08)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}%'))
     ax.tick_params(axis='x', labelsize=FS, length=2, pad=2)
-    ax.grid(axis='x', alpha=0.2, linewidth=0.5, linestyle='--', zorder=0)
-    for sp in ['top','right','left']: ax.spines[sp].set_visible(False)
-    ax.spines['bottom'].set_color('#cccccc')
+    ax.grid(False)  # no gridlines
+    for sp in ['top','right','left','bottom']: ax.spines[sp].set_visible(False)
 
     handles = [Patch(facecolor=colors[i], label=f'{labels[i]}  {values[i]:.1f}%')
                for i in range(n)]
     ax.legend(handles=handles, loc='upper center',
               bbox_to_anchor=(0.5, -(0.02 + (h_bars/h_in)*0.05)),
-              ncol=2, fontsize=FS, frameon=False,
+              ncol=2, fontsize=FS * 0.82, frameon=False,
               handlelength=1.0, handleheight=0.8,
               columnspacing=1.0, labelspacing=0.3)
 
@@ -608,12 +611,12 @@ def _bar_chart(labels, values, width, height=60*mm):
 # 1.  FACTSHEET  (no letter header — fund-wide report)
 # ══════════════════════════════════════════════════════════════
 def generate_factsheet(fund_data, holdings, performance, distributions,
-                       nta_history, sector_data, manager_comment=''):
+                       nta_history, sector_data, manager_comment='',
+                       as_of_date=None):
     s = S(); story = []
     today = date.today()
 
-    # Separator below header
-    story.append(HRFlowable(width=CW, thickness=0.4, color=G5, spaceAfter=4))
+    story.append(Spacer(1, 3*mm))
     story.append(Paragraph(
         'The portfolio aims to provide our investors with capital appreciation higher than the '
         'prevailing fixed-deposit rate by investing in a high-growth portfolio of stocks and '
@@ -684,9 +687,19 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
 
     # Investment Strategy
     story += _sec(s, 'Investment Strategy')
-    story.append(Paragraph(
-        'Equities: min 60% / max 98%.  Derivatives: max 5%.  Fixed-income: min 2% / max 40%.',
-        s['body']))
+    _bullet = ParagraphStyle('_bul', parent=s['body'], leftIndent=10*mm,
+                             bulletIndent=3*mm, spaceAfter=1, leading=13)
+    for pt in [
+        '<b>Equities:</b> Minimum 60% and maximum 98% of NAV. The fund targets high-growth '
+        'listed equities on Bursa Malaysia and international markets with strong fundamentals.',
+        '<b>Fixed-Income Securities:</b> Minimum 2% and maximum 40% of NAV. Allocated to '
+        'money market instruments and bonds to provide liquidity and capital preservation.',
+        '<b>Derivatives:</b> Maximum 5% of NAV. Used selectively for hedging and to '
+        'manage downside risk, not for speculative purposes.',
+        '<b>Risk Management:</b> Each investment must have a clear thesis, defined risk '
+        'parameters, and an exit plan. Positions are reviewed quarterly.',
+    ]:
+        story.append(Paragraph(f'• {pt}', _bullet))
     story.append(Spacer(1,3*mm))
 
     # NTA chart
@@ -723,9 +736,11 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
 
     # Manager's Comments
     story += _sec(s, "Manager's Comments")
+    _justify = ParagraphStyle('_jus', parent=s['body'],
+        alignment=TA_JUSTIFY, leading=14, spaceAfter=4)
     story.append(Paragraph(manager_comment or
         'Our portfolio maintains its current strategic positions. We continue to monitor '
-        'market developments and macroeconomic conditions closely.', s['body']))
+        'market developments and macroeconomic conditions closely.', _justify))
     story.append(Spacer(1,3*mm))
 
     # Largest Holdings
@@ -750,7 +765,12 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
         'for family members only and does not constitute a financial prospectus.', s['notice']))
 
     # Factsheet: title on canvas header (no letter block — no name/address)
-    period = today.strftime('%B %Y')
+    if as_of_date:
+        from datetime import date as _d
+        _d_obj = as_of_date if hasattr(as_of_date,'strftime') else _d.fromisoformat(str(as_of_date))
+        period = _d_obj.strftime('%d %B %Y')
+    else:
+        period = today.strftime('%d %B %Y')
     return _build(story, title='MONTHLY FACTSHEET', subtitle=period, name='', addr='', meta_rows=None, extra_top=0)
 
 
