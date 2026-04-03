@@ -23,7 +23,7 @@ import io
 from database import Database, get_db, serialise
 from routers.auth import require_admin
 from services.price_fetcher import run_daily_price_fetch, update_manual_price
-from services.nta_engine import compute_daily_nta
+from services.nta_engine import compute_daily_nta, compute_nta_range
 
 router = APIRouter()
 
@@ -182,14 +182,57 @@ async def trigger_price_fetch(
 # ── NTA Computation ───────────────────────────────────────────
 @router.post("/nta/compute")
 async def trigger_nta_compute(
+    body: dict = None,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db),
-    target_date: Optional[date] = None
 ):
+    """Compute NTA for a single date (default: today)."""
+    from datetime import date as date_t
+    body = body or {}
+    target_date = None
+    if body.get("date"):
+        try:
+            target_date = date_t.fromisoformat(str(body["date"]))
+        except ValueError:
+            raise HTTPException(400, "Invalid date format")
     result = await compute_daily_nta(db, target_date)
     if not result:
-        raise HTTPException(status_code=400, detail="Could not compute NTA — check price data")
+        raise HTTPException(400, "Could not compute NTA — check price data and previous historical record")
     return result
+
+
+@router.post("/nta/compute-range")
+async def trigger_nta_compute_range(
+    body: dict = None,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db),
+):
+    """
+    Compute NTA for all missing dates from last historical record to today.
+    Optionally pass from_date and to_date to restrict the range.
+    Skips weekends and locked rows automatically.
+    """
+    from datetime import date as date_t
+    body = body or {}
+    from_date = None
+    to_date   = None
+    if body.get("from_date"):
+        try:
+            from_date = date_t.fromisoformat(str(body["from_date"]))
+        except ValueError:
+            raise HTTPException(400, "Invalid from_date")
+    if body.get("to_date"):
+        try:
+            to_date = date_t.fromisoformat(str(body["to_date"]))
+        except ValueError:
+            raise HTTPException(400, "Invalid to_date")
+    results = await compute_nta_range(db, from_date, to_date)
+    return {
+        "computed": len(results),
+        "from":     str(from_date or "auto"),
+        "to":       str(to_date   or date_t.today()),
+        "results":  results,
+    }
 
 
 # ── Excel Upload ──────────────────────────────────────────────
