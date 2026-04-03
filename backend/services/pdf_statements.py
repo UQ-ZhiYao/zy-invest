@@ -485,15 +485,15 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
     w_in = width  / 72
     h_in = height / 72
     fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=DPI)
-    fig.subplots_adjust(top=0.95, bottom=0.20, left=0.08, right=0.98)
+    fig.subplots_adjust(top=0.95, bottom=0.15, left=0.09, right=0.98)
 
     x = list(range(len(dates)))
     ax.plot(x, ntas, color='#1565C0', linewidth=1.5, zorder=3)
     # No fill, no gridlines — clean line chart
     step = max(1, len(dates) // 10)
     ax.set_xticks(x[::step])
-    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=FS * 0.9,
-                        rotation=45, ha='right')
+    ax.set_xticklabels([dates[i] for i in x[::step]], fontsize=FS * 0.85,
+                        rotation=0, ha='center')
     ax.set_ylim(y_min, y_max)
     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
     ax.tick_params(axis='y', labelsize=FS, length=0, pad=3)
@@ -503,13 +503,7 @@ def _nta_chart(dates, ntas, width=CW, height=58*mm):
     ax.spines['left'].set_color('#cccccc')
     ax.spines['left'].set_linewidth(0.5)
 
-    # Start/end annotations
-    ax.annotate(f'{ntas[0]:.4f}', xy=(0, ntas[0]),
-        xytext=(4, 6), textcoords='offset points',
-        fontsize=FS + 0.5, color='#1565C0', fontweight='bold', ha='left')
-    ax.annotate(f'{ntas[-1]:.4f}', xy=(len(ntas)-1, ntas[-1]),
-        xytext=(-4, 6), textcoords='offset points',
-        fontsize=FS + 0.5, color='#1565C0', fontweight='bold', ha='right')
+    # No data labels on line chart — clean
 
     buf = io.BytesIO()
     fig.savefig(buf, format='png', transparent=True,
@@ -614,27 +608,37 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
                        nta_history, sector_data, manager_comment='',
                        as_of_date=None):
     s = S(); story = []
-    today = date.today()
 
+    # Resolve as_of date for subtitle and filtering label
+    if as_of_date:
+        _ao = as_of_date if hasattr(as_of_date,'strftime') else               __import__('datetime').date.fromisoformat(str(as_of_date))
+    else:
+        _ao = date.today()
+    period = _ao.strftime('%d %B %Y')
+
+    _justify = ParagraphStyle('_jus', parent=s['body'],
+        alignment=TA_JUSTIFY, leading=14, spaceAfter=3)
+
+    # ── Intro paragraph ───────────────────────────────────────
     story.append(Spacer(1, 3*mm))
     story.append(Paragraph(
         'The portfolio aims to provide our investors with capital appreciation higher than the '
         'prevailing fixed-deposit rate by investing in a high-growth portfolio of stocks and '
-        'fixed income instruments.', s['body']))
-    story.append(Spacer(1, 5*mm))
+        'fixed income instruments.', _justify))
+    story.append(Spacer(1, 4*mm))
 
-    # Two-column: Fund Details (left) | Sector Donut (right)
-    nta_v  = fund_data.get('current_nta', 0)
-    L_W    = 100*mm
-    R_W    = CW - L_W - 4*mm
+    # ── PAGE 1: Fund Details | Sector Allocation ─────────────
+    nta_v = fund_data.get('current_nta', 0)
+    L_W   = 100*mm
+    R_W   = CW - L_W - 4*mm
 
     fd_rows = [
         ('Manager',                'Mr. Ng Zhi Yao'),
         ('Fund Category',          'Equity Fund'),
         ('Launch Date',            '13 December 2021'),
         ('Unit Net Asset Value',   fm(nta_v, 4)),
-        ('Fund Size',              fm(fund_data.get('aum',0))),
-        ('Units in Circulation',   fn(fund_data.get('total_units',0),2)+' units'),
+        ('Fund Size',              fm(fund_data.get('aum', 0))),
+        ('Units in Circulation',   fn(fund_data.get('total_units', 0), 2) + ' units'),
         ('Financial Year End',     '30 November'),
         ('Min. Initial Investment','RM 10,000.00'),
         ('Min. Additional',        'RM 1,000.00'),
@@ -644,119 +648,119 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
         ('Distribution Policy',    'At least 80% of gross income'),
     ]
     fd_t = Table(
-        [[Paragraph(k, s['small']), Paragraph(v, s['bold'])] for k,v in fd_rows],
-        colWidths=[40*mm, L_W-40*mm])
+        [[Paragraph(k, s['small']), Paragraph(v, s['bold'])] for k, v in fd_rows],
+        colWidths=[40*mm, L_W - 40*mm])
     fd_t.setStyle(TableStyle([
-        ('ROWBACKGROUNDS',(0,0),(-1,-1),[WHITE,G4]),
-        ('GRID',(0,0),(-1,-1),0.4,G5),
-        ('TOPPADDING',(0,0),(-1,-1),3.5),
-        ('BOTTOMPADDING',(0,0),(-1,-1),3.5),
-        ('LEFTPADDING',(0,0),(-1,-1),5),
-        ('FONTSIZE',(0,0),(-1,-1),7.5),
-        ('TEXTCOLOR',(0,0),(0,-1),G2),
+        ('ROWBACKGROUNDS', (0,0), (-1,-1), [WHITE, G4]),
+        ('GRID',           (0,0), (-1,-1), 0.4, G5),
+        ('TOPPADDING',     (0,0), (-1,-1), 3.5),
+        ('BOTTOMPADDING',  (0,0), (-1,-1), 3.5),
+        ('LEFTPADDING',    (0,0), (-1,-1), 5),
+        ('FONTSIZE',       (0,0), (-1,-1), 7.5),
+        ('TEXTCOLOR',      (0,0), (0,-1),  G2),
     ]))
 
-    # Right: sector donut
     right = [Paragraph('Sector Allocation*', s['h3']),
              HRFlowable(width='100%', thickness=0.6, color=BLUE, spaceAfter=3)]
     if sector_data:
-        lbls = [r.get('asset_class') or r.get('sector','') for r in sector_data[:8]]
-        vals = [max(float(r.get('weight_pct',0)),0) for r in sector_data[:8]]
-        bar  = _bar_chart(lbls, vals, width=R_W, height=min(8+len(lbls)*8, 65)*mm)
-        if bar:
-            right.append(bar)
+        lbls = [r.get('asset_class') or r.get('sector', '') for r in sector_data[:8]]
+        vals = [max(float(r.get('weight_pct', 0)), 0)       for r in sector_data[:8]]
+        bar  = _bar_chart(lbls, vals, width=R_W, height=min(8 + len(lbls)*8, 65)*mm)
+        if bar: right.append(bar)
     else:
         right.append(Paragraph('No data', s['small']))
 
-    # Wrap each column as single-cell nested Table
     def _col(items, w):
         t = Table([[it] for it in items], colWidths=[w])
-        t.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
-            ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),1)]))
+        t.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),0),
+            ('RIGHTPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0),
+            ('BOTTOMPADDING',(0,0),(-1,-1),1)]))
         return t
 
-    left_items  = [Paragraph('Fund Details', s['h3']),
-                   HRFlowable(width='100%', thickness=0.6, color=BLUE, spaceAfter=3), fd_t]
+    left_items = [Paragraph('Fund Details', s['h3']),
+                  HRFlowable(width='100%', thickness=0.6, color=BLUE, spaceAfter=3), fd_t]
     two_col = Table([[_col(left_items, L_W), Spacer(4*mm,1), _col(right, R_W)]],
                     colWidths=[L_W, 4*mm, R_W])
     two_col.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),
-        ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
-        ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
+        ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
+        ('TOPPADDING',(0,0),(-1,-1),0),  ('BOTTOMPADDING',(0,0),(-1,-1),0)]))
     story.append(two_col)
-    story.append(Spacer(1,4*mm))
+    story.append(Spacer(1, 4*mm))
 
-    # Investment Strategy
+    # ── Investment Strategy ───────────────────────────────────
     story += _sec(s, 'Investment Strategy')
-    _bullet = ParagraphStyle('_bul', parent=s['body'], leftIndent=10*mm,
-                             bulletIndent=3*mm, spaceAfter=1, leading=13)
-    for pt in [
-        '<b>Equities:</b> Minimum 60% and maximum 98% of NAV. The fund targets high-growth '
-        'listed equities on Bursa Malaysia and international markets with strong fundamentals.',
-        '<b>Fixed-Income Securities:</b> Minimum 2% and maximum 40% of NAV. Allocated to '
-        'money market instruments and bonds to provide liquidity and capital preservation.',
-        '<b>Derivatives:</b> Maximum 5% of NAV. Used selectively for hedging and to '
-        'manage downside risk, not for speculative purposes.',
-        '<b>Risk Management:</b> Each investment must have a clear thesis, defined risk '
-        'parameters, and an exit plan. Positions are reviewed quarterly.',
-    ]:
-        story.append(Paragraph(f'• {pt}', _bullet))
-    story.append(Spacer(1,3*mm))
+    story.append(Paragraph(
+        'The fund maintains a strategic asset allocation with equities comprising '
+        'a minimum of 60% and a maximum of 98% of NAV, targeting high-growth listed equities '
+        'on Bursa Malaysia and international markets with strong fundamentals. '
+        'Fixed-income securities and money market instruments are allocated between 2% and 40% '
+        'of NAV to provide liquidity and capital preservation. Derivatives are limited to a '
+        'maximum of 5% of NAV and are used selectively for hedging purposes only. '
+        'Each investment position is supported by a clear investment thesis, defined risk '
+        'parameters, and a predetermined exit strategy, with all positions reviewed regularly.',
+        _justify))
+    story.append(Spacer(1, 4*mm))
 
-    # NTA chart
+    # ── Manager's Comments ────────────────────────────────────
+    story += _sec(s, "Manager's Comments")
+    story.append(Paragraph(manager_comment or
+        'Our portfolio maintains its current strategic positions. We continue to monitor '
+        'market developments and macroeconomic conditions closely.', _justify))
+    story.append(Spacer(1, 3*mm))
+
+    # ── PAGE 2: Portfolio Performance Analysis ────────────────
+    story.append(PageBreak())
+
     if nta_history:
         story += _sec(s, 'Portfolio Performance Analysis')
         dates, ntas = [], []
         for r in nta_history:
             try:
-                dt = datetime.fromisoformat(str(r.get('date','')))
-                dates.append(dt.strftime('%b-%y')); ntas.append(float(r.get('nta',1)))
+                dt = datetime.fromisoformat(str(r.get('date', '')))
+                dates.append(dt.strftime('%m/%y'))   # "12/21" format
+                ntas.append(float(r.get('nta', 1)))
             except: pass
         if ntas:
-            ch = _nta_chart(dates, ntas, width=CW, height=58*mm)
-            if ch: story.append(ch); story.append(Spacer(1,2*mm))
-        perf = performance.get('period_returns',{})
+            ch = _nta_chart(dates, ntas, width=CW, height=65*mm)
+            if ch: story.append(ch); story.append(Spacer(1, 2*mm))
+        perf = performance.get('period_returns', {})
+        total_ret = performance.get('total_return_pct',
+                    fund_data.get('total_return_pct', 0))
+        c1 = 28*mm; cn = round((CW - c1) / 6)
         story.append(_dtbl(s,
-            headers=['','1M','3M','6M','1Y','3Y','All'],
-            rows=[['Portfolio']+[fp(perf.get(k)) for k in ['1M','3M','6M','1Y','3Y']]
-                  +[fp(fund_data.get('total_return_pct',0))]],
-            col_w=[28*mm,23*mm,26*mm,26*mm,26*mm,26*mm,22*mm]))  # sum=177? Let me recalc
-        story.append(Spacer(1,3*mm))
+            headers=['', '1M', '3M', '6M', '1Y', '3Y', 'All'],
+            rows=[['Portfolio'] + [fp(perf.get(k)) for k in ['1M','3M','6M','1Y','3Y']]
+                  + [fp(total_ret)]],
+            col_w=[c1, cn, cn, cn, cn, cn, CW - c1 - cn*5]))
+        story.append(Spacer(1, 4*mm))
 
-    # Distribution History
+    # ── Distribution History ──────────────────────────────────
     if distributions:
         story += _sec(s, 'Distribution History')
         story.append(_dtbl(s,
-            headers=['Year','Description','DPS (sen)','Payout Ratio'],
-            rows=[[d.get('financial_year','—'), d.get('title','—'),
-                   fn(d.get('dps_sen'),2)+' sen',
+            headers=['Year', 'Description', 'DPS (sen)', 'Payout Ratio'],
+            rows=[[d.get('financial_year', '—'), d.get('title', '—'),
+                   fn(d.get('dps_sen'), 2) + ' sen',
                    f"{float(d['payout_ratio']):.1f}%" if d.get('payout_ratio') else '—']
                   for d in distributions],
-            col_w=[20*mm, 107*mm, 30*mm, 28*mm]))  # 20+107+30+28=185? fix below
-        story.append(Spacer(1,3*mm))
+            col_w=[20*mm, CW - 78*mm, 30*mm, 28*mm]))
+        story.append(Spacer(1, 4*mm))
 
-    # Manager's Comments
-    story += _sec(s, "Manager's Comments")
-    _justify = ParagraphStyle('_jus', parent=s['body'],
-        alignment=TA_JUSTIFY, leading=14, spaceAfter=4)
-    story.append(Paragraph(manager_comment or
-        'Our portfolio maintains its current strategic positions. We continue to monitor '
-        'market developments and macroeconomic conditions closely.', _justify))
-    story.append(Spacer(1,3*mm))
-
-    # Largest Holdings
+    # ── Largest Holdings ──────────────────────────────────────
     if holdings:
         story += _sec(s, 'Largest Holdings*')
         story.append(_dtbl(s,
-            headers=['Asset Name','Percentage'],
-            rows=[[h.get('instrument','—'), f"{float(h.get('weight_pct',0)):.2f}%"]
+            headers=['Asset Name', 'Percentage'],
+            rows=[[h.get('instrument', '—'), f"{float(h.get('weight_pct', 0)):.2f}%"]
                   for h in holdings[:10]],
-            col_w=[CW-30*mm, 30*mm]))
-        story.append(Paragraph('* As percentage of Net Asset Value (NAV) of the fund', s['tiny']))
-        story.append(Spacer(1,2*mm))
+            col_w=[CW - 30*mm, 30*mm]))
+        story.append(Paragraph(
+            '* As percentage of Net Asset Value (NAV) of the fund', s['tiny']))
+        story.append(Spacer(1, 3*mm))
 
-    # Factsheet disclaimer (inline — no footer zone for factsheet)
+    # ── Disclaimer ────────────────────────────────────────────
     story.append(HRFlowable(width=CW, thickness=0.5, color=G5))
-    story.append(Spacer(1,2*mm))
+    story.append(Spacer(1, 2*mm))
     story.append(Paragraph('<b>Disclaimer</b>',
         ParagraphStyle('_d', fontName='Helvetica-Bold', fontSize=8, textColor=G1)))
     story.append(Paragraph(
@@ -764,14 +768,8 @@ def generate_factsheet(fund_data, holdings, performance, distributions,
         'Past performance is not indicative of future results. This update is intended strictly '
         'for family members only and does not constitute a financial prospectus.', s['notice']))
 
-    # Factsheet: title on canvas header (no letter block — no name/address)
-    if as_of_date:
-        from datetime import date as _d
-        _d_obj = as_of_date if hasattr(as_of_date,'strftime') else _d.fromisoformat(str(as_of_date))
-        period = _d_obj.strftime('%d %B %Y')
-    else:
-        period = today.strftime('%d %B %Y')
-    return _build(story, title='MONTHLY FACTSHEET', subtitle=period, name='', addr='', meta_rows=None, extra_top=0)
+    return _build(story, title='MONTHLY FACTSHEET', subtitle=period,
+                  name='', addr='', meta_rows=None, extra_top=0)
 
 
 # ── Personal statement builder ──────────────────────────────────
