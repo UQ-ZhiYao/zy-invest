@@ -534,51 +534,62 @@ def _donut(labels, values, size=(55*mm,55*mm)):
 
 
 def _pie_chart(labels, values, width=55*mm):
-    """Pie chart — perfect circle, centred, legend below."""
+    """Pie chart — perfect circle, centred horizontally, legend below."""
     import matplotlib; matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
     if not values or sum(v for v in values if v > 0) == 0: return None
 
-    colors  = [CC[i % len(CC)] for i in range(len(labels))]
-    DPI     = 192
-    w_in    = width / 72          # exact PDF column width in inches
+    colors = [CC[i % len(CC)] for i in range(len(labels))]
+    DPI    = 192
+
+    # Key insight: render a SQUARE figure for the pie so the circle is never distorted.
+    # Use a fixed square size matching the column width, then add legend separately.
+    w_in   = width / 72           # column width in inches
+
+    # Step 1: draw pie on a square figure → perfect circle guaranteed
+    fig_pie, ax = plt.subplots(figsize=(w_in, w_in), dpi=DPI)
+    fig_pie.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    ax.pie(values, colors=colors, startangle=90,
+           wedgeprops=dict(edgecolor='white', linewidth=1.2),
+           counterclock=False)
+    ax.set_aspect('equal')
+    buf_pie = io.BytesIO()
+    fig_pie.savefig(buf_pie, format='png', transparent=True,
+                    bbox_inches='tight', pad_inches=0.02, dpi=DPI)
+    plt.close(fig_pie); buf_pie.seek(0)
+
+    # Step 2: draw legend on a separate short wide figure
     leg_r   = -(-len(labels) // 2)
-    leg_h   = leg_r * 0.20        # inches per legend row
-    tot_h   = w_in + leg_h        # total figure height
-
-    # TWO subplot rows: pie (square) on top, invisible legend axis below
-    fig = plt.figure(figsize=(w_in, tot_h), dpi=DPI)
-
-    # Pie axes — square, centred, occupies top portion
-    pie_frac = w_in / tot_h       # fraction of figure height for pie
-    ax_pie = fig.add_axes([0.0, leg_h / tot_h, 1.0, pie_frac])
-    ax_pie.set_aspect('equal', anchor='C')
-
-    ax_pie.pie(
-        values,
-        colors=colors,
-        startangle=90,            # 12 o'clock start, standard finance convention
-        wedgeprops=dict(edgecolor='white', linewidth=1.2),
-        counterclock=False,
-    )
-
-    # Legend axes — invisible, just used for placing legend
-    ax_leg = fig.add_axes([0.0, 0.0, 1.0, leg_h / tot_h])
-    ax_leg.axis('off')
+    leg_h   = leg_r * 0.22
+    fig_leg, ax_l = plt.subplots(figsize=(w_in, leg_h), dpi=DPI)
+    fig_leg.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    ax_l.axis('off')
     handles = [Patch(facecolor=colors[i],
                      label=f'{labels[i]}  {values[i]:.1f}%')
                for i in range(len(labels))]
-    ax_leg.legend(handles=handles, loc='center',
-                  ncol=2, fontsize=4.0 * DPI / 72, frameon=False,
-                  handlelength=1.0, handleheight=0.8,
-                  columnspacing=0.8, labelspacing=0.25)
+    ax_l.legend(handles=handles, loc='center', bbox_to_anchor=(0.5, 0.5),
+                ncol=2, fontsize=4.0 * DPI / 72, frameon=False,
+                handlelength=1.0, handleheight=0.8,
+                columnspacing=0.8, labelspacing=0.3)
+    buf_leg = io.BytesIO()
+    fig_leg.savefig(buf_leg, format='png', transparent=True,
+                    bbox_inches='tight', pad_inches=0.02, dpi=DPI)
+    plt.close(fig_leg); buf_leg.seek(0)
 
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', transparent=True,
-                bbox_inches='tight', pad_inches=0.0, dpi=DPI)
-    plt.close(fig); buf.seek(0)
-    return Image(buf, width=width, height=tot_h * 72 * mm / mm)
+    # Combine into a single flowable using a 1-cell table
+    from reportlab.platypus import Table as _T, TableStyle as _TS
+    pie_img = Image(buf_pie, width=width, height=width)
+    leg_img = Image(buf_leg, width=width, height=leg_r * 6*mm)
+    t = _T([[pie_img], [leg_img]], colWidths=[width])
+    t.setStyle(_TS([
+        ('ALIGN',    (0,0), (-1,-1), 'CENTER'),
+        ('TOPPADDING',  (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING',(0,0), (-1,-1), 0),
+        ('LEFTPADDING',  (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+    ]))
+    return t
 
 
 def _bar_chart(labels, values, width, height=60*mm):
