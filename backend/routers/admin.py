@@ -1411,9 +1411,16 @@ async def generate_statement(
     )
 
     stmt_type   = body.get('statement_type')   # factsheet|subscription|dividend|account
-    investor_id = body.get('investor_id')       # None for factsheet
+    _inv_id_raw = body.get('investor_id')       # None for factsheet
     fin_year    = body.get('financial_year', '')
     period      = body.get('period', '')
+
+    # Convert investor_id to uuid.UUID so asyncpg binds it correctly
+    import uuid as _uuid_mod
+    try:
+        investor_id = _uuid_mod.UUID(str(_inv_id_raw)) if _inv_id_raw else None
+    except (ValueError, AttributeError):
+        raise HTTPException(400, f"Invalid investor_id format: {_inv_id_raw}")
 
     try:
         pdf_bytes = None
@@ -1486,7 +1493,7 @@ async def generate_statement(
             if selected_date:
                 target = await db.fetchrow("""
                     SELECT * FROM principal_cashflows
-                    WHERE investor_id=$1::uuid AND amount>0 AND date=$2::date
+                    WHERE investor_id=$1 AND amount>0 AND date=$2::date
                     ORDER BY created_at DESC LIMIT 1
                 """, investor_id, selected_date)
             else:
@@ -1497,7 +1504,7 @@ async def generate_statement(
             if not target: raise HTTPException(404, "No subscription record found")
             prior_cfs = await db.fetch("""
                 SELECT * FROM principal_cashflows
-                WHERE investor_id=$1::uuid
+                WHERE investor_id=$1
                   AND (date < $2 OR (date = $2 AND created_at < $3))
                 ORDER BY date ASC
             """, investor_id, target['date'], target['created_at'])
@@ -1532,7 +1539,7 @@ async def generate_statement(
             if selected_date:
                 target = await db.fetchrow("""
                     SELECT * FROM principal_cashflows
-                    WHERE investor_id=$1::uuid AND amount<0 AND date=$2::date
+                    WHERE investor_id=$1 AND amount<0 AND date=$2::date
                     ORDER BY created_at DESC LIMIT 1
                 """, investor_id, selected_date)
             else:
@@ -1543,13 +1550,13 @@ async def generate_statement(
             if not target: raise HTTPException(404, "No redemption record found")
             prior_cfs = await db.fetch("""
                 SELECT * FROM principal_cashflows
-                WHERE investor_id=$1::uuid
+                WHERE investor_id=$1
                   AND (date < $2 OR (date = $2 AND created_at < $3))
                 ORDER BY date ASC
             """, investor_id, target['date'], target['created_at'])
             red_rec = await db.fetchrow("""
                 SELECT * FROM redemption_ledger
-                WHERE cashflow_id=$1::uuid ORDER BY created_at DESC LIMIT 1
+                WHERE cashflow_id=$1 ORDER BY created_at DESC LIMIT 1
             """, target['id'])
             cf_rec = dict(target)
             cf_rec['prior_cashflows'] = [dict(c) for c in (prior_cfs or [])]
@@ -1625,7 +1632,7 @@ async def generate_statement(
             redemption_pl = await db.fetchval("""
                 SELECT COALESCE(SUM(realized_pl), 0)
                 FROM redemption_ledger
-                WHERE investor_id = $1::uuid
+                WHERE investor_id = $1
             """, investor_id)
             summary = dict(summary)
             summary['realized_pl'] = float(redemption_pl or 0)
@@ -1792,7 +1799,7 @@ async def generate_fy_statements(
         for fy_label, fy_start, fy_end in fy_ranges:
             # Skip if already generated
             existing = await db.fetchval("""
-                SELECT id FROM documents WHERE investor_id=$1::uuid AND financial_year=$2
+                SELECT id FROM documents WHERE investor_id=$1 AND financial_year=$2
                 AND doc_type='member_statement' AND title LIKE '%Account Statement%'
             """, inv_id, fy_label)
             if existing: continue
