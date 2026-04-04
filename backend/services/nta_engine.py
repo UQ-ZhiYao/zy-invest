@@ -1,40 +1,9 @@
 """
-NTA + Holdings Engine  v9.0  —  written against LIVE schema after migration 14.
-
-Schema facts used:
-  transactions:        date, instrument, units(+buy/-sell), price, net_amount, asset_class, is_computed
-  principal_cashflows: date, units, amount, is_computed
-  dividends:           ex_date, pmt_date, amount, is_computed
-  others:              record_date, amount, is_computed
-  fee_withdrawals:     date, fee_type, amount, is_computed
-  distributions:       pmt_date, total_dividend, is_computed
-  holdings:            instrument, asset_class, units, vwap, total_costs, last_price (no investor_id)
-  historical:          date, securities, cash, mng_fees, perf_fees, total_units, nta, is_locked
-  price_history:       instrument, date, price
-  ticker_map:          instrument, asset_class
-  fund_settings:       total_units, current_nta, aum
-  investors:           units, is_active
-
-Flow:
-  Step 1  Find earliest is_computed=FALSE across all 6 tables → date a
-  Step 2  c = min(a-1 , last_historical_date b)
-  Step 3  Load base state from historical[c]: cash, receivables, fee accruals, prev_nta
-  Step 4  Reconstruct positions as-of c by replaying ALL transactions <= c (VWAP)
-  Step 5  Load ALL input data for range [c+1 .. today] into memory  (bulk queries)
-  Step 6  Loop d = c+1 → today  (pure Python, 2 DB writes per day):
-            a) Apply trades on d  →  update positions + cash
-            b) Cash movements on d  (+subscriptions +div_pmt +others -fee_w -distributions)
-            c) Receivables  (+ex_date, -pmt_date)
-            d) Value positions using price_history
-            e) Compute balance sheet
-            f) Write historical row  (ONE write per day)
-  Step 7  Save holdings snapshot
-  Step 8  Mark all 6 input tables is_computed=TRUE
+NTA Engine v10  —  clean rebuild
 """
 from datetime import date, timedelta
 from decimal import Decimal, getcontext, ROUND_HALF_UP
 from collections import defaultdict
-from typing import Dict, List, Optional
 import logging, traceback
 
 logger = logging.getLogger(__name__)
@@ -48,36 +17,95 @@ def r6(v):
     return float(D(v).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP))
 
 
-# ── Job progress ──────────────────────────────────────────────
+# ── Fetch price from yahooquery for a specific date ───────────
+def _fetch_price_sync(ticker: str, for_date: date) -> float:
+    """
+    Get closing price for ticker on for_date.
+    If no trading on that date, yahooquery returns last available close.
+    """
+    try:
+        from yahooquery import Ticker
+        t = Ticker(ticker, timeout=15)
+        # Request history up to for_date + 5 days buffer, take last close <= for_date
+        end = for_date + timedelta(days=5)
+        hist = t.history(start=str(for_date - timedelta(days=7)), end=str(end))
+        if hist is None or (hasattr(hist, 'empty') and hist.empty):
+            return 0.0
+        import pandas as pd
+        if isinstance(hist, pd.DataFrame):
+            hist = hist.reset_index()
+            # Filter rows where date <= for_date
+            date_col = 'date' if 'date' in hist.columns else hist.columns[0]
+            hist[date_col] = pd.to_datetime(hist[date_col]).dt.date
+            hist = hist[hist[date_col] <= for_date]
+            if hist.empty:
+                return 0.0
+            return float(hist['close'].iloc[-1])
+        return 0.0
+    except Exception as e:
+        logger.warning(f"yahooquery {ticker} {for_date}: {e}")
+        return 0.0
+
+
+async def _get_price(db, instrument: str, for_date: date, ticker_map: dict) -> Decimal:
+    """Get price: yahooquery if ticker exists, else price_history fallback."""
+    import asyncio
+    ticker = ticker_map.get(instrument, {}).get('yahoo_ticker')
+    if ticker:
+        loop = asyncio.get_event_loop()
+        price = await loop.run_in_executor(None, _fetch_price_sync, ticker, for_date)
+        if price > 0:
+            # Save to price_history for record
+            try:
+                await db.execute("""
+                    INSERT INTO price_history (instrument, date, price, source)
+                    VALUES ($1,$2,$3,'yahoo')
+                    ON CONFLICT (instrument, date) DO UPDATE SET price=EXCLUDED.price
+                """, instrument, for_date, price)
+            except Exception:
+                pass
+            return D(str(price))
+    # Fallback: latest from price_history
+    row = await db.fetchrow("""
+        SELECT price FROM price_history
+        WHERE instrument=$1 AND date<=$2
+        ORDER BY date DESC LIMIT 1
+    """, instrument, for_date)
+    return D(row['price']) if row else D(0)
+
+
+# ── Job status ────────────────────────────────────────────────
 async def _job(db, status, from_d=None, to_d=None, proc=None, comp=0, err=0, msg=''):
     try:
         await db.execute("""
             INSERT INTO compute_job
-              (id,status,started_at,finished_at,from_date,to_date,
-               processing_date,computed,errors,message,updated_at)
+                (id,status,started_at,finished_at,from_date,to_date,
+                 processing_date,computed,errors,message,updated_at)
             VALUES (1,$1,
-              CASE WHEN $1='running' THEN NOW() ELSE (SELECT started_at FROM compute_job WHERE id=1) END,
-              CASE WHEN $1 IN ('done','error') THEN NOW() ELSE NULL END,
-              $2,$3,$4,$5,$6,$7,NOW())
+                CASE WHEN $1='running' THEN NOW()
+                     ELSE (SELECT started_at FROM compute_job WHERE id=1) END,
+                CASE WHEN $1 IN ('done','error') THEN NOW() ELSE NULL END,
+                $2,$3,$4,$5,$6,$7,NOW())
             ON CONFLICT (id) DO UPDATE SET
-              status=$1,
-              started_at=CASE WHEN $1='running' THEN NOW() ELSE compute_job.started_at END,
-              finished_at=CASE WHEN $1 IN ('done','error') THEN NOW() ELSE NULL END,
-              from_date=$2, to_date=$3, processing_date=$4,
-              computed=$5, errors=$6, message=$7, updated_at=NOW()
+                status=$1,
+                started_at=CASE WHEN $1='running' THEN NOW() ELSE compute_job.started_at END,
+                finished_at=CASE WHEN $1 IN ('done','error') THEN NOW() ELSE NULL END,
+                from_date=$2, to_date=$3, processing_date=$4,
+                computed=$5, errors=$6, message=$7, updated_at=NOW()
         """, status, from_d, to_d, proc, comp, err, msg)
     except Exception as e:
-        logger.warning(f"job status write failed: {e}")
+        logger.warning(f"job status: {e}")
 
 
-# ── Portfolio positions ───────────────────────────────────────
+# ── Positions ─────────────────────────────────────────────────
 class Positions:
     def __init__(self):
-        self.data: Dict[str, dict] = {}   # instrument → {units, total_cost, avg_cost, ac}
+        self.data = {}  # instrument → {units, total_cost, avg_cost, ac}
 
     def buy(self, instr, units, net_cost, ac):
         if instr not in self.data:
-            self.data[instr] = {'units': D(0), 'total_cost': D(0), 'avg_cost': D(0), 'ac': ac}
+            self.data[instr] = {'units': D(0), 'total_cost': D(0),
+                                'avg_cost': D(0), 'ac': ac}
         p = self.data[instr]
         p['total_cost'] += net_cost
         p['units']      += units
@@ -85,7 +113,6 @@ class Positions:
         p['ac']          = ac
 
     def sell(self, instr, units_sold):
-        """Returns cost_basis removed."""
         p = self.data.get(instr)
         if not p or p['units'] <= 0:
             return D(0)
@@ -98,22 +125,11 @@ class Positions:
         return cost_basis
 
 
-def _latest_price(price_map, instr, d):
-    """Return latest price on or before d from sorted list."""
-    lst = price_map.get(instr)
-    if not lst: return D(0)
-    lo, hi, result = 0, len(lst)-1, D(0)
-    while lo <= hi:
-        mid = (lo+hi)//2
-        if lst[mid][0] <= d: result = lst[mid][1]; lo = mid+1
-        else: hi = mid-1
-    return result
-
-
+# ── MAIN ──────────────────────────────────────────────────────
 async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
     today = date.today()
 
-    # ── Step 1: earliest is_computed=FALSE ───────────────────
+    # ── Step 1: Find earliest is_computed=FALSE (date a) ─────
     if force_from:
         a = force_from
     else:
@@ -128,8 +144,7 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
         ]:
             try:
                 row = await db.fetchrow(q)
-                v = row[0] if row else None
-                if v: candidates.append(v)
+                if row and row[0]: candidates.append(row[0])
             except Exception: pass
         a = min(candidates) if candidates else None
 
@@ -147,17 +162,22 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
     if start > today:
         return {"computed": 0, "message": f"Up to date (last: {b})"}
 
-    # ── Step 3: Load base historical row at c ─────────────────
+    # ── Step 3: Load historical[c] as base ───────────────────
     base = await db.fetchrow(
         "SELECT * FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1", c)
     if not base:
         return {"computed": 0, "message": f"No historical row on or before {c}"}
 
     base_date = base['date']
-    logger.info(f"Base: {base_date}  Start: {start} → {today}")
-    await _job(db, 'running', start, today, start, 0, 0, 'Loading...')
+    logger.info(f"Base: {base_date} | Start: {start} → {today}")
+    await _job(db, 'running', start, today, start, 0, 0, 'Building holdings...')
 
-    # ── Step 4: Reconstruct positions as-of base_date ────────
+    # ── Load ticker_map (yahoo_ticker + asset_class) ──────────
+    tm_rows = await db.fetch("SELECT instrument, yahoo_ticker, asset_class FROM ticker_map")
+    ticker_map = {r['instrument']: {'yahoo_ticker': r['yahoo_ticker'],
+                                    'ac': r['asset_class']} for r in tm_rows}
+
+    # ── Step 4: Build holdings as-of base_date from transactions
     pos = Positions()
     all_trades = await db.fetch("""
         SELECT date, instrument, units, net_amount,
@@ -165,19 +185,15 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
         FROM transactions WHERE date <= $1
         ORDER BY date ASC, created_at ASC
     """, base_date)
-    # Asset class from ticker_map (authoritative)
-    tm = await db.fetch("SELECT instrument, asset_class FROM ticker_map")
-    ac_map = {r['instrument']: r['asset_class'] for r in tm}
-
     for t in all_trades:
         units = D(t['units']); instr = t['instrument']
-        ac    = ac_map.get(instr) or t['ac']
+        ac    = ticker_map.get(instr, {}).get('ac') or t['ac']
         if units > 0:
             pos.buy(instr, units, abs(D(t['net_amount'])), ac)
         elif units < 0:
             pos.sell(instr, abs(units))
 
-    # State carried from base historical row
+    # Cash and carried values from historical[base_date]
     cash        = D(base['cash'])
     receivables = D(base['receivables'])
     prev_mng    = D(base['mng_fees'])
@@ -187,90 +203,17 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
     prev_i_lns  = D(base['ints_on_loans'])
     prev_nta    = D(base['nta'])
 
-    # ── Step 5: Bulk-load all input data for [start..today] ──
-    # Transactions
-    loop_trades = await db.fetch("""
-        SELECT date, instrument, units, price, net_amount, is_computed,
-               COALESCE(asset_class,'Securities [H]') AS ac
-        FROM transactions WHERE date >= $1 AND date <= $2
-        ORDER BY date ASC, created_at ASC
-    """, start, today)
-    trade_map = defaultdict(list)
-    for t in loop_trades:
-        trade_map[t['date']].append(dict(t))
+    # Capital cumulative up to base_date
+    cap_row = await db.fetchrow(
+        "SELECT COALESCE(SUM(amount),0) AS n FROM principal_cashflows WHERE date<=$1", base_date)
+    capital = D(cap_row['n'])
 
-    # Principal cashflows
-    cf_rows = await db.fetch("""
-        SELECT date, units, amount FROM principal_cashflows
-        WHERE date >= $1 AND date <= $2
-    """, start, today)
-    cf_cash_map  = defaultdict(Decimal)
-    cf_units_map = defaultdict(Decimal)
-    for r in cf_rows:
-        cf_cash_map[r['date']]  += D(r['amount'])
-        cf_units_map[r['date']] += D(r['units'])
+    # Total units up to base_date
+    tu_row = await db.fetchrow(
+        "SELECT COALESCE(SUM(units),0) AS n FROM principal_cashflows WHERE date<=$1", base_date)
+    last_units = D(tu_row['n']) if tu_row and D(tu_row['n']) > 0 else D(base['total_units'])
 
-    # total_units per day (cumulative from inception)
-    all_cf = await db.fetch(
-        "SELECT date, units FROM principal_cashflows WHERE date <= $1 ORDER BY date ASC", today)
-    cumul_units = D(0); units_timeline = {}
-    for r in all_cf:
-        cumul_units += D(r['units'])
-        units_timeline[r['date']] = cumul_units
-    # Get base total_units (last known before start)
-    base_units = D(base['total_units'])
-    last_units = base_units
-    for d2 in sorted(units_timeline):
-        if d2 <= base_date: last_units = units_timeline[d2]
-
-    # Dividends
-    div_rows = await db.fetch("""
-        SELECT ex_date, pmt_date, amount FROM dividends
-        WHERE (ex_date >= $1 OR pmt_date >= $1) AND
-              (ex_date <= $2 OR pmt_date <= $2)
-    """, start, today)
-    div_ex_map  = defaultdict(Decimal)
-    div_pmt_map = defaultdict(Decimal)
-    for r in div_rows:
-        if r['ex_date']  and start <= r['ex_date']  <= today: div_ex_map[r['ex_date']]   += D(r['amount'])
-        if r['pmt_date'] and start <= r['pmt_date'] <= today: div_pmt_map[r['pmt_date']] += D(r['amount'])
-
-    # Others
-    oth_map = defaultdict(Decimal)
-    try:
-        oth = await db.fetch(
-            "SELECT record_date, amount FROM others WHERE record_date >= $1 AND record_date <= $2",
-            start, today)
-        for r in oth: oth_map[r['record_date']] += D(r['amount'])
-    except Exception: pass
-
-    # Fee withdrawals
-    fw_map = defaultdict(lambda: {'management': D(0), 'performance': D(0)})
-    try:
-        fw = await db.fetch(
-            "SELECT date, fee_type, amount FROM fee_withdrawals WHERE date >= $1 AND date <= $2",
-            start, today)
-        for r in fw: fw_map[r['date']][r['fee_type']] += D(r['amount'])
-    except Exception: pass
-
-    # Distributions
-    dist_map = defaultdict(Decimal)
-    try:
-        dist = await db.fetch(
-            "SELECT pmt_date, total_dividend FROM distributions WHERE pmt_date >= $1 AND pmt_date <= $2",
-            start, today)
-        for r in dist: dist_map[r['pmt_date']] += D(r['total_dividend'] or 0)
-    except Exception: pass
-
-    # Prices — sorted list per instrument for binary search
-    ph = await db.fetch(
-        "SELECT instrument, date, price FROM price_history WHERE date <= $1 ORDER BY instrument, date ASC",
-        today)
-    price_map = defaultdict(list)
-    for r in ph:
-        price_map[r['instrument']].append((r['date'], D(r['price'])))
-
-    # Fee schedules (cached)
+    # Fee schedules
     base_sched = await db.fetchrow("""
         SELECT rate FROM fee_schedules
         WHERE fee_type='base' AND valid_from<=$1 AND (valid_to IS NULL OR valid_to>=$1)
@@ -284,27 +227,24 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
     inc_row = await db.fetchrow("SELECT date FROM historical ORDER BY date ASC LIMIT 1")
     inception_date = inc_row['date'] if inc_row else start
 
-    # Capital cumulative
-    cap_row = await db.fetchrow(
-        "SELECT COALESCE(SUM(amount),0) AS n FROM principal_cashflows WHERE date <= $1", base_date)
-    capital = D(cap_row['n'])
-
-    # ── Step 6: Loop ──────────────────────────────────────────
+    # ── Step 5: Loop d = start → today ───────────────────────
     computed = 0; errors = 0; settlements = []
     current = start
 
     while current <= today:
         try:
-            # total_units on this day
-            if current in units_timeline:
-                last_units = units_timeline[current]
-            total_units = last_units if last_units > 0 else base_units
+            # 5a. Apply trades on d
+            trades_today = await db.fetch("""
+                SELECT instrument, units, price, net_amount, is_computed,
+                       COALESCE(asset_class,'Securities [H]') AS ac
+                FROM transactions WHERE date=$1
+                ORDER BY created_at ASC
+            """, current)
 
-            # 6a. Trades
-            for t in trade_map.get(current, []):
+            for t in trades_today:
                 units  = D(t['units']); net = D(t['net_amount'])
                 instr  = t['instrument']
-                ac     = ac_map.get(instr) or t['ac']
+                ac     = ticker_map.get(instr, {}).get('ac') or t['ac']
                 if units > 0:
                     pos.buy(instr, units, abs(net), ac)
                     cash -= abs(net)
@@ -317,36 +257,64 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
                         settlements.append((
                             current, instr, ac, float(abs(units)),
                             float(avg_c), float(D(t['price'])),
-                            r2(pl), r6(pl/cost_basis if cost_basis>0 else D(0))
+                            r2(pl),
+                            r6(pl / cost_basis if cost_basis > 0 else D(0))
                         ))
 
-            # 6b. Cash movements
-            cf_amt  = cf_cash_map.get(current, D(0))
-            capital += cf_amt
+            # 5b. Cash movements
+            cf = await db.fetchrow(
+                "SELECT COALESCE(SUM(amount),0) AS n, COALESCE(SUM(units),0) AS u "
+                "FROM principal_cashflows WHERE date=$1", current)
+            cf_amt = D(cf['n']); cf_units = D(cf['u'])
             cash    += cf_amt
-            dp       = div_pmt_map.get(current, D(0))
-            cash    += dp
-            cash    += oth_map.get(current, D(0))
-            fw       = fw_map.get(current, {})
-            mgmt_w   = fw.get('management', D(0))
-            perf_w   = fw.get('performance', D(0))
-            cash    -= mgmt_w + perf_w
-            cash    -= dist_map.get(current, D(0))
+            capital += cf_amt
+            last_units += cf_units
 
-            # 6c. Receivables
-            receivables += div_ex_map.get(current, D(0))
-            receivables -= dp
+            dp = await db.fetchrow(
+                "SELECT COALESCE(SUM(amount),0) AS n FROM dividends WHERE pmt_date=$1", current)
+            cash += D(dp['n'])
+
+            try:
+                ot = await db.fetchrow(
+                    "SELECT COALESCE(SUM(amount),0) AS n FROM others WHERE record_date=$1", current)
+                cash += D(ot['n'])
+            except Exception: pass
+
+            mgmt_w = D(0); perf_w = D(0)
+            try:
+                fw = await db.fetch(
+                    "SELECT fee_type, COALESCE(SUM(amount),0) AS n "
+                    "FROM fee_withdrawals WHERE date=$1 GROUP BY fee_type", current)
+                for row in fw:
+                    if row['fee_type'] == 'management': mgmt_w = D(row['n'])
+                    else:                               perf_w = D(row['n'])
+                cash -= mgmt_w + perf_w
+            except Exception: pass
+
+            try:
+                dist = await db.fetchrow(
+                    "SELECT COALESCE(SUM(total_dividend),0) AS n FROM distributions WHERE pmt_date=$1", current)
+                cash -= D(dist['n'])
+            except Exception: pass
+
+            # 5c. Receivables
+            ex_row = await db.fetchrow(
+                "SELECT COALESCE(SUM(amount),0) AS n FROM dividends WHERE ex_date=$1", current)
+            receivables += D(ex_row['n'])
+            receivables -= D(dp['n'])
             if receivables < 0: receivables = D(0)
 
-            # 6d. Value positions
-            derivatives = securities = reits = bonds = money_market = D(0)
+            # 5d. Get prices from yahooquery for date d, compute market values
+            total_units  = last_units if last_units > 0 else D(base['total_units'])
+            derivatives  = securities = reits = bonds = money_market = D(0)
+
             for instr, p in pos.data.items():
                 if p['units'] < D('0.001'): continue
                 ac = p['ac']
                 if 'Money Market' in ac:
                     money_market += p['total_cost']
                 else:
-                    price = _latest_price(price_map, instr, current)
+                    price = await _get_price(db, instr, current, ticker_map)
                     val   = p['units'] * price
                     if   'Derivative' in ac or 'Warrant' in ac: derivatives += val
                     elif 'Securities'  in ac:                    securities  += val
@@ -354,9 +322,10 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
                     elif 'Bond'        in ac:                    bonds       += val
                     else:                                        securities  += val
 
-            total_assets = derivatives + securities + reits + bonds + money_market + receivables + cash
+            total_assets = derivatives + securities + reits + bonds + \
+                           money_market + receivables + cash
 
-            # 6e. Fees
+            # 5e. Liabilities
             gross_nta    = total_assets / total_units if total_units > 0 else D(0)
             daily_return = float(gross_nta / prev_nta) - 1 if prev_nta > 0 else 0.0
 
@@ -375,12 +344,12 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
             acc_perf  = max(D(0), prev_perf + perf_fee - perf_w)
             total_liab = acc_mng + acc_perf + prev_i_fees + prev_loans + prev_i_lns
 
-            # 6f. Balance sheet
+            # 5f. NTA
             nav      = total_assets - total_liab
             earnings = nav - capital
             net_nta  = nav / total_units if total_units > 0 else D(0)
 
-            # Write historical (ONE write per day)
+            # 5g. Write historical
             await db.execute("""
                 INSERT INTO historical (
                     date, derivatives, securities, reits, bonds, money_market,
@@ -405,7 +374,6 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
                 r2(prev_loans), r2(prev_i_lns),
                 r2(capital), r2(earnings), float(total_units), r6(net_nta))
 
-            # Update fund_settings once per day
             await db.execute("""
                 UPDATE fund_settings SET current_nta=$1, aum=$2, last_nta_date=$3, updated_at=NOW()
                 WHERE id=1
@@ -420,17 +388,16 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
             logger.error(f"  ✗ {current}: {e}\n{traceback.format_exc()}")
             errors += 1
 
-        if computed % 10 == 0:
-            await _job(db, 'running', start, today, current, computed, errors,
-                      f"Computing {current} — {computed} done")
+        await _job(db, 'running', start, today, current, computed, errors,
+                   f"{current} — {computed} done")
         current += timedelta(days=1)
 
-    # ── Step 7: Save holdings ────────────────────────────────
+    # ── Step 6: Save holdings snapshot ───────────────────────
     try:
         await db.execute("DELETE FROM holdings")
         for instr, p in pos.data.items():
             if p['units'] < D('0.001'): continue
-            price = _latest_price(price_map, instr, today)
+            price = await _get_price(db, instr, today, ticker_map)
             units = float(p['units']); tc = float(p['total_cost']); avg = float(p['avg_cost'])
             mv = units * float(price) if price > 0 else tc
             upl = mv - tc; rp = upl / tc if tc > 0 else 0.0
@@ -444,8 +411,7 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
                     last_price=EXCLUDED.last_price, market_value=EXCLUDED.market_value,
                     unrealized_pl=EXCLUDED.unrealized_pl, return_pct=EXCLUDED.return_pct,
                     updated_at=NOW()
-            """, instr, p['ac'], units, avg, float(p['total_cost']),
-                 float(price), mv, upl, rp, today)
+            """, instr, p['ac'], units, avg, tc, float(price), mv, upl, rp, today)
         # Cash row
         await db.execute("""
             INSERT INTO holdings (instrument, asset_class, units, vwap, total_costs,
@@ -455,20 +421,22 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
                 total_costs=EXCLUDED.total_costs, market_value=EXCLUDED.market_value, updated_at=NOW()
         """, float(cash), today)
     except Exception as e:
-        logger.error(f"Save holdings: {e}")
+        logger.error(f"Save holdings: {e}\n{traceback.format_exc()}")
 
-    # ── Step 8: Write settlements + mark computed ────────────
+    # ── Step 7: Settlements + mark computed ──────────────────
     for s in settlements:
         try:
             await db.execute("""
                 INSERT INTO settlement
-                    (date,instrument,asset_class,units,bought_price,sale_price,profit_loss,return_pct,remark)
+                    (date,instrument,asset_class,units,bought_price,sale_price,
+                     profit_loss,return_pct,remark)
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'system-computed')
             """, *s)
         except Exception as e:
             logger.warning(f"Settlement: {e}")
 
-    for tbl in ['transactions','principal_cashflows','dividends','others','fee_withdrawals','distributions']:
+    for tbl in ['transactions','principal_cashflows','dividends',
+                'others','fee_withdrawals','distributions']:
         try:
             await db.execute(f"UPDATE {tbl} SET is_computed=TRUE")
         except Exception as e:
@@ -476,12 +444,12 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
 
     await _job(db, 'done' if errors==0 else 'error', start, today, today,
                computed, errors, f"Done — {computed} days ({start} → {today})")
-    logger.info(f"Compute done: {computed} OK, {errors} errors")
+    logger.info(f"Done: {computed} OK, {errors} errors")
     return {"computed": computed, "errors": errors,
             "from": str(start), "to": str(today)}
 
 
-# Keep for backward compat
+# Aliases
 async def compute_daily_nta(db, target_date=None):
     return await compute_portfolio_and_nta(db, target_date)
 
