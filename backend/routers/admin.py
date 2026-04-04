@@ -24,7 +24,7 @@ import io
 from database import Database, get_db
 from routers.auth import require_admin
 from services.price_fetcher import run_daily_price_fetch, update_manual_price
-from services.nta_engine import compute_portfolio_and_nta
+from services.nta_engine import compute_daily_nta, compute_nta_range
 
 router = APIRouter()
 
@@ -185,59 +185,31 @@ async def trigger_price_fetch(
 
 # ── NTA Computation ───────────────────────────────────────────
 @router.post("/nta/compute")
-async def trigger_compute(
+async def trigger_nta_compute(
     background_tasks: BackgroundTasks,
     body: dict = None,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db),
 ):
-    """
-    Single compute: finds earliest uncomputed data across all 6 input DBs,
-    rebuilds holdings portfolio + NTA historical forward to today.
-    Runs in background. Pass force_from (YYYY-MM-DD) to override start date.
-    """
+    """Compute NTA from last historical date to today. Runs in background."""
     from datetime import date as date_t
     body = body or {}
     force_from = None
     if body.get("force_from"):
-        try:
-            force_from = date_t.fromisoformat(str(body["force_from"]))
-        except ValueError:
-            raise HTTPException(400, "Invalid force_from date")
+        try: force_from = date_t.fromisoformat(str(body["force_from"]))
+        except: raise HTTPException(400, "Invalid force_from")
 
-    # Quick status check for response label
-    label = "earliest uncomputed date"
-    try:
-        candidates = []
-        for q in [
-            "SELECT MIN(date)        AS d FROM transactions        WHERE is_computed=FALSE",
-            "SELECT MIN(date)        AS d FROM principal_cashflows WHERE is_computed=FALSE",
-            "SELECT MIN(ex_date)     AS d FROM dividends           WHERE is_computed=FALSE",
-            "SELECT MIN(record_date) AS d FROM others              WHERE is_computed=FALSE",
-            "SELECT MIN(date)        AS d FROM fee_withdrawals     WHERE is_computed=FALSE",
-            "SELECT MIN(pmt_date)    AS d FROM distributions       WHERE is_computed=FALSE",
-        ]:
-            try:
-                row = await db.fetchrow(q)
-                if row and row['d']:
-                    candidates.append(row['d'])
-            except Exception:
-                pass
-        if candidates:
-            label = str(min(candidates))
-        else:
-            last = await db.fetchrow("SELECT MAX(date) AS d FROM historical")
-            label = f"gap fill from {last['d']}" if last and last['d'] else "beginning"
-    except Exception:
-        pass
+    last = await db.fetchrow("SELECT MAX(date) AS d FROM historical")
+    from_label = str(force_from or (last["d"] if last and last["d"] else "beginning"))
 
-    background_tasks.add_task(compute_portfolio_and_nta, db, force_from)
+    background_tasks.add_task(compute_nta_range, db, force_from, None)
     return {
-        "message":    "Computation started in background",
-        "from":       str(force_from) if force_from else label,
-        "to":         str(date.today()),
-        "note":       "Rebuilds holdings + NTA from earliest dirty data. Check logs for progress.",
+        "message": "Computation started in background",
+        "from":    from_label,
+        "to":      str(date_t.today()),
     }
+
+
 
 
 @router.get("/nta/uncomputed-status")
@@ -268,6 +240,19 @@ async def get_uncomputed_status(
     return result
 
 
+
+
+@router.get("/nta/job-status")
+async def get_job_status(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db),
+):
+    """Live progress of the background compute job."""
+    try:
+        row = await db.fetchrow("SELECT * FROM compute_job WHERE id=1")
+        return serialise(row) if row else {"status": "idle", "note": "Run migration 15"}
+    except Exception:
+        return {"status": "idle", "note": "compute_job table not yet created"}
 
 
 @router.get("/nta/latest")
@@ -1016,6 +1001,19 @@ async def get_dirty_status(
                 "note": "Run migration 13_compute_status.sql first"}
 
 
+
+
+@router.get("/nta/job-status")
+async def get_job_status(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db),
+):
+    """Live progress of the background compute job."""
+    try:
+        row = await db.fetchrow("SELECT * FROM compute_job WHERE id=1")
+        return serialise(row) if row else {"status": "idle", "note": "Run migration 15"}
+    except Exception:
+        return {"status": "idle", "note": "compute_job table not yet created"}
 
 
 @router.get("/nta/latest")
