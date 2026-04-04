@@ -1296,37 +1296,40 @@ async def compute_holdings_and_settlement(
             pos['ac']             = ac
 
         elif units < D(0):
-            # SELL — net_amount positive = actual proceeds received
+            # SELL — net_amount is positive = actual proceeds (after fees)
             sell_units = abs(units)
-            proceeds   = abs(net_amount)
+            proceeds   = abs(net_amount)           # real cash received
             sale_price = proceeds / sell_units if sell_units > 0 else D(row['price'] or 0)
 
-            if pos['units'] >= sell_units - D('0.001'):
-                avg_cost   = pos['avg_cost']
-                cost_basis = avg_cost * sell_units
-                pl         = proceeds - cost_basis
-                ret_pct    = (pl / cost_basis * 100) if cost_basis > 0 else D(0)
+            # Use whatever is held (cap sell at current position to avoid negatives)
+            actual_sell = min(sell_units, pos['units'])
+            avg_cost    = pos['avg_cost']
+            cost_basis  = avg_cost * actual_sell   # VWAP cost of units sold
+            pl          = proceeds - cost_basis
+            ret_pct     = (pl / cost_basis * 100) if cost_basis > 0 else D(0)
 
-                try:
-                    await db.execute("""
-                        INSERT INTO settlement
-                            (date, asset_class, instrument, units,
-                             bought_price, sale_price, profit_loss, return_pct, remark)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'auto-computed VWAP')
-                    """,
-                        row['date'], ac, instr,
-                        q8(sell_units), q8(avg_cost), q8(sale_price),
-                        q4(pl), q4(ret_pct))
-                    settlement_count += 1
-                except Exception as e:
-                    settlement_errors.append(f"{instr} SELL: {e}")
+            try:
+                await db.execute("""
+                    INSERT INTO settlement
+                        (date, asset_class, instrument, units,
+                         bought_price, sale_price, profit_loss, return_pct, remark)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'auto-computed VWAP')
+                """,
+                    row['date'], ac, instr,
+                    q8(actual_sell), q8(avg_cost), q8(sale_price),
+                    q4(pl), q4(ret_pct))
+                settlement_count += 1
+            except Exception as e:
+                settlement_errors.append(f"{instr} SELL: {e}")
 
-                # Reduce position
-                pos['units']          -= sell_units
-                pos['total_net_cost']  = pos['avg_cost'] * pos['units']
+            # Reduce position — zero it out completely if fully sold
+            pos['units'] -= actual_sell
+            if pos['units'] < D('0.001'):
+                pos['units']          = D(0)
+                pos['total_net_cost'] = D(0)
+                pos['avg_cost']       = D(0)
             else:
-                settlement_errors.append(
-                    f"SELL {instr}: tried {sell_units}, held {pos['units']}")
+                pos['total_net_cost'] = pos['avg_cost'] * pos['units']
 
     # ── 2. Compute cash balance ───────────────────────────────
     # Start from zero and sum all cash sources/sinks up to as_of
