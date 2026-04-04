@@ -26,6 +26,14 @@
           ⚙ Compute <span id="dirty-badge" style="display:none;background:rgba(255,255,255,.3);
           border-radius:10px;padding:1px 7px;margin-left:4px;font-size:0.78rem">0</span>
         </button>
+        <!-- Live progress bar (hidden when idle) -->
+        <div id="compute-progress" style="display:none;align-items:center;gap:10px;
+             background:var(--blue-bg);border:1px solid var(--blue);border-radius:var(--radius-md);
+             padding:6px 14px;font-size:0.82rem;color:var(--blue)">
+          <span id="progress-spinner" style="animation:spin 1s linear infinite;display:inline-block">⟳</span>
+          <span id="progress-text">Computing...</span>
+        </div>
+        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
       </div>
     </header>
     <div class="dash-content">
@@ -117,6 +125,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', async () => {
   loadDirtyStatus();
+  pollJobStatus(); // resume if compute was already running
   initDashboard('admin-dashboard', 'Admin Dashboard');
   await Promise.all([loadFundOverview(), loadPriceStatus(), loadInvestors()]);
 });
@@ -185,39 +194,68 @@ async function triggerPriceFetch() {
   } catch(e) { showToast('Price fetch failed: ' + e.message, 'error'); }
 }
 
+let _pollTimer = null;
+
 async function loadDirtyStatus() {
   try {
     const r = await api.get('/api/admin/nta/uncomputed-status');
     const badge = document.getElementById('dirty-badge');
-    if (badge) {
-      if (r.total_uncomputed > 0) {
-        badge.textContent = r.total_uncomputed + ' dirty';
-        badge.style.display = 'inline';
-        document.getElementById('btn-compute').title =
-          `${r.total_uncomputed} dates need recomputation. Earliest: ${(r.transactions > 0 || r.dividends > 0 || r.fee_withdrawals > 0 ? 'multiple tables' : '') || '?'}`;
-      } else {
-        badge.style.display = 'none';
-        document.getElementById('btn-compute').title = 'All dates up to date';
-      }
+    if (!badge) return;
+    if (r.total_uncomputed > 0) {
+      badge.textContent = r.total_uncomputed + ' uncomputed';
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
     }
   } catch(e) {}
 }
 
-async function triggerCompute(e) {
-  const btn = document.getElementById('btn-compute');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Starting...'; }
+async function pollJobStatus() {
   try {
-    const r = await api.post('/api/admin/nta/compute', {});
-    showToast(`✓ Computing from ${r.from} → ${r.to} in background. Refresh in ~60s.`, 'success');
-  } catch(err) {
-    showToast('Compute failed: ' + err.message, 'error');
-  }
-  if (btn) {
-    btn.disabled = false;
-    btn.innerHTML = '⚙ Compute <span id="dirty-badge" style="display:none;background:rgba(255,255,255,.3);border-radius:10px;padding:1px 7px;margin-left:4px;font-size:0.78rem">0</span>';
-    setTimeout(loadDirtyStatus, 3000);
+    const r = await api.get('/api/admin/nta/job-status');
+    const prog = document.getElementById('compute-progress');
+    const text = document.getElementById('progress-text');
+    const btn  = document.getElementById('btn-compute');
+
+    if (r.status === 'running') {
+      if (prog) prog.style.display = 'flex';
+      if (btn)  btn.disabled = true;
+      if (text) {
+        const cur  = r.processing_date ? r.processing_date.slice(0,10) : '...';
+        const from = r.from_date    ? r.from_date.slice(0,10)    : '';
+        const to   = r.to_date      ? r.to_date.slice(0,10)      : '';
+        text.textContent = cur + ' — ' + (r.computed||0) + ' days done (' + from + ' → ' + to + ')';
+      }
+      _pollTimer = setTimeout(pollJobStatus, 2000);
+    } else {
+      if (prog) prog.style.display = 'none';
+      if (btn)  btn.disabled = false;
+      if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
+      if (r.status === 'done') {
+        showToast('✓ ' + (r.message || 'Compute complete'), 'success');
+        await loadFundOverview();
+        await loadDirtyStatus();
+      } else if (r.status === 'error') {
+        showToast('⚠ ' + (r.message || 'Compute error'), 'error');
+      }
+    }
+  } catch(e) {
+    if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
   }
 }
+
+async function triggerCompute(e) {
+  const btn = document.getElementById('btn-compute');
+  if (btn) btn.disabled = true;
+  try {
+    await api.post('/api/admin/nta/compute', {});
+    setTimeout(pollJobStatus, 1000);
+  } catch(err) {
+    showToast('Compute failed: ' + err.message, 'error');
+    if (btn) btn.disabled = false;
+  }
+}
+
 </script>
 </body>
 </html>

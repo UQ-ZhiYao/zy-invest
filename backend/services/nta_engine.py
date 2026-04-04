@@ -35,6 +35,51 @@ import logging
 logger = logging.getLogger(__name__)
 getcontext().prec = 28
 
+
+# ─────────────────────────────────────────────────────────────
+# Job status helpers — write progress to compute_job table
+# ─────────────────────────────────────────────────────────────
+async def _job_start(db, from_date, to_date):
+    try:
+        await db.execute("""
+            INSERT INTO compute_job (id,status,started_at,finished_at,from_date,to_date,
+                                     processing_date,computed,errors,message,updated_at)
+            VALUES (1,'running',NOW(),NULL,$1,$2,NULL,0,0,'Starting...',NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                status='running', started_at=NOW(), finished_at=NULL,
+                from_date=$1, to_date=$2, processing_date=NULL,
+                computed=0, errors=0, message='Starting...', updated_at=NOW()
+        """, from_date, to_date)
+    except Exception:
+        pass
+
+async def _job_progress(db, current, computed, errors):
+    try:
+        await db.execute("""
+            UPDATE compute_job
+            SET processing_date=$1, computed=$2, errors=$3,
+                message=$4, updated_at=NOW()
+            WHERE id=1
+        """, current, computed, errors,
+             f"Computing {current} — {computed} done, {errors} errors")
+    except Exception:
+        pass
+
+async def _job_done(db, computed, errors, from_date, to_date):
+    try:
+        await db.execute("""
+            UPDATE compute_job
+            SET status=$1, finished_at=NOW(), computed=$2, errors=$3,
+                message=$4, updated_at=NOW()
+            WHERE id=1
+        """,
+        'done' if errors == 0 else 'error',
+        computed, errors,
+        f"Done — {computed} days computed ({from_date} → {to_date})"
+        + (f", {errors} errors" if errors else ""))
+    except Exception:
+        pass
+
 def D(v) -> Decimal:
     return Decimal('0') if v is None else Decimal(str(v))
 
@@ -496,6 +541,9 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
     base_date = base_hist['date']
     logger.info(f"Base: {base_date} | Start: {start_date} → {today}")
 
+    # Signal job started
+    await _job_start(db, start_date, today)
+
     # ── Step 3: Reconstruct portfolio state as-of base_date ──
     state = await _build_state_as_of(db, base_date, base_hist)
 
@@ -522,6 +570,8 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
             logger.error(f"  ✗ {current}: {e}\n{traceback.format_exc()}")
             errors += 1
 
+        # Update live progress every day
+        await _job_progress(db, current, computed, errors)
         current += timedelta(days=1)
 
     # ── Step 5: Save holdings snapshot ───────────────────────
@@ -535,6 +585,7 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
     await _mark_all_computed(db)
     logger.info("All input DBs marked is_computed=TRUE")
 
+    await _job_done(db, computed, errors, start_date, today)
     logger.info(f"Compute done: {computed} days OK, {errors} errors")
     return {
         "computed": computed,
