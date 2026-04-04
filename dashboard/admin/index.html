@@ -22,7 +22,7 @@
         <span class="topbar-date" id="topbar-date"></span>
         <button class="btn btn-primary" style="padding:8px 16px;font-size:0.82rem" onclick="triggerPriceFetch()">Fetch Prices</button>
         <button class="btn btn-outline" style="padding:8px 16px;font-size:0.82rem" onclick="triggerNTA()">Compute NTA</button>
-        <button class="btn btn-primary" style="padding:8px 16px;font-size:0.82rem" onclick="triggerNTARange()">⚙ Fill Missing Dates</button>
+        <button class="btn btn-primary" style="padding:8px 16px;font-size:0.82rem" onclick="triggerNTARange(event)">⚙ Fill Missing Dates</button>
       </div>
     </header>
     <div class="dash-content">
@@ -190,17 +190,16 @@ async function triggerNTA() {
   } catch(e) { showToast('NTA compute failed: ' + e.message, 'error'); }
 }
 
-async function triggerNTARange() {
-  const btn = event.target;
-  btn.disabled = true; btn.textContent = '⏳ Computing...';
+async function triggerNTARange(e) {
+  const btn = e ? e.target : document.querySelector('[onclick*="triggerNTARange"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Starting...'; }
   try {
     const r = await api.post('/api/admin/nta/compute-range', {});
-    showToast(`Computed ${r.computed} days from last historical to today`, 'success');
-    setTimeout(() => location.reload(), 1500);
-  } catch(e) {
-    showToast('Range compute failed: ' + e.message, 'error');
+    showToast(`✓ Running in background: ${r.from} → ${r.to}. Refresh in ~30s to see results.`, 'success');
+  } catch(err) {
+    showToast('Failed: ' + err.message, 'error');
   }
-  btn.disabled = false; btn.textContent = '⚙ Fill Missing Dates';
+  if (btn) { btn.disabled = false; btn.textContent = '⚙ Fill Missing Dates'; }
 }
 </script>
 </body>

@@ -69,13 +69,22 @@ async def compute_daily_nta(db, target_date: date = None) -> Optional[dict]:
         return None
 
     # ── Holdings grouped by asset class ─────────────────────────
+    # Get holdings with most recent price on or before target_date
+    # This handles weekends/holidays — uses last known closing price
     holdings = await db.fetch("""
-        SELECT h.instrument, h.units, h.last_price, h.total_costs,
-               COALESCE(tm.asset_class, 'Securities [H]') AS asset_class
+        SELECT h.instrument, h.units, h.total_costs,
+               COALESCE(tm.asset_class, 'Securities [H]') AS asset_class,
+               COALESCE(
+                   (SELECT ph.price FROM price_history ph
+                    WHERE ph.instrument = h.instrument
+                      AND ph.date <= $1
+                    ORDER BY ph.date DESC LIMIT 1),
+                   h.last_price, 0
+               ) AS last_price
         FROM holdings h
         LEFT JOIN ticker_map tm ON tm.instrument = h.instrument
         WHERE h.units > 0
-    """)
+    """, target_date)
 
     derivatives  = 0.0
     securities   = 0.0   # all Securities [H], [M], [L]
@@ -279,7 +288,7 @@ async def compute_daily_nta(db, target_date: date = None) -> Optional[dict]:
 
 
 async def compute_nta_range(db, from_date: date = None, to_date: date = None) -> List[dict]:
-    """Compute NTA for every weekday from from_date to to_date."""
+    """Compute NTA for every calendar day from from_date to to_date."""
     if to_date is None:
         to_date = date.today()
     if from_date is None:
@@ -296,13 +305,13 @@ async def compute_nta_range(db, from_date: date = None, to_date: date = None) ->
     results = []
     current = from_date
     while current <= to_date:
-        if current.weekday() < 5:   # Mon–Fri only
-            try:
-                r = await compute_daily_nta(db, current)
-                if r:
-                    results.append(r)
-            except Exception as e:
-                logger.error(f"  ✗ {current}: {e}")
+        # Compute every calendar day (weekends/holidays use carried-forward prices)
+        try:
+            r = await compute_daily_nta(db, current)
+            if r:
+                results.append(r)
+        except Exception as e:
+            logger.error(f"  ✗ {current}: {e}")
         current += timedelta(days=1)
 
     logger.info(f"Range done: {len(results)} days computed")

@@ -14,7 +14,7 @@ Endpoints included in v1.0.0:
   POST                 /api/admin/nta/compute
   GET                  /api/admin/audit-log
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date
@@ -203,19 +203,21 @@ async def trigger_nta_compute(
 
 @router.post("/nta/compute-range")
 async def trigger_nta_compute_range(
+    background_tasks: BackgroundTasks,
     body: dict = None,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db),
 ):
     """
     Compute NTA for all missing dates from last historical record to today.
-    Optionally pass from_date and to_date to restrict the range.
-    Skips weekends and locked rows automatically.
+    Runs in background — returns immediately with date range info.
+    Check Render logs for per-day results.
     """
     from datetime import date as date_t
     body = body or {}
     from_date = None
-    to_date   = None
+    to_date   = date_t.today()
+
     if body.get("from_date"):
         try:
             from_date = date_t.fromisoformat(str(body["from_date"]))
@@ -226,12 +228,22 @@ async def trigger_nta_compute_range(
             to_date = date_t.fromisoformat(str(body["to_date"]))
         except ValueError:
             raise HTTPException(400, "Invalid to_date")
-    results = await compute_nta_range(db, from_date, to_date)
+
+    # Determine from_date for the response label
+    if not from_date:
+        last = await db.fetchrow("SELECT MAX(date) AS d FROM historical")
+        from_date_label = str(last["d"] + __import__("datetime").timedelta(days=1))                           if last and last["d"] else "beginning"
+    else:
+        from_date_label = str(from_date)
+
+    # Run in background so request returns immediately (avoids 30s Render timeout)
+    background_tasks.add_task(compute_nta_range, db, from_date, to_date)
+
     return {
-        "computed": len(results),
-        "from":     str(from_date or "auto"),
-        "to":       str(to_date   or date_t.today()),
-        "results":  results,
+        "message":  "NTA range computation started in background",
+        "from":     from_date_label,
+        "to":       str(to_date),
+        "computed": "check Render logs for progress",
     }
 
 
