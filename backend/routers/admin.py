@@ -435,24 +435,23 @@ async def get_holdings(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    """Get current holdings including __CASH__ row."""
-    rows = await db.fetch("""
-        SELECT h.instrument, h.asset_class, h.sector, h.region,
-               h.units, h.vwap, h.total_costs,
-               h.last_price, h.market_value, h.unrealized_pl, h.return_pct,
-               h.last_trade_date, h.updated_at,
-               ph.price AS ph_last_price
-        FROM holdings h
-        LEFT JOIN (
-            SELECT DISTINCT ON (instrument) instrument, price
-            FROM price_history
-            ORDER BY instrument, date DESC
-        ) ph ON ph.instrument = h.instrument
-        ORDER BY
-            CASE WHEN h.instrument = '__CASH__' THEN 1 ELSE 0 END ASC,
-            COALESCE(h.units * COALESCE(ph.price, h.last_price), h.total_costs) DESC NULLS LAST
-    """)
-    return [serialise(r) for r in rows]
+    """Get current holdings. Returns empty list if table is empty or not yet computed."""
+    try:
+        rows = await db.fetch("""
+            SELECT instrument, asset_class, sector, region,
+                   units, vwap, total_costs,
+                   last_price, market_value, unrealized_pl, return_pct,
+                   last_trade_date, updated_at
+            FROM holdings
+            ORDER BY
+                CASE WHEN instrument = '__CASH__' THEN 1 ELSE 0 END ASC,
+                COALESCE(market_value, total_costs, 0) DESC NULLS LAST
+        """)
+        return [serialise(r) for r in rows]
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"GET /holdings: {e}")
+        return []
 
 
 
