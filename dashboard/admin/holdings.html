@@ -20,6 +20,10 @@
       </div>
       <div class="topbar-right">
         <span class="topbar-date" id="topbar-date"></span>
+        <input type="date" id="holdings-date" class="form-input"
+          style="padding:8px 12px;font-size:0.82rem;width:160px"
+          title="Compute holdings as of this date (leave blank for latest)">
+        <button class="btn btn-primary" style="padding:8px 16px;font-size:0.82rem" onclick="computeHoldings()">⚙ Compute Holdings</button>
         <button class="btn btn-outline" style="padding:8px 16px;font-size:0.82rem" onclick="refreshPrices()">Refresh Prices</button>
       </div>
     </header>
@@ -202,12 +206,18 @@ function filterHoldings() {
 }
 
 async function computeHoldings() {
+  const dateVal = document.getElementById('holdings-date')?.value;
+  const body    = dateVal ? { as_of: dateVal } : {};
+  const btn     = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Computing...'; }
   try {
-    showToast('Starting compute in background...', 'info');
-    const r = await api.post('/api/admin/nta/compute', {});
-    showToast(`✓ ${r.message} — Refresh in ~60s to see updated holdings.`, 'success');
-    setTimeout(loadHoldings, 5000);
-  } catch(e) { showToast('Compute failed: ' + e.message, 'error'); }
+    const r = await api.post('/api/admin/holdings/compute', body);
+    showToast(`✓ ${r.message} — ${r.positions} positions, ${r.settlement_records} settlements.`, 'success');
+    await loadHoldings();
+  } catch(e) {
+    showToast('Compute failed: ' + e.message, 'error');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '⚙ Compute Holdings'; }
 }
 
 async function refreshPrices() {

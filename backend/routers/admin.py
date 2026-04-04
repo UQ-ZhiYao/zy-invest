@@ -1218,32 +1218,46 @@ async def get_holdings(
 
 @router.post("/holdings/compute")
 async def compute_holdings_and_settlement(
+    body: dict = None,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
     """
-    Recompute all holdings from transactions using VWAP (net amount basis).
-    Uses Python Decimal for exact financial arithmetic — no float rounding errors.
-    - BUY:  VWAP = total_net_cost / total_units  (net_amount includes all fees)
-    - SELL: realised P&L = (sell_net_per_unit - vwap) * units_sold
-    - Saves final positions to holdings table
-    - Writes settlement records for all sells
+    Recompute holdings and settlements from transactions using VWAP.
+    Optionally pass {"as_of": "YYYY-MM-DD"} to compute as of a specific date.
+    Defaults to all transactions (latest state).
     """
     from decimal import Decimal, ROUND_HALF_UP, getcontext
-    getcontext().prec = 28  # 28 significant digits — sufficient for all fund values
+    from datetime import date as date_t
+    getcontext().prec = 28
+
+    body = body or {}
+    as_of = None
+    if body.get('as_of'):
+        try:
+            as_of = date_t.fromisoformat(str(body['as_of']))
+        except ValueError:
+            raise HTTPException(400, f"Invalid as_of date: {body['as_of']}")
 
     def D(val):
-        """Convert any value to Decimal safely."""
-        if val is None:
-            return Decimal('0')
+        if val is None: return Decimal('0')
         return Decimal(str(val))
 
-    rows = await db.fetch("""
-        SELECT id, date, instrument, asset_class, sector, region,
-               units, price, amount, total_fees, net_amount, theme
-        FROM transactions
-        ORDER BY date ASC, created_at ASC
-    """)
+    if as_of:
+        rows = await db.fetch("""
+            SELECT date, instrument, asset_class,
+                   units, price, net_amount
+            FROM transactions
+            WHERE date <= $1
+            ORDER BY date ASC, created_at ASC
+        """, as_of)
+    else:
+        rows = await db.fetch("""
+            SELECT date, instrument, asset_class,
+                   units, price, net_amount
+            FROM transactions
+            ORDER BY date ASC, created_at ASC
+        """)
 
     # positions[instrument] = {units, total_net_cost, avg_cost, ...}
     positions = {}
@@ -1258,17 +1272,13 @@ async def compute_holdings_and_settlement(
         units       = D(row['units'])
         net_amount  = D(row['net_amount'])
         asset_class = row['asset_class'] or 'Securities [H]'
-        sector      = row['sector']
-        region      = row['region'] or 'MY'
 
         if instr not in positions:
             positions[instr] = {
                 'units':          Decimal('0'),
                 'total_net_cost': Decimal('0'),
                 'avg_cost':       Decimal('0'),
-                'asset_class': asset_class,
-                'sector':      sector,
-                'region':      region,
+                'asset_class':    asset_class,
             }
 
         pos = positions[instr]
@@ -1283,8 +1293,6 @@ async def compute_holdings_and_settlement(
             pos['total_net_cost'] = new_total
             pos['units']          = new_units
             pos['asset_class']    = asset_class
-            pos['sector']         = sector
-            pos['region']         = region
 
         else:
             # SELL — net_amount is positive (cash inflow) = exact proceeds including fees
@@ -1302,18 +1310,16 @@ async def compute_holdings_and_settlement(
                 try:
                     await db.execute("""
                         INSERT INTO settlement
-                        (date, region, asset_class, sector, instrument,
-                         units, bought_price, sale_price, cost_basis, proceeds,
+                        (date, asset_class, instrument,
+                         units, bought_price, sale_price,
                          profit_loss, return_pct, remark)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
                     """,
                         row['date'],
-                        region, asset_class, sector, instr,
+                        asset_class, instr,
                         float(sell_units),
                         float(avg_cost.quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
                         float(sell_net_per_unit.quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
-                        float(cost_basis.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
-                        float(proceeds.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
                         float(pl.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
                         float(ret_pct.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
                         'auto-computed VWAP'
@@ -1339,19 +1345,17 @@ async def compute_holdings_and_settlement(
             try:
                 await db.execute("""
                     INSERT INTO holdings
-                    (instrument, asset_class, sector, region,
-                     units, avg_cost, total_cost, last_updated)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+                    (instrument, asset_class, units, vwap, total_costs, updated_at)
+                    VALUES ($1,$2,$3,$4,$5,NOW())
                     ON CONFLICT (instrument) DO UPDATE SET
+                        asset_class=EXCLUDED.asset_class,
                         units=EXCLUDED.units,
-                        avg_cost=EXCLUDED.avg_cost,
-                        total_cost=EXCLUDED.total_cost,
-                        last_updated=NOW()
+                        vwap=EXCLUDED.vwap,
+                        total_costs=EXCLUDED.total_costs,
+                        updated_at=NOW()
                 """,
                     instr,
                     pos['asset_class'],
-                    pos['sector'],
-                    pos['region'],
                     float(pos['units'].quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
                     float(pos['avg_cost'].quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
                     float(total_cost.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
@@ -1361,7 +1365,8 @@ async def compute_holdings_and_settlement(
                 settlement_errors.append(f"Holdings save {instr}: {e}")
 
     return {
-        "message": "Holdings and settlement recomputed",
+        "message": f"Holdings and settlement computed" + (f" as of {as_of}" if as_of else ""),
+        "as_of": str(as_of) if as_of else "latest",
         "positions": holdings_saved,
         "settlement_records": settlement_count,
         "errors": settlement_errors[:5] if settlement_errors else []
