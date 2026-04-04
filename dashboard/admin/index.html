@@ -21,8 +21,11 @@
       <div class="topbar-right">
         <span class="topbar-date" id="topbar-date"></span>
         <button class="btn btn-primary" style="padding:8px 16px;font-size:0.82rem" onclick="triggerPriceFetch()">Fetch Prices</button>
-        <button class="btn btn-outline" style="padding:8px 16px;font-size:0.82rem" onclick="triggerNTA()">Compute NTA</button>
-        <button class="btn btn-primary" style="padding:8px 16px;font-size:0.82rem" onclick="triggerNTARange(event)">⚙ Fill Missing Dates</button>
+        <button class="btn btn-primary" id="btn-compute"
+          style="padding:8px 16px;font-size:0.82rem" onclick="triggerCompute(event)">
+          ⚙ Compute <span id="dirty-badge" style="display:none;background:rgba(255,255,255,.3);
+          border-radius:10px;padding:1px 7px;margin-left:4px;font-size:0.78rem">0</span>
+        </button>
       </div>
     </header>
     <div class="dash-content">
@@ -113,6 +116,7 @@
 <script src="../../assets/js/dashboard.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', async () => {
+  loadDirtyStatus();
   initDashboard('admin-dashboard', 'Admin Dashboard');
   await Promise.all([loadFundOverview(), loadPriceStatus(), loadInvestors()]);
 });
@@ -181,25 +185,38 @@ async function triggerPriceFetch() {
   } catch(e) { showToast('Price fetch failed: ' + e.message, 'error'); }
 }
 
-async function triggerNTA() {
+async function loadDirtyStatus() {
   try {
-    showToast('Computing NTA...', 'info');
-    const r = await api.post('/api/admin/nta/compute', {});
-    showToast(`NTA computed: ${Number(r.net_nta).toFixed(4)}`, 'success');
-    await loadFundOverview();
-  } catch(e) { showToast('NTA compute failed: ' + e.message, 'error'); }
+    const r = await api.get('/api/admin/nta/dirty-status');
+    const badge = document.getElementById('dirty-badge');
+    if (badge) {
+      if (r.dirty_count > 0) {
+        badge.textContent = r.dirty_count + ' dirty';
+        badge.style.display = 'inline';
+        document.getElementById('btn-compute').title =
+          `${r.dirty_count} dates need recomputation. Earliest: ${r.sample_dates?.[0]?.date || '?'}`;
+      } else {
+        badge.style.display = 'none';
+        document.getElementById('btn-compute').title = 'All dates up to date';
+      }
+    }
+  } catch(e) {}
 }
 
-async function triggerNTARange(e) {
-  const btn = e ? e.target : document.querySelector('[onclick*="triggerNTARange"]');
+async function triggerCompute(e) {
+  const btn = document.getElementById('btn-compute');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Starting...'; }
   try {
-    const r = await api.post('/api/admin/nta/compute-range', {});
-    showToast(`✓ Running in background: ${r.from} → ${r.to}. Refresh in ~30s to see results.`, 'success');
+    const r = await api.post('/api/admin/nta/compute', {});
+    showToast(`✓ Computing from ${r.from} → ${r.to} in background. Refresh in ~60s.`, 'success');
   } catch(err) {
-    showToast('Failed: ' + err.message, 'error');
+    showToast('Compute failed: ' + err.message, 'error');
   }
-  if (btn) { btn.disabled = false; btn.textContent = '⚙ Fill Missing Dates'; }
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '⚙ Compute <span id="dirty-badge" style="display:none;background:rgba(255,255,255,.3);border-radius:10px;padding:1px 7px;margin-left:4px;font-size:0.78rem">0</span>';
+    setTimeout(loadDirtyStatus, 3000);
+  }
 }
 </script>
 </body>
