@@ -24,7 +24,7 @@ import io
 from database import Database, get_db
 from routers.auth import require_admin
 from services.price_fetcher import run_daily_price_fetch, update_manual_price
-from services.nta_engine import compute_daily_nta, compute_nta_range
+from services.nta_engine import compute_portfolio_and_nta, compute_nta_range, compute_daily_nta
 
 router = APIRouter()
 
