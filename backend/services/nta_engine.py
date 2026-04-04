@@ -294,10 +294,20 @@ async def _process_day(db, d: date, state: PortfolioState, total_units: Decimal)
     base_fee = total_assets * D(base_sched['rate']) / 365 if base_sched else Decimal('0')
     perf_fee = Decimal('0')
     if perf_sched:
-        hurdle   = float(D(perf_sched['hurdle_rate'] or 0))
-        d_hurdle = (1 + hurdle) ** (1 / 365) - 1
-        excess   = max(0.0, daily_return - d_hurdle)
-        perf_fee = total_assets * D(str(excess)) * D(perf_sched['rate'])
+        hurdle       = float(D(perf_sched['hurdle_rate'] or 0))
+        # Annualised return since inception (inception NTA = 1.0000)
+        # Annualised = current_nta ^ (365 / days_elapsed) - 1
+        inception_row = await db.fetchrow(
+            "SELECT date FROM historical ORDER BY date ASC LIMIT 1")
+        if inception_row:
+            days_elapsed = max(1, (d - inception_row['date']).days)
+            annualised   = float(net_nta) ** (365.0 / days_elapsed) - 1
+        else:
+            annualised   = float(daily_return)
+        if annualised > hurdle:
+            excess_return = annualised - hurdle
+            # Accrue 1/365 of annual excess per day × units × rate
+            perf_fee = total_units * D(str(excess_return / 365)) * D(perf_sched['rate'])
 
     acc_mng    = max(Decimal('0'), state.prev_mng  + base_fee - mgmt_w)
     acc_perf   = max(Decimal('0'), state.prev_perf + perf_fee - perf_w)
@@ -364,6 +374,7 @@ async def _process_day(db, d: date, state: PortfolioState, total_units: Decimal)
 async def _save_holdings(db, state: PortfolioState, as_of: date):
     await db.execute("DELETE FROM holdings")
 
+    # Save each security position
     for instr, pos in state.positions.items():
         if pos['units'] <= Decimal('0.0001'):
             continue
@@ -394,6 +405,21 @@ async def _save_holdings(db, state: PortfolioState, as_of: date):
                 updated_at=NOW()
         """, instr, pos['asset_class'], units, avg, tc,
              float(price), mv, upl, rp, as_of)
+
+    # Save cash balance as a special '__CASH__' row
+    cash_val = float(state.cash)
+    await db.execute("""
+        INSERT INTO holdings
+            (instrument, asset_class, units, vwap, total_costs, total_cost,
+             last_price, market_value, unrealized_pl, return_pct,
+             last_trade_date, updated_at)
+        VALUES ('__CASH__','Cash',1,0,$1,$1,0,$1,0,0,$2,NOW())
+        ON CONFLICT (instrument) DO UPDATE SET
+            total_costs=EXCLUDED.total_costs,
+            total_cost=EXCLUDED.total_cost,
+            market_value=EXCLUDED.market_value,
+            updated_at=NOW()
+    """, cash_val, as_of)
 
 
 # ─────────────────────────────────────────────────────────────

@@ -104,11 +104,13 @@
             </div>
             <div>
               <div style="font-weight:600;margin-bottom:8px;color:var(--orange)">Performance Fee (daily)</div>
-              <code style="background:var(--gray-100);padding:8px 12px;border-radius:var(--radius-md);display:block;font-size:0.82rem">
-                If daily_return &gt; hurdle/365:<br>
-                Perf Fee = AUM × excess × rate%
+              <code style="background:var(--gray-100);padding:8px 12px;border-radius:var(--radius-md);display:block;font-size:0.82rem;line-height:1.7">
+                Annualised = NTA<sup>(365 / days_since_inception)</sup> &minus; 1<br>
+                If Annualised &gt; Hurdle Rate:<br>
+                &nbsp;&nbsp;Excess = Annualised &minus; Hurdle Rate<br>
+                &nbsp;&nbsp;Daily Fee = Units &times; (Excess &divide; 365) &times; Rate
               </code>
-              <p style="margin-top:8px">Only accrues on days the fund outperforms the daily hurdle rate. Zero on underperforming days.</p>
+              <p style="margin-top:8px">Accrues daily only when the fund's annualised return since inception exceeds the hurdle. Inception NTA = 1.0000.</p>
             </div>
           </div>
         </div>
