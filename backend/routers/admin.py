@@ -435,24 +435,24 @@ async def get_holdings(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    """Get current holdings from holdings table. Run /compute first to populate."""
+    """Get current holdings including __CASH__ row."""
     rows = await db.fetch("""
-        SELECT h.*,
-               ph.price as last_price,
-               CASE
-                 WHEN ph.price IS NOT NULL THEN h.units * ph.price
-                 ELSE h.total_cost
-               END as market_value
+        SELECT h.instrument, h.asset_class, h.sector, h.region,
+               h.units, h.vwap, h.total_costs,
+               h.last_price, h.market_value, h.unrealized_pl, h.return_pct,
+               h.last_trade_date, h.updated_at,
+               ph.price AS ph_last_price
         FROM holdings h
         LEFT JOIN (
             SELECT DISTINCT ON (instrument) instrument, price
             FROM price_history
             ORDER BY instrument, date DESC
         ) ph ON ph.instrument = h.instrument
-        WHERE h.units > 0.001
-        ORDER BY COALESCE(h.units * ph.price, h.total_cost) DESC NULLS LAST
+        ORDER BY
+            CASE WHEN h.instrument = '__CASH__' THEN 1 ELSE 0 END ASC,
+            COALESCE(h.units * COALESCE(ph.price, h.last_price), h.total_costs) DESC NULLS LAST
     """)
-    return [dict(r) for r in rows]
+    return [serialise(r) for r in rows]
 
 
 
@@ -1191,29 +1191,6 @@ async def create_transaction(
 
 
 # ── Holdings — computed from transactions (VWAP) ─────────────
-@router.get("/holdings")
-async def get_holdings(
-    admin: dict = Depends(require_admin),
-    db: Database = Depends(get_db)
-):
-    """Get current holdings from holdings table. Run /compute first to populate."""
-    rows = await db.fetch("""
-        SELECT h.*,
-               ph.price as last_price,
-               CASE
-                 WHEN ph.price IS NOT NULL THEN h.units * ph.price
-                 ELSE h.total_cost
-               END as market_value
-        FROM holdings h
-        LEFT JOIN (
-            SELECT DISTINCT ON (instrument) instrument, price
-            FROM price_history
-            ORDER BY instrument, date DESC
-        ) ph ON ph.instrument = h.instrument
-        WHERE h.units > 0.001
-        ORDER BY COALESCE(h.units * ph.price, h.total_cost) DESC NULLS LAST
-    """)
-    return [dict(r) for r in rows]
 
 
 @router.post("/holdings/compute")
