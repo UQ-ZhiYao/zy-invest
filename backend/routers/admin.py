@@ -1223,11 +1223,13 @@ async def compute_holdings_and_settlement(
     db: Database = Depends(get_db)
 ):
     """
-    Recompute holdings + settlements from transactions using VWAP.
-    Optional body: {"as_of": "YYYY-MM-DD"} to compute as of a specific date.
-    Cash balance computed from: transactions + principal_cashflows + others +
-                                dividends(pmt) - distributions(pmt) - fee_withdrawals
-    Last row in holdings is always __CASH__ with the computed cash balance.
+    Recompute holdings + settlements from transactions using VWAP (net_amount basis).
+    BUY:  avg_cost = cumulative abs(net_amount) / cumulative units
+    SELL: sale_price = abs(net_amount) / units_sold
+          cost_basis = avg_cost × units_sold
+          P&L = proceeds - cost_basis
+    Cash = net(transactions) + principal_cashflows + others + dividends(pmt) - distributions - fee_withdrawals
+    Holdings last row = __CASH__
     """
     from decimal import Decimal, ROUND_HALF_UP, getcontext
     from datetime import date as date_t
@@ -1241,35 +1243,35 @@ async def compute_holdings_and_settlement(
         except ValueError:
             raise HTTPException(400, f"Invalid as_of: {body['as_of']}")
 
-    def D(val):
-        if val is None: return Decimal('0')
-        return Decimal(str(val))
+    def D(v):
+        if v is None: return Decimal('0')
+        return Decimal(str(v))
+    def q8(v): return float(D(v).quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP))
+    def q4(v): return float(D(v).quantize(Decimal('0.0001'),     rounding=ROUND_HALF_UP))
+    def q2(v): return float(D(v).quantize(Decimal('0.01'),       rounding=ROUND_HALF_UP))
 
-    def q8(v): return float(v.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP))
-    def q4(v): return float(v.quantize(Decimal('0.0001'),     rounding=ROUND_HALF_UP))
-    def q2(v): return float(v.quantize(Decimal('0.01'),       rounding=ROUND_HALF_UP))
-
-    # ── 1. Replay transactions → VWAP positions ──────────────
+    # ── 1. Load transactions ──────────────────────────────────
     if as_of:
         rows = await db.fetch("""
-            SELECT date, instrument, asset_class,
+            SELECT date, instrument, asset_class, sector, region,
                    units, price, net_amount
             FROM transactions WHERE date <= $1
             ORDER BY date ASC, created_at ASC
         """, as_of)
     else:
         rows = await db.fetch("""
-            SELECT date, instrument, asset_class,
+            SELECT date, instrument, asset_class, sector, region,
                    units, price, net_amount
             FROM transactions
             ORDER BY date ASC, created_at ASC
         """)
 
+    # positions[instr] = {units, total_net_cost, avg_cost, ac, sector, region}
     positions = {}
+    settlements_to_write = []
     settlement_errors = []
-    settlement_count  = 0
 
-    # Clear old auto-computed settlements
+    # Clear old auto-computed records
     await db.execute("DELETE FROM settlement WHERE remark = 'auto-computed VWAP'")
 
     for row in rows:
@@ -1277,52 +1279,46 @@ async def compute_holdings_and_settlement(
         units      = D(row['units'])
         net_amount = D(row['net_amount'])
         ac         = row['asset_class'] or 'Securities [H]'
+        sector     = row['sector'] or ''
+        region     = row['region']  or 'MY'
 
         if instr not in positions:
             positions[instr] = {
-                'units': D(0), 'total_net_cost': D(0),
-                'avg_cost': D(0), 'ac': ac,
+                'units': D(0), 'total_net_cost': D(0), 'avg_cost': D(0),
+                'ac': ac, 'sector': sector, 'region': region,
             }
         pos = positions[instr]
 
         if units > D(0):
-            # BUY — net_amount negative, abs = cash paid out
-            cost       = abs(net_amount)
-            new_units  = pos['units'] + units
-            new_total  = pos['total_net_cost'] + cost
+            # BUY: avg_cost = total abs(net_amount) / total units
+            cost      = abs(net_amount)
+            new_units = pos['units'] + units
+            new_total = pos['total_net_cost'] + cost
             pos['avg_cost']       = new_total / new_units if new_units > 0 else cost / units
             pos['total_net_cost'] = new_total
             pos['units']          = new_units
             pos['ac']             = ac
+            pos['sector']         = sector
+            pos['region']         = region
 
         elif units < D(0):
-            # SELL — net_amount is positive = actual proceeds (after fees)
-            sell_units = abs(units)
-            proceeds   = abs(net_amount)           # real cash received
-            sale_price = proceeds / sell_units if sell_units > 0 else D(row['price'] or 0)
-
-            # Use whatever is held (cap sell at current position to avoid negatives)
+            # SELL: sale_price = abs(net_amount) / units_sold
+            sell_units  = abs(units)
+            proceeds    = abs(net_amount)
+            sale_price  = proceeds / sell_units if sell_units > 0 else D(row['price'] or 0)
             actual_sell = min(sell_units, pos['units'])
             avg_cost    = pos['avg_cost']
-            cost_basis  = avg_cost * actual_sell   # VWAP cost of units sold
+            cost_basis  = avg_cost * actual_sell
             pl          = proceeds - cost_basis
             ret_pct     = (pl / cost_basis * 100) if cost_basis > 0 else D(0)
 
-            try:
-                await db.execute("""
-                    INSERT INTO settlement
-                        (date, asset_class, instrument, units,
-                         bought_price, sale_price, profit_loss, return_pct, remark)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'auto-computed VWAP')
-                """,
-                    row['date'], ac, instr,
-                    q8(actual_sell), q8(avg_cost), q8(sale_price),
-                    q4(pl), q4(ret_pct))
-                settlement_count += 1
-            except Exception as e:
-                settlement_errors.append(f"{instr} SELL: {e}")
+            settlements_to_write.append((
+                row['date'], region, ac, sector, instr,
+                q8(actual_sell), q8(avg_cost), q8(sale_price),
+                q4(pl), q4(ret_pct)
+            ))
 
-            # Reduce position — zero it out completely if fully sold
+            # Reduce position
             pos['units'] -= actual_sell
             if pos['units'] < D('0.001'):
                 pos['units']          = D(0)
@@ -1331,112 +1327,126 @@ async def compute_holdings_and_settlement(
             else:
                 pos['total_net_cost'] = pos['avg_cost'] * pos['units']
 
+    # Write settlements
+    settlement_count = 0
+    for s in settlements_to_write:
+        try:
+            await db.execute("""
+                INSERT INTO settlement
+                    (date, region, asset_class, sector, instrument, units,
+                     bought_price, sale_price, profit_loss, return_pct, remark)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'auto-computed VWAP')
+            """, *s)
+            settlement_count += 1
+        except Exception as e:
+            settlement_errors.append(f"Settlement {s[4]}: {e}")
+
     # ── 2. Compute cash balance ───────────────────────────────
-    # Start from zero and sum all cash sources/sinks up to as_of
     cash = D(0)
 
-    # Transactions: BUY = cash out (net_amount negative), SELL = cash in (net_amount positive)
+    # Transactions net cash
     for row in rows:
-        cash += D(row['net_amount'])   # neg for buy, pos for sell → net is correct
+        cash += D(row['net_amount'])  # neg for BUY, pos for SELL
 
-    # Principal cashflows (subscriptions +, redemptions -)
+    # Principal cashflows
     try:
-        cf_filter = "WHERE date <= $1" if as_of else ""
-        cf_args   = [as_of] if as_of else []
-        cf = await db.fetchrow(
-            f"SELECT COALESCE(SUM(amount),0) AS n FROM principal_cashflows {cf_filter}",
-            *cf_args)
-        cash += D(cf['n'])
+        q = "SELECT COALESCE(SUM(amount),0) AS n FROM principal_cashflows"
+        args = []
+        if as_of: q += " WHERE date <= $1"; args = [as_of]
+        r = await db.fetchrow(q, *args)
+        cash += D(r['n'])
     except Exception as e:
         settlement_errors.append(f"principal_cashflows: {e}")
 
-    # Others income (+) / expense (-)
+    # Others
     try:
-        ot_filter = "WHERE record_date <= $1" if as_of else ""
-        ot_args   = [as_of] if as_of else []
-        ot = await db.fetchrow(
-            f"SELECT COALESCE(SUM(amount),0) AS n FROM others {ot_filter}", *ot_args)
-        cash += D(ot['n'])
+        q = "SELECT COALESCE(SUM(amount),0) AS n FROM others"
+        args = []
+        if as_of: q += " WHERE record_date <= $1"; args = [as_of]
+        r = await db.fetchrow(q, *args)
+        cash += D(r['n'])
     except Exception as e:
         settlement_errors.append(f"others: {e}")
 
-    # Dividends received (pmt_date)
+    # Dividends received (pmt_date not null)
     try:
-        dv_filter = "WHERE pmt_date IS NOT NULL AND pmt_date <= $1" if as_of else "WHERE pmt_date IS NOT NULL"
-        dv_args   = [as_of] if as_of else []
-        dv = await db.fetchrow(
-            f"SELECT COALESCE(SUM(amount),0) AS n FROM dividends {dv_filter}", *dv_args)
-        cash += D(dv['n'])
+        q = "SELECT COALESCE(SUM(amount),0) AS n FROM dividends WHERE pmt_date IS NOT NULL"
+        args = []
+        if as_of: q += " AND pmt_date <= $1"; args = [as_of]
+        r = await db.fetchrow(q, *args)
+        cash += D(r['n'])
     except Exception as e:
         settlement_errors.append(f"dividends: {e}")
 
-    # Distributions paid out (-)
+    # Distributions paid out
     try:
-        di_filter = "WHERE pmt_date <= $1" if as_of else ""
-        di_args   = [as_of] if as_of else []
-        di = await db.fetchrow(
-            f"SELECT COALESCE(SUM(total_dividend),0) AS n FROM distributions {di_filter}",
-            *di_args)
-        cash -= D(di['n'])
+        q = "SELECT COALESCE(SUM(total_dividend),0) AS n FROM distributions"
+        args = []
+        if as_of: q += " WHERE pmt_date <= $1"; args = [as_of]
+        r = await db.fetchrow(q, *args)
+        cash -= D(r['n'])
     except Exception as e:
         settlement_errors.append(f"distributions: {e}")
 
-    # Fee withdrawals (-)
+    # Fee withdrawals
     try:
-        fw_filter = "WHERE date <= $1" if as_of else ""
-        fw_args   = [as_of] if as_of else []
-        fw = await db.fetchrow(
-            f"SELECT COALESCE(SUM(amount),0) AS n FROM fee_withdrawals {fw_filter}", *fw_args)
-        cash -= D(fw['n'])
+        q = "SELECT COALESCE(SUM(amount),0) AS n FROM fee_withdrawals"
+        args = []
+        if as_of: q += " WHERE date <= $1"; args = [as_of]
+        r = await db.fetchrow(q, *args)
+        cash -= D(r['n'])
     except Exception as e:
         settlement_errors.append(f"fee_withdrawals: {e}")
 
-    # ── 3. Save holdings (positions with units > 0) ───────────
+    # ── 3. Save holdings ──────────────────────────────────────
     await db.execute("DELETE FROM holdings")
     holdings_saved = 0
 
     for instr, pos in positions.items():
         if pos['units'] <= D('0.001'):
-            continue   # fully sold or zero — exclude
+            continue
         total_cost = pos['avg_cost'] * pos['units']
         try:
             await db.execute("""
                 INSERT INTO holdings
-                    (instrument, asset_class, units, vwap, total_costs, updated_at)
-                VALUES ($1,$2,$3,$4,$5,NOW())
+                    (instrument, asset_class, sector, region,
+                     units, vwap, total_costs, updated_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
                 ON CONFLICT (instrument) DO UPDATE SET
                     asset_class=EXCLUDED.asset_class,
+                    sector=EXCLUDED.sector,
+                    region=EXCLUDED.region,
                     units=EXCLUDED.units,
                     vwap=EXCLUDED.vwap,
                     total_costs=EXCLUDED.total_costs,
                     updated_at=NOW()
             """,
-                instr, pos['ac'],
+                instr, pos['ac'], pos['sector'], pos['region'],
                 q8(pos['units']), q8(pos['avg_cost']), q4(total_cost))
             holdings_saved += 1
         except Exception as e:
             settlement_errors.append(f"Holdings {instr}: {e}")
 
-    # ── 4. Last row: __CASH__ with computed balance ───────────
+    # ── 4. Cash row (always last) ─────────────────────────────
     try:
         await db.execute("""
             INSERT INTO holdings
-                (instrument, asset_class, units, vwap, total_costs, updated_at)
-            VALUES ('__CASH__', 'Cash', 1, 0, $1, NOW())
+                (instrument, asset_class, sector, region,
+                 units, vwap, total_costs, updated_at)
+            VALUES ('__CASH__','Cash','','MY',1,0,$1,NOW())
             ON CONFLICT (instrument) DO UPDATE SET
-                total_costs=EXCLUDED.total_costs,
-                updated_at=NOW()
+                total_costs=EXCLUDED.total_costs, updated_at=NOW()
         """, q2(cash))
     except Exception as e:
         settlement_errors.append(f"Cash row: {e}")
 
     return {
-        "message":           f"Holdings computed" + (f" as of {as_of}" if as_of else " (latest)"),
-        "as_of":             str(as_of) if as_of else "latest",
-        "positions":         holdings_saved,
-        "cash_balance":      q2(cash),
+        "message":            f"Holdings computed" + (f" as of {as_of}" if as_of else " (latest)"),
+        "as_of":              str(as_of) if as_of else "latest",
+        "positions":          holdings_saved,
+        "cash_balance":       q2(cash),
         "settlement_records": settlement_count,
-        "errors":            settlement_errors[:10] if settlement_errors else [],
+        "errors":             settlement_errors[:10] if settlement_errors else [],
     }
 
 
