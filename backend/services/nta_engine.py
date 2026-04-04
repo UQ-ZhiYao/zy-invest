@@ -341,14 +341,18 @@ async def _process_day(db, d: date, state: PortfolioState, total_units: Decimal)
     if perf_sched:
         hurdle       = float(D(perf_sched['hurdle_rate'] or 0))
         # Annualised return since inception (inception NTA = 1.0000)
-        # Annualised = current_nta ^ (365 / days_elapsed) - 1
-        inception_row = await db.fetchrow(
-            "SELECT date FROM historical ORDER BY date ASC LIMIT 1")
-        if inception_row:
-            days_elapsed = max(1, (d - inception_row['date']).days)
-            annualised   = float(net_nta) ** (365.0 / days_elapsed) - 1
-        else:
-            annualised   = float(daily_return)
+        # Annualised = gross_nta ^ (365 / days_elapsed) - 1
+        # Use gross_nta (pre-fee) as performance basis; inception NTA = 1.0
+        try:
+            inception_row = await db.fetchrow(
+                "SELECT date FROM historical ORDER BY date ASC LIMIT 1")
+            if inception_row and inception_row['date']:
+                days_elapsed = max(1, (d - inception_row['date']).days)
+            else:
+                days_elapsed = 1
+            annualised = float(gross_nta) ** (365.0 / days_elapsed) - 1
+        except Exception:
+            annualised = 0.0
         if annualised > hurdle:
             excess_return = annualised - hurdle
             # Accrue 1/365 of annual excess per day × units × rate

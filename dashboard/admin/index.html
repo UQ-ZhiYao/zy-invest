@@ -222,37 +222,46 @@ async function pollJobStatus() {
       if (btn)  btn.disabled = true;
       if (text) {
         const cur  = r.processing_date ? r.processing_date.slice(0,10) : '...';
-        const from = r.from_date    ? r.from_date.slice(0,10)    : '';
-        const to   = r.to_date      ? r.to_date.slice(0,10)      : '';
+        const from = r.from_date       ? r.from_date.slice(0,10)       : '';
+        const to   = r.to_date         ? r.to_date.slice(0,10)         : '';
         text.textContent = cur + ' — ' + (r.computed||0) + ' days done (' + from + ' → ' + to + ')';
       }
       _pollTimer = setTimeout(pollJobStatus, 2000);
-    } else {
+    } else if (r.status === 'done') {
       if (prog) prog.style.display = 'none';
       if (btn)  btn.disabled = false;
       if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
-      if (r.status === 'done') {
-        showToast('✓ ' + (r.message || 'Compute complete'), 'success');
-        await loadFundOverview();
-        await loadDirtyStatus();
-      } else if (r.status === 'error') {
-        showToast('⚠ ' + (r.message || 'Compute error'), 'error');
-      }
+      showToast('✓ ' + (r.message || 'Compute complete'), 'success');
+      await loadFundOverview();
+      await loadDirtyStatus();
+    } else if (r.status === 'error') {
+      if (prog) prog.style.display = 'none';
+      if (btn)  btn.disabled = false;
+      if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
+      showToast('⚠ ' + (r.message || 'Compute error'), 'error');
     }
+    // idle: page just loaded, compute not running — do nothing
   } catch(e) {
     if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
   }
 }
 
 async function triggerCompute(e) {
-  const btn = document.getElementById('btn-compute');
-  if (btn) btn.disabled = true;
+  const btn  = document.getElementById('btn-compute');
+  const prog = document.getElementById('compute-progress');
+  const text = document.getElementById('progress-text');
+  if (btn)  btn.disabled = true;
+  if (prog) prog.style.display = 'flex';
+  if (text) text.textContent = 'Starting...';
   try {
-    await api.post('/api/admin/nta/compute', {});
-    setTimeout(pollJobStatus, 1000);
+    const r = await api.post('/api/admin/nta/compute', {});
+    if (text) text.textContent = 'Running — checking progress...';
+    // Poll immediately then every 2s
+    pollJobStatus();
   } catch(err) {
     showToast('Compute failed: ' + err.message, 'error');
-    if (btn) btn.disabled = false;
+    if (btn)  btn.disabled = false;
+    if (prog) prog.style.display = 'none';
   }
 }
 
