@@ -122,8 +122,8 @@ async function loadHoldings() {
 }
 
 function renderSummary(data) {
-  const totalValue = data.reduce((s,h) => s + Number(h.market_value || h.total_costss || 0), 0);
-  const totalCost  = data.reduce((s,h) => s + Number(h.total_costss || 0), 0);
+  const totalValue = data.reduce((s,h) => s + Number(h.market_value || h.total_costs || 0), 0);
+  const totalCost  = data.reduce((s,h) => s + Number(h.total_costs || 0), 0);
   const totalUPL   = totalValue - totalCost;
   document.getElementById('m-positions').textContent = data.length;
   document.getElementById('m-value').textContent     = fmtRM(totalValue);
@@ -137,9 +137,9 @@ function renderHoldings(data) {
   const tbody = document.getElementById('holdings-table');
   if (!data.length) { tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--text-muted)">No holdings. Add trades via Trade Transactions page.</td></tr>'; return; }
   tbody.innerHTML = data.map(h => {
-    const isCash = h.instrument === 'CASH';
-    const mv   = Number(h.market_value || h.total_costss || 0);
-    const cost = Number(h.total_costss || 0);
+    const isCash = h.instrument === '__CASH__';
+    const mv   = Number(h.market_value || h.total_costs || 0);
+    const cost = Number(h.total_costs || 0);
     const upl  = isCash ? 0 : mv - cost;
     const ret  = (!isCash && cost > 0) ? (upl / cost) * 100 : 0;
     const rowStyle = '';
@@ -163,7 +163,7 @@ function renderCharts(data) {
   // Group by class
   const byClass = {};
   data.forEach(h => {
-    const mv = Number(h.market_value || h.total_costss || 0);
+    const mv = Number(h.market_value || h.total_costs || 0);
     byClass[h.asset_class] = (byClass[h.asset_class] || 0) + mv;
   });
   const totalMV = Object.values(byClass).reduce((s,v) => s+v, 0);
@@ -186,7 +186,7 @@ function renderCharts(data) {
   // Top holdings
   const sorted = [...data].sort((a,b) => Number(b.market_value||b.total_costs||0) - Number(a.market_value||a.total_costs||0)).slice(0,8);
   document.getElementById('top-holdings').innerHTML = sorted.map(h => {
-    const mv  = Number(h.market_value || h.total_costss || 0);
+    const mv  = Number(h.market_value || h.total_costs || 0);
     const pct = totalMV > 0 ? (mv/totalMV*100).toFixed(1) : 0;
     return `<div style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:4px">
