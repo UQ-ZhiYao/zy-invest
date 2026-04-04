@@ -20,7 +20,6 @@
       </div>
       <div class="topbar-right">
         <span class="topbar-date" id="topbar-date"></span>
-        <button class="btn btn-primary" style="padding:8px 16px;font-size:0.82rem" onclick="computeHoldings()">⚙ Compute Holdings</button>
         <button class="btn btn-outline" style="padding:8px 16px;font-size:0.82rem" onclick="refreshPrices()">Refresh Prices</button>
       </div>
     </header>
@@ -93,7 +92,7 @@
             </tbody>
           </table>
         </div>
-        <div class="panel-footer">Holdings are computed from all buy/sell transactions. VWAP recalculates on every buy. Sells auto-generate settlement records.</div>
+        <div class="panel-footer">Holdings are rebuilt by the Compute function on the Admin Dashboard. Use that to refresh after adding trades.</div>
       </div>
     </div>
   </div>
