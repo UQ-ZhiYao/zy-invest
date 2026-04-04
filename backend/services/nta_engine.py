@@ -152,7 +152,7 @@ async def _process_day(db, d: date, state: PortfolioState, total_units: Decimal)
 
     # ── 4a. Apply trades on d ────────────────────────────────
     trades = await db.fetch("""
-        SELECT id, instrument, units, price, net_amount,
+        SELECT id, instrument, units, price, net_amount, is_computed,
                COALESCE(asset_class, 'Securities [H]') AS asset_class
         FROM transactions WHERE date = $1
         ORDER BY created_at ASC
@@ -183,19 +183,19 @@ async def _process_day(db, d: date, state: PortfolioState, total_units: Decimal)
             sale_price = D(t['price'])
             ret_pct    = pl / cost_basis if cost_basis > 0 else Decimal('0')
 
-            # Write settlement record
-            try:
-                await db.execute("""
-                    INSERT INTO settlement
-                        (date, instrument, asset_class, units,
-                         bought_price, sale_price, profit_loss, return_pct, remark)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'system-computed')
-                    ON CONFLICT DO NOTHING
-                """, d, instr, ac, float(units_sold),
-                     float(avg_cost), float(sale_price),
-                     r2(pl), r6(ret_pct))
-            except Exception as e:
-                logger.warning(f"Settlement write failed {d} {instr}: {e}")
+            # Write settlement only for new (uncomputed) sells
+            if not t['is_computed']:
+                try:
+                    await db.execute("""
+                        INSERT INTO settlement
+                            (date, instrument, asset_class, units,
+                             bought_price, sale_price, profit_loss, return_pct, remark)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'system-computed')
+                    """, d, instr, ac, float(units_sold),
+                         float(avg_cost), float(sale_price),
+                         r2(pl), r6(ret_pct))
+                except Exception as e:
+                    logger.warning(f"Settlement write failed {d} {instr}: {e}")
 
     # ── 4b. Cash movements on d ──────────────────────────────
     # Principal cashflows (subscriptions +, redemptions -)
@@ -470,16 +470,18 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
     last_hist = await db.fetchrow("SELECT MAX(date) AS d FROM historical")
     b = last_hist['d'] if last_hist and last_hist['d'] else None
 
-    if not earliest_uncomputed and b:
-        # No dirty data — fill gap from last historical to today
-        c = b
-    elif earliest_uncomputed and b:
+    # Always fill gap to today regardless of is_computed status
+    # c = whichever is earlier: (a-1) or b
+    if earliest_uncomputed and b:
         a_minus_1 = earliest_uncomputed - timedelta(days=1)
         c = min(a_minus_1, b)
     elif earliest_uncomputed:
         c = earliest_uncomputed - timedelta(days=1)
+    elif b:
+        # No new uncomputed data, but may still have gap between b and today
+        c = b
     else:
-        return {"computed": 0, "message": "No data to compute"}
+        return {"computed": 0, "message": "No historical base data found"}
 
     start_date = c + timedelta(days=1)
     if start_date > today:
