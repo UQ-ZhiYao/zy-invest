@@ -7,15 +7,18 @@ from typing import AsyncGenerator
 
 def serialise(row) -> dict:
     """Convert asyncpg Record to JSON-safe dict.
-    Converts UUID, date, datetime, Decimal to str/float for Pydantic v1 / FastAPI."""
+    Converts UUID, date, datetime, Decimal to str/float for FastAPI."""
+    import decimal
     out = {}
     for k, v in dict(row).items():
         if v is None:
             out[k] = None
-        elif isinstance(v, (uuid.UUID,)):
+        elif isinstance(v, uuid.UUID):
             out[k] = str(v)
         elif isinstance(v, (datetime.datetime, datetime.date)):
             out[k] = v.isoformat()
+        elif isinstance(v, decimal.Decimal):
+            out[k] = float(v)
         else:
             out[k] = v
     return out

@@ -537,20 +537,25 @@ async def compute_holdings_and_settlement(
             p['region']         = region
 
         elif units < D(0):
-            # SELL: proceeds = abs(net_amount). sale_price = proceeds / units_sold
+            # SELL: use net_amount directly — it is the ground truth proceeds
+            # Do NOT round any intermediate value — round only at storage time
             sell_u     = abs(units)
-            proceeds   = abs(net) if net != D(0) else sell_u * price
+            proceeds   = abs(net) if net != D(0) else sell_u * price  # exact proceeds from DB
             sale_price = proceeds / sell_u if sell_u > D(0) else price
             actual_u   = min(sell_u, p['units'])
-            avg_cost   = p['avg_cost']
-            cost_basis = avg_cost * actual_u
-            pl         = proceeds - cost_basis
+            avg_cost   = p['avg_cost']                        # full precision VWAP
+            cost_basis = avg_cost * actual_u                  # full precision cost
+            pl         = proceeds - cost_basis                # P&L = proceeds - cost_basis (exact)
             ret_pct    = (pl / cost_basis * 100) if cost_basis > D(0) else D(0)
 
+            # Store at full precision — round ONLY here for DB storage
             sells_to_settle.append((
                 row['date'], region, ac, sector, instr,
-                q8(actual_u), q8(avg_cost), q8(sale_price),
-                q4(pl), q4(ret_pct)
+                float(actual_u),           # units
+                q8(avg_cost),              # bought_price = VWAP
+                q8(sale_price),            # sale_price = net proceeds per unit
+                q4(pl),                    # profit_loss = proceeds - cost_basis
+                q4(ret_pct)                # return %
             ))
 
             p['units'] -= actual_u
