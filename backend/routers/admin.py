@@ -24,7 +24,7 @@ import io
 from database import Database, get_db
 from routers.auth import require_admin
 from services.price_fetcher import run_daily_price_fetch, update_manual_price
-from services.nta_engine import compute_daily_nta, compute_from_dirty
+from services.nta_engine import compute_portfolio_and_nta
 
 router = APIRouter()
 
@@ -185,13 +185,17 @@ async def trigger_price_fetch(
 
 # ── NTA Computation ───────────────────────────────────────────
 @router.post("/nta/compute")
-async def trigger_nta_compute(
+async def trigger_compute(
     background_tasks: BackgroundTasks,
     body: dict = None,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db),
 ):
-    """Find earliest dirty date and compute forward to today. Runs in background."""
+    """
+    Single compute: finds earliest uncomputed data across all 6 input DBs,
+    rebuilds holdings portfolio + NTA historical forward to today.
+    Runs in background. Pass force_from (YYYY-MM-DD) to override start date.
+    """
     from datetime import date as date_t
     body = body or {}
     force_from = None
@@ -200,42 +204,68 @@ async def trigger_nta_compute(
             force_from = date_t.fromisoformat(str(body["force_from"]))
         except ValueError:
             raise HTTPException(400, "Invalid force_from date")
+
+    # Quick status check for response label
+    label = "earliest uncomputed date"
     try:
-        dirty = await db.fetchrow(
-            "SELECT MIN(date) AS d FROM compute_status WHERE is_dirty = TRUE")
-        from_label = str(dirty["d"]) if dirty and dirty["d"] else "next uncomputed"
+        candidates = []
+        for q in [
+            "SELECT MIN(date)        AS d FROM transactions        WHERE is_computed=FALSE",
+            "SELECT MIN(date)        AS d FROM principal_cashflows WHERE is_computed=FALSE",
+            "SELECT MIN(ex_date)     AS d FROM dividends           WHERE is_computed=FALSE",
+            "SELECT MIN(record_date) AS d FROM others              WHERE is_computed=FALSE",
+            "SELECT MIN(date)        AS d FROM fee_withdrawals     WHERE is_computed=FALSE",
+            "SELECT MIN(pmt_date)    AS d FROM distributions       WHERE is_computed=FALSE",
+        ]:
+            try:
+                row = await db.fetchrow(q)
+                if row and row['d']:
+                    candidates.append(row['d'])
+            except Exception:
+                pass
+        if candidates:
+            label = str(min(candidates))
+        else:
+            last = await db.fetchrow("SELECT MAX(date) AS d FROM historical")
+            label = f"gap fill from {last['d']}" if last and last['d'] else "beginning"
     except Exception:
-        last = await db.fetchrow("SELECT MAX(date) AS d FROM historical")
-        from_label = str(last["d"]) if last and last["d"] else "beginning"
-    background_tasks.add_task(compute_from_dirty, db, force_from)
+        pass
+
+    background_tasks.add_task(compute_portfolio_and_nta, db, force_from)
     return {
-        "message": "Computation started in background",
-        "from":    str(force_from) if force_from else from_label,
-        "to":      str(date_t.today()),
+        "message":    "Computation started in background",
+        "from":       str(force_from) if force_from else label,
+        "to":         str(date.today()),
+        "note":       "Rebuilds holdings + NTA from earliest dirty data. Check logs for progress.",
     }
 
 
-@router.get("/nta/dirty-status")
-async def get_dirty_status(
+@router.get("/nta/uncomputed-status")
+async def get_uncomputed_status(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db),
 ):
-    """Return which dates are dirty and need recomputation."""
-    try:
-        count = await db.fetchval(
-            "SELECT COUNT(*) FROM compute_status WHERE is_dirty = TRUE") or 0
-        sample = await db.fetch("""
-            SELECT date, reason FROM compute_status
-            WHERE is_dirty = TRUE ORDER BY date ASC LIMIT 10
-        """)
-        return {
-            "dirty_count":   int(count),
-            "sample_dates":  [serialise(r) for r in sample],
-            "needs_compute": count > 0,
-        }
-    except Exception:
-        return {"dirty_count": 0, "sample_dates": [], "needs_compute": False,
-                "note": "Run migration 13_compute_status.sql first"}
+    """Show count of uncomputed records per input table."""
+    result = {}
+    checks = [
+        ("transactions",        "SELECT COUNT(*) FROM transactions        WHERE is_computed=FALSE"),
+        ("dividends",           "SELECT COUNT(*) FROM dividends           WHERE is_computed=FALSE"),
+        ("distributions",       "SELECT COUNT(*) FROM distributions       WHERE is_computed=FALSE"),
+        ("others",              "SELECT COUNT(*) FROM others              WHERE is_computed=FALSE"),
+        ("principal_cashflows", "SELECT COUNT(*) FROM principal_cashflows WHERE is_computed=FALSE"),
+        ("fee_withdrawals",     "SELECT COUNT(*) FROM fee_withdrawals     WHERE is_computed=FALSE"),
+    ]
+    total = 0
+    for name, q in checks:
+        try:
+            n = await db.fetchval(q) or 0
+            result[name] = int(n)
+            total += int(n)
+        except Exception:
+            result[name] = "N/A (run migration 14)"
+    result["total_uncomputed"] = total
+    result["needs_compute"]    = total > 0
+    return result
 
 
 
@@ -439,174 +469,6 @@ async def get_holdings(
     """)
     return [dict(r) for r in rows]
 
-
-@router.post("/holdings/compute")
-async def compute_holdings_and_settlement(
-    admin: dict = Depends(require_admin),
-    db: Database = Depends(get_db)
-):
-    """
-    Recompute all holdings from transactions using VWAP (net amount basis).
-    Uses Python Decimal for exact financial arithmetic — no float rounding errors.
-    - BUY:  VWAP = total_net_cost / total_units  (net_amount includes all fees)
-    - SELL: realised P&L = (sell_net_per_unit - vwap) * units_sold
-    - Saves final positions to holdings table
-    - Writes settlement records for all sells
-    """
-    from decimal import Decimal, ROUND_HALF_UP, getcontext
-    getcontext().prec = 28  # 28 significant digits — sufficient for all fund values
-
-    def D(val):
-        """Convert any value to Decimal safely."""
-        if val is None:
-            return Decimal('0')
-        return Decimal(str(val))
-
-    rows = await db.fetch("""
-        SELECT id, date, instrument, asset_class, sector, region,
-               units, price, amount, total_fees, net_amount, theme
-        FROM transactions
-        ORDER BY date ASC, created_at ASC
-    """)
-
-    # positions[instrument] = {units, total_net_cost, avg_cost, ...}
-    positions = {}
-    settlement_count = 0
-    settlement_errors = []
-
-    # Clear existing auto-computed settlement records
-    await db.execute("DELETE FROM settlement WHERE remark = 'auto-computed VWAP'")
-
-    for row in rows:
-        instr       = row['instrument']
-        units       = D(row['units'])
-        net_amount  = D(row['net_amount'])
-        asset_class = row['asset_class'] or 'Securities [H]'
-        sector      = row['sector']
-        region      = row['region'] or 'MY'
-
-        if instr not in positions:
-            positions[instr] = {
-                'units':          Decimal('0'),
-                'total_net_cost': Decimal('0'),
-                'avg_cost':       Decimal('0'),
-                'asset_class': asset_class,
-                'sector':      sector,
-                'region':      region,
-            }
-
-        pos = positions[instr]
-
-        if units > 0:
-            # BUY — net_amount is negative (cash outflow), abs() = actual cost paid
-            buy_net_cost  = abs(net_amount)
-            new_units     = pos['units'] + units
-            new_total     = pos['total_net_cost'] + buy_net_cost
-            # VWAP = cumulative net cost / cumulative units
-            pos['avg_cost']       = new_total / new_units if new_units > 0 else buy_net_cost / units
-            pos['total_net_cost'] = new_total
-            pos['units']          = new_units
-            pos['asset_class']    = asset_class
-            pos['sector']         = sector
-            pos['region']         = region
-
-        else:
-            # SELL — net_amount is positive (cash inflow) = exact proceeds including fees
-            # We ALWAYS use net_amount directly — never units × price
-            sell_units = abs(units)
-            proceeds   = abs(net_amount)  # ground truth from transaction record
-            sell_net_per_unit = proceeds / sell_units if sell_units > 0 else D(row['price'] or 0)
-
-            if pos['units'] >= sell_units - Decimal('0.001'):  # tolerance for tiny residuals
-                avg_cost   = pos['avg_cost']
-                cost_basis = avg_cost * sell_units  # VWAP cost of units being sold
-                pl         = proceeds - cost_basis  # ALWAYS net proceeds - cost basis
-                ret_pct    = (pl / cost_basis * 100) if cost_basis > 0 else Decimal('0')
-
-                try:
-                    await db.execute("""
-                        INSERT INTO settlement
-                        (date, region, asset_class, sector, instrument,
-                         units, bought_price, sale_price, cost_basis, proceeds,
-                         profit_loss, return_pct, remark)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-                    """,
-                        row['date'],
-                        region, asset_class, sector, instr,
-                        float(sell_units),
-                        float(avg_cost.quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
-                        float(sell_net_per_unit.quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
-                        float(cost_basis.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
-                        float(proceeds.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
-                        float(pl.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
-                        float(ret_pct.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
-                        'auto-computed VWAP'
-                    )
-                    settlement_count += 1
-                except Exception as e:
-                    settlement_errors.append(f"{instr} SELL: {e}")
-
-                # Deduct from position — recalculate total_net_cost exactly
-                pos['units']          -= sell_units
-                pos['total_net_cost']  = pos['avg_cost'] * pos['units']
-            else:
-                settlement_errors.append(
-                    f"SELL {instr}: tried {sell_units} units, only {pos['units']} held"
-                )
-
-    # Save final holdings to holdings table
-    await db.execute("DELETE FROM holdings")
-    holdings_saved = 0
-    for instr, pos in positions.items():
-        if pos['units'] > Decimal('0.001'):  # filter tiny residuals from decimal CSV imports
-            total_cost = pos['avg_cost'] * pos['units']
-            try:
-                await db.execute("""
-                    INSERT INTO holdings
-                    (instrument, asset_class, sector, region,
-                     units, avg_cost, total_cost, last_updated)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
-                    ON CONFLICT (instrument) DO UPDATE SET
-                        units=EXCLUDED.units,
-                        avg_cost=EXCLUDED.avg_cost,
-                        total_cost=EXCLUDED.total_cost,
-                        last_updated=NOW()
-                """,
-                    instr,
-                    pos['asset_class'],
-                    pos['sector'],
-                    pos['region'],
-                    float(pos['units'].quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
-                    float(pos['avg_cost'].quantize(Decimal('0.00000001'), ROUND_HALF_UP)),
-                    float(total_cost.quantize(Decimal('0.0001'), ROUND_HALF_UP)),
-                )
-                holdings_saved += 1
-            except Exception as e:
-                settlement_errors.append(f"Holdings save {instr}: {e}")
-
-    return {
-        "message": "Holdings and settlement recomputed",
-        "positions": holdings_saved,
-        "settlement_records": settlement_count,
-        "errors": settlement_errors[:5] if settlement_errors else []
-    }
-
-
-# ── Principal cashflow ────────────────────────────────────────
-@router.get("/principal")
-async def get_principal(
-    admin: dict = Depends(require_admin),
-    db: Database = Depends(get_db)
-):
-    rows = await db.fetch("""
-        SELECT p.*,
-               COALESCE(p.flow_type, p.cashflow_type) as flow_type,
-               i.name as investor_name
-        FROM principal_cashflows p
-        LEFT JOIN investors i ON i.id = p.investor_id
-        ORDER BY p.date DESC
-    """)
-    return [dict(r) for r in rows]
 
 
 @router.post("/principal")

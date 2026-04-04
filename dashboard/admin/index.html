@@ -187,14 +187,14 @@ async function triggerPriceFetch() {
 
 async function loadDirtyStatus() {
   try {
-    const r = await api.get('/api/admin/nta/dirty-status');
+    const r = await api.get('/api/admin/nta/uncomputed-status');
     const badge = document.getElementById('dirty-badge');
     if (badge) {
-      if (r.dirty_count > 0) {
-        badge.textContent = r.dirty_count + ' dirty';
+      if (r.total_uncomputed > 0) {
+        badge.textContent = r.total_uncomputed + ' dirty';
         badge.style.display = 'inline';
         document.getElementById('btn-compute').title =
-          `${r.dirty_count} dates need recomputation. Earliest: ${r.sample_dates?.[0]?.date || '?'}`;
+          `${r.total_uncomputed} dates need recomputation. Earliest: ${(r.transactions > 0 || r.dividends > 0 || r.fee_withdrawals > 0 ? 'multiple tables' : '') || '?'}`;
       } else {
         badge.style.display = 'none';
         document.getElementById('btn-compute').title = 'All dates up to date';

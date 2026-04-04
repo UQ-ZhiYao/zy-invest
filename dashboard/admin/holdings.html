@@ -204,12 +204,10 @@ function filterHoldings() {
 
 async function computeHoldings() {
   try {
-    showToast('Computing holdings from transactions...', 'info');
-    const r = await api.post('/api/admin/holdings/compute', {});
-    const cashStr = r.cash_balance !== undefined ? ` · Cash: RM ${Number(r.cash_balance).toLocaleString('en-MY', {minimumFractionDigits:2, maximumFractionDigits:2})}` : '';
-    showToast(`Done! ${r.positions} positions, ${r.settlement_records} settlement records${cashStr}`, 'success');
-    if (r.cash_breakdown) console.log('Cash breakdown:', JSON.stringify(r.cash_breakdown, null, 2));
-    await loadHoldings();
+    showToast('Starting compute in background...', 'info');
+    const r = await api.post('/api/admin/nta/compute', {});
+    showToast(`✓ ${r.message} — Refresh in ~60s to see updated holdings.`, 'success');
+    setTimeout(loadHoldings, 5000);
   } catch(e) { showToast('Compute failed: ' + e.message, 'error'); }
 }
 
