@@ -45,9 +45,20 @@ async def compute_daily_nta(db, target_date: date = None) -> Optional[dict]:
 
     # Get fund settings
     settings = await db.fetchrow("SELECT * FROM fund_settings WHERE id = 1")
-    total_units = float(settings["total_units"])
+    total_units = float(settings["total_units"]) if settings else 0.0
+
+    # Fallback: sum from investors, then from last historical
     if total_units <= 0:
-        logger.warning("total_units is zero — cannot compute NTA")
+        ur = await db.fetchrow(
+            "SELECT COALESCE(SUM(units),0) AS t FROM investors WHERE is_active=TRUE")
+        total_units = float(ur["t"]) if ur else 0.0
+    if total_units <= 0:
+        ph = await db.fetchrow(
+            "SELECT total_units FROM historical WHERE date < $1 ORDER BY date DESC LIMIT 1",
+            target_date)
+        total_units = float(ph["total_units"]) if ph else 0.0
+    if total_units <= 0:
+        logger.warning(f"total_units is zero for {target_date} — skipping")
         return None
 
     # Compute gross AUM from holdings
@@ -101,20 +112,20 @@ async def compute_daily_nta(db, target_date: date = None) -> Optional[dict]:
         base_fee = gross_aum * float(base_sched["rate"]) / 365.0
 
     # Performance fee: annualised return since inception vs hurdle
-    # Annualised = gross_nta ^ (365 / days_elapsed) - 1
     perf_fee = 0.0
     if perf_sched:
         try:
             inc = await db.fetchrow(
                 "SELECT date FROM historical ORDER BY date ASC LIMIT 1")
             days_elapsed = max(1, (target_date - inc["date"]).days) if inc else 1
-            annualised   = gross_nta ** (365.0 / days_elapsed) - 1
-        except Exception:
-            annualised = daily_return
-        hurdle = float(perf_sched["hurdle_rate"] or 0)
-        if annualised > hurdle:
-            excess_return = annualised - hurdle
-            perf_fee = total_units * (excess_return / 365) * float(perf_sched["rate"])
+            annualised   = max(0.0, gross_nta) ** (365.0 / days_elapsed) - 1
+            hurdle = float(perf_sched["hurdle_rate"] or 0)
+            if annualised > hurdle:
+                excess_return = annualised - hurdle
+                perf_fee = total_units * (excess_return / 365) * float(perf_sched["rate"])
+        except Exception as e:
+            logger.warning(f"Perf fee calc failed {target_date}: {e}")
+            perf_fee = 0.0
 
     total_fee = base_fee + perf_fee
 
@@ -214,10 +225,17 @@ async def compute_nta_range(db, from_date=None, to_date=None):
     while current <= to_date:
         try:
             r = await compute_daily_nta(db, current)
-            if r: computed += 1
+            if r:
+                computed += 1
+                logger.info(f"✓ {current}: NTA={r.get('net_nta')}")
+            else:
+                logger.warning(f"✗ {current}: returned None (check total_units/holdings/prev_hist)")
+                errors += 1
         except Exception as e:
-            logger.error(f"  ✗ {current}: {e}")
+            import traceback
+            logger.error(f"✗ {current}: {e}\n{traceback.format_exc()}")
             errors += 1
         current += timedelta(days=1)
+    logger.info(f"Range done: {computed} computed, {errors} failed")
     return {"computed": computed, "errors": errors,
             "from": str(from_date), "to": str(to_date)}
