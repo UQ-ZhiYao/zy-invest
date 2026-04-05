@@ -460,13 +460,25 @@ async def compute_holdings_and_settlement(
     db: Database = Depends(get_db)
 ):
     """
-    Recompute holdings + settlements from transactions using VWAP.
-    VWAP (avg_cost) = cumulative abs(net_amount) / cumulative units
-    sale_price      = abs(net_amount) / units_sold
-    P&L             = proceeds - cost_basis
-    Cash            = sum(transactions.net_amount)
-                    + principal_cashflows - distributions - fee_withdrawals
-                    + dividends(received)  + others
+    Recompute holdings and settlements using AVCO VWAP method.
+
+    VWAP (AVCO):
+      BUY  → avg_cost = (old_total_cost + abs(net_amount)) / (old_units + units)
+      SELL → avg_cost unchanged for remaining units
+
+    Settlement:
+      proceeds   = abs(net_amount)          ← direct from DB, never units × price
+      cost_basis = avg_cost × units_sold    ← AVCO cost
+      realised_pl = proceeds - cost_basis   ← exact, rounded only at DB write
+      sale_price  = proceeds / units_sold   ← for display only
+
+    Cash balance:
+      = sum(transactions.net_amount)
+      + sum(principal_cashflows.amount)
+      + sum(others.amount)
+      + sum(dividends.amount WHERE pmt_date IS NOT NULL)
+      - sum(distributions.total_dividend)
+      - sum(fee_withdrawals.amount)
     """
     from decimal import Decimal, ROUND_HALF_UP, getcontext
     from datetime import date as date_t
@@ -481,11 +493,13 @@ async def compute_holdings_and_settlement(
     def D(v):
         if v is None: return Decimal('0')
         return Decimal(str(v))
-    def q8(v): return float(D(v).quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP))
-    def q4(v): return float(D(v).quantize(Decimal('0.0001'),     rounding=ROUND_HALF_UP))
-    def q2(v): return float(D(v).quantize(Decimal('0.01'),       rounding=ROUND_HALF_UP))
 
-    # Load transactions
+    # Round only at DB write time
+    def r8(v): return float(D(v).quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP))
+    def r4(v): return float(D(v).quantize(Decimal('0.0001'),     rounding=ROUND_HALF_UP))
+    def r2(v): return float(D(v).quantize(Decimal('0.01'),       rounding=ROUND_HALF_UP))
+
+    # ── 1. Load transactions in ascending date order ──────────
     if as_of:
         rows = await db.fetch("""
             SELECT date, instrument, asset_class, sector, region,
@@ -502,74 +516,85 @@ async def compute_holdings_and_settlement(
             ORDER BY date ASC, created_at ASC
         """)
 
-    # positions[instr] = {units, total_net_cost, avg_cost, ac, sector, region}
-    positions        = {}
-    sells_to_settle  = []
-    errors           = []
+    # positions[instr] = {units, total_cost, avg_cost, ac, sector, region, last_date}
+    positions       = {}
+    settlements     = []   # collect all, write after loop
+    errors          = []
 
+    # Clear previous auto-computed settlements
     await db.execute("DELETE FROM settlement WHERE remark = 'auto-computed VWAP'")
 
+    # ── 2. Replay transactions in sequence ────────────────────
     for row in rows:
         instr  = row['instrument']
-        units  = D(row['units'])
-        net    = D(row['net_amount'])
-        price  = D(row['price'] or 0)
+        units  = D(row['units'])       # positive = BUY, negative = SELL
+        net    = D(row['net_amount'])  # negative = BUY (outflow), positive = SELL (inflow)
         ac     = row['asset_class'] or 'Securities [H]'
-        sector = row['sector'] or ''
-        region = row['region'] or 'MY'
+        sector = row['sector']  or ''
+        region = row['region']  or 'MY'
+        d      = row['date']
 
         if instr not in positions:
             positions[instr] = {
-                'units': D(0), 'total_net_cost': D(0), 'avg_cost': D(0),
+                'units':      Decimal('0'),
+                'total_cost': Decimal('0'),
+                'avg_cost':   Decimal('0'),
                 'ac': ac, 'sector': sector, 'region': region,
+                'last_date': d,
             }
         p = positions[instr]
 
-        if units > D(0):
-            # BUY: cost = abs(net_amount). Fallback to units×price if net=0
-            cost      = abs(net) if net != D(0) else units * price
-            new_u     = p['units'] + units
-            new_t     = p['total_net_cost'] + cost
-            p['avg_cost']       = new_t / new_u if new_u > 0 else D(0)
-            p['total_net_cost'] = new_t
-            p['units']          = new_u
-            p['ac']             = ac
-            p['sector']         = sector
-            p['region']         = region
+        if units > Decimal('0'):
+            # ── BUY ──────────────────────────────────────────
+            # Cost = abs(net_amount) — the real cash paid including all fees
+            cost          = abs(net)
+            new_units     = p['units'] + units
+            new_total     = p['total_cost'] + cost
+            p['avg_cost'] = new_total / new_units   # AVCO: recalculate weighted average
+            p['total_cost'] = new_total
+            p['units']      = new_units
+            p['ac']         = ac
+            p['sector']     = sector
+            p['region']     = region
+            p['last_date']  = d
 
-        elif units < D(0):
-            # SELL: use net_amount directly — it is the ground truth proceeds
-            # Do NOT round any intermediate value — round only at storage time
-            sell_u     = abs(units)
-            proceeds   = abs(net) if net != D(0) else sell_u * price  # exact proceeds from DB
-            sale_price = proceeds / sell_u if sell_u > D(0) else price
-            actual_u   = min(sell_u, p['units'])
-            avg_cost   = p['avg_cost']                        # full precision VWAP
-            cost_basis = avg_cost * actual_u                  # full precision cost
-            pl         = proceeds - cost_basis                # P&L = proceeds - cost_basis (exact)
-            ret_pct    = (pl / cost_basis * 100) if cost_basis > D(0) else D(0)
+        elif units < Decimal('0'):
+            # ── SELL ─────────────────────────────────────────
+            units_sold = abs(units)
+            # Cap at held units (handles tiny rounding differences)
+            units_sold = min(units_sold, p['units'])
 
-            # Store at full precision — round ONLY here for DB storage
-            sells_to_settle.append((
-                row['date'], region, ac, sector, instr,
-                float(actual_u),           # units
-                q8(avg_cost),              # bought_price = VWAP
-                q8(sale_price),            # sale_price = net proceeds per unit
-                q4(pl),                    # profit_loss = proceeds - cost_basis
-                q4(ret_pct)                # return %
+            # proceeds and cost_basis — NEVER use units × price
+            proceeds   = abs(net)                        # exact cash received from DB
+            cost_basis = p['avg_cost'] * units_sold      # AVCO: avg_cost stays unchanged
+            realised_pl = proceeds - cost_basis          # exact subtraction, full precision
+            sale_price  = proceeds / units_sold if units_sold > Decimal('0') else Decimal('0')
+            ret_pct     = (realised_pl / cost_basis * 100) if cost_basis > Decimal('0') else Decimal('0')
+
+            # Collect settlement — round only here at write time
+            settlements.append((
+                d, region, ac, sector, instr,
+                r8(units_sold),
+                r8(p['avg_cost']),   # bought_price = AVCO avg_cost
+                r8(sale_price),      # sale_price   = proceeds / units_sold
+                r4(realised_pl),     # realised_pl  = proceeds - cost_basis (exact)
+                r4(ret_pct),
             ))
 
-            p['units'] -= actual_u
-            if p['units'] < D('0.001'):
-                p['units'] = D(0); p['total_net_cost'] = D(0); p['avg_cost'] = D(0)
-            else:
-                p['total_net_cost'] = p['avg_cost'] * p['units']
+            # Reduce position — avg_cost stays the same (AVCO)
+            p['units']      -= units_sold
+            p['total_cost']  = p['avg_cost'] * p['units']  # recalculate remaining cost
+            p['last_date']   = d
 
-    # Write settlements
-    # settlement columns: date, region, asset_class, sector, instrument,
-    #                     units, bought_price, sale_price, profit_loss, return_pct, remark
+            # Clear dust (rounding residuals)
+            if p['units'] < Decimal('0.0001'):
+                p['units']      = Decimal('0')
+                p['total_cost'] = Decimal('0')
+                p['avg_cost']   = Decimal('0')
+
+    # ── 3. Write settlements ──────────────────────────────────
     sc = 0
-    for s in sells_to_settle:
+    for s in settlements:
         try:
             await db.execute("""
                 INSERT INTO settlement
@@ -581,62 +606,79 @@ async def compute_holdings_and_settlement(
         except Exception as e:
             errors.append(f"settlement {s[4]}: {e}")
 
-    # Cash = net(transactions) + principal + others + div_received - distributions - fee_withdrawals
-    cash = D(0)
+    # ── 4. Compute cash balance ───────────────────────────────
+    cash = Decimal('0')
+
+    # Transactions: net_amount is negative for BUY, positive for SELL
     for row in rows:
         cash += D(row['net_amount'])
+
+    # Principal cashflows (subscriptions +, redemptions -)
     try:
-        r = await db.fetchrow("SELECT COALESCE(SUM(amount),0) n FROM principal_cashflows"
-                              + (" WHERE date<=$1" if as_of else ""), *([as_of] if as_of else []))
+        q = "SELECT COALESCE(SUM(amount),0) n FROM principal_cashflows"
+        r = await db.fetchrow(q + (" WHERE date<=$1" if as_of else ""), *([as_of] if as_of else []))
         cash += D(r['n'])
-    except Exception as e: errors.append(f"principal: {e}")
+    except Exception as e: errors.append(f"principal_cashflows: {e}")
+
+    # Others income/expense
     try:
-        r = await db.fetchrow("SELECT COALESCE(SUM(amount),0) n FROM others"
-                              + (" WHERE record_date<=$1" if as_of else ""), *([as_of] if as_of else []))
+        q = "SELECT COALESCE(SUM(amount),0) n FROM others"
+        r = await db.fetchrow(q + (" WHERE record_date<=$1" if as_of else ""), *([as_of] if as_of else []))
         cash += D(r['n'])
     except Exception as e: errors.append(f"others: {e}")
+
+    # Dividends received
     try:
-        r = await db.fetchrow("SELECT COALESCE(SUM(amount),0) n FROM dividends WHERE pmt_date IS NOT NULL"
-                              + (" AND pmt_date<=$1" if as_of else ""), *([as_of] if as_of else []))
+        q = "SELECT COALESCE(SUM(amount),0) n FROM dividends WHERE pmt_date IS NOT NULL"
+        r = await db.fetchrow(q + (" AND pmt_date<=$1" if as_of else ""), *([as_of] if as_of else []))
         cash += D(r['n'])
     except Exception as e: errors.append(f"dividends: {e}")
+
+    # Distributions paid out
     try:
-        r = await db.fetchrow("SELECT COALESCE(SUM(total_dividend),0) n FROM distributions"
-                              + (" WHERE pmt_date<=$1" if as_of else ""), *([as_of] if as_of else []))
+        q = "SELECT COALESCE(SUM(total_dividend),0) n FROM distributions"
+        r = await db.fetchrow(q + (" WHERE pmt_date<=$1" if as_of else ""), *([as_of] if as_of else []))
         cash -= D(r['n'])
     except Exception as e: errors.append(f"distributions: {e}")
+
+    # Fee withdrawals
     try:
-        r = await db.fetchrow("SELECT COALESCE(SUM(amount),0) n FROM fee_withdrawals"
-                              + (" WHERE date<=$1" if as_of else ""), *([as_of] if as_of else []))
+        q = "SELECT COALESCE(SUM(amount),0) n FROM fee_withdrawals"
+        r = await db.fetchrow(q + (" WHERE date<=$1" if as_of else ""), *([as_of] if as_of else []))
         cash -= D(r['n'])
     except Exception as e: errors.append(f"fee_withdrawals: {e}")
 
-    # Save holdings
-    # holdings columns: instrument, asset_class, sector, region,
-    #                   units, vwap, total_costs, total_cost, updated_at
+    # ── 5. Save holdings (units > 0.0001 only) ───────────────
     await db.execute("DELETE FROM holdings")
     saved = 0
+
     for instr, p in positions.items():
-        if p['units'] <= D('0.001'): continue
-        tc = p['total_net_cost']
+        if p['units'] <= Decimal('0.0001'):
+            continue
         try:
             await db.execute("""
                 INSERT INTO holdings
                     (instrument, asset_class, sector, region,
-                     units, avg_cost, total_cost, last_updated)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+                     units, avg_cost, total_cost, last_trade_date, last_updated)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
                 ON CONFLICT (instrument) DO UPDATE SET
-                    asset_class=EXCLUDED.asset_class, sector=EXCLUDED.sector,
-                    region=EXCLUDED.region, units=EXCLUDED.units,
-                    avg_cost=EXCLUDED.avg_cost, total_cost=EXCLUDED.total_cost,
+                    asset_class=EXCLUDED.asset_class,
+                    sector=EXCLUDED.sector,
+                    region=EXCLUDED.region,
+                    units=EXCLUDED.units,
+                    avg_cost=EXCLUDED.avg_cost,
+                    total_cost=EXCLUDED.total_cost,
+                    last_trade_date=EXCLUDED.last_trade_date,
                     last_updated=NOW()
-            """, instr, p['ac'], p['sector'], p['region'],
-                 q8(p['units']), q8(p['avg_cost']), q4(tc))
+            """,
+                instr, p['ac'], p['sector'], p['region'],
+                r8(p['units']), r8(p['avg_cost']), r4(p['total_cost']),
+                p['last_date'])
             saved += 1
         except Exception as e:
             errors.append(f"holdings {instr}: {e}")
 
-    # Cash row — instrument='__CASH__'
+    # ── 6. Cash row — always last ─────────────────────────────
     try:
         await db.execute("""
             INSERT INTO holdings
@@ -647,7 +689,7 @@ async def compute_holdings_and_settlement(
                 total_cost=EXCLUDED.total_cost,
                 cash=EXCLUDED.cash,
                 last_updated=NOW()
-        """, q2(cash))
+        """, r2(cash))
     except Exception as e:
         errors.append(f"cash row: {e}")
 
@@ -655,7 +697,7 @@ async def compute_holdings_and_settlement(
         "message":            "Holdings computed" + (f" as of {as_of}" if as_of else " (latest)"),
         "as_of":              str(as_of) if as_of else "latest",
         "positions":          saved,
-        "cash_balance":       q2(cash),
+        "cash_balance":       r2(cash),
         "settlement_records": sc,
         "errors":             errors[:20],
     }
