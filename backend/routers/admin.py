@@ -731,216 +731,166 @@ async def get_income_statement(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    """
-    Income Statement per Financial Year (Dec 1 → Nov 30).
-    Returns all FYs from inception to latest, plus a 'all' summary.
+    from datetime import date as date_t, timedelta as td
 
-    Structure:
-      Revenue:
-        Dividend Income     = SUM(dividends.amount) where pmt_date in FY
-        Interest/Fixed      = SUM(others.amount) where income_type ILIKE '%interest%'
-                            + SUM(settlement.profit_loss) where asset_class='Money Market'
-      Costs:
-        Management Fees     = historical FYE mng_fees - historical FYB mng_fees + fee_withdrawals(management)
-        Performance Fees    = historical FYE perf_fees - historical FYB perf_fees + fee_withdrawals(performance)
-      Gross Profit = Revenue - Costs
-      Other Income:
-        Realised P&L        = SUM(settlement.profit_loss) excl Money Market
-        Unrealised Income   = FYE historical earnings - FYB historical earnings - net_realised
-        Others              = SUM(others.amount) excl interest
-      Net Profit = FYE historical earnings (retained earnings at year end)
-    """
-    from datetime import date as date_t
+    today = date_t.today()
 
-    # Get fund settings for FYE month/day
-    settings = await db.fetchrow("SELECT * FROM fund_settings WHERE id=1")
-    fye_str  = (settings['financial_year_end'] if settings else '11-30')
-    fye_mm, fye_dd = int(fye_str.split('-')[0]), int(fye_str.split('-')[1])
+    # FY: Dec 1 → Nov 30. FY25 = Dec 2024 → Nov 2025
+    def fy_bounds(fy_year: int):
+        return date_t(fy_year - 1, 12, 1), date_t(fy_year, 11, 30)
 
-    # Build list of FYs from inception
-    inc_row  = await db.fetchrow("SELECT MIN(date) AS d FROM historical")
-    inc_date = inc_row['d'] if inc_row and inc_row['d'] else date_t(2021,12,13)
-    today    = date_t.today()
-
-    # FY periods: FYB = Dec 1 of previous year, FYE = Nov 30 of FY year
-    def fy_period(fy_year: int):
-        fyb = date_t(fy_year - 1, fye_mm + 1 if fye_mm < 12 else 1,
-                     1 if fye_mm < 11 else 1)
-        # Simpler: FYE is Nov 30, FYB is Dec 1 of prior year
-        fyb = date_t(fy_year - 1, 12, 1)
-        fye = date_t(fy_year,     11, 30)
-        return fyb, fye
-
-    # Determine FY years to compute
-    start_fy = inc_date.year if inc_date.month >= 12 else inc_date.year
-    end_fy   = today.year if today.month >= 12 else today.year
-    fy_years = list(range(start_fy, end_fy + 1))
+    # First historical date determines start FY
+    inc = await db.fetchrow("SELECT MIN(date) AS d FROM historical")
+    inc_date = inc['d'] if inc and inc['d'] else date_t(2021, 12, 13)
+    # Start FY = the FY that contains inc_date
+    start_fy = inc_date.year if inc_date.month == 12 else inc_date.year
+    # End FY = FY that contains today
+    end_fy = today.year if today.month == 12 else today.year
 
     results = []
 
-    for fy in fy_years:
-        fyb, fye = fy_period(fy)
-        if fye > today: fye = today   # current FY not complete
+    for fy in range(start_fy, end_fy + 1):
+        fyb, fye = fy_bounds(fy)
+        if fyb > today: continue
+        if fye > today: fye = today
         fy_label = f"FY{str(fy)[2:]}"
+        fyb1 = fyb - td(days=1)   # day before FYB for opening balance
 
         # ── Revenue ──────────────────────────────────────────
-        # Dividend Income
-        div_row = await db.fetchrow("""
-            SELECT COALESCE(SUM(amount),0) AS n FROM dividends
-            WHERE pmt_date >= $1 AND pmt_date <= $2
-        """, fyb, fye)
-        dividend_income = float(div_row['n'])
+        r = await db.fetchrow(
+            "SELECT COALESCE(SUM(amount),0) n FROM dividends WHERE pmt_date>=$1 AND pmt_date<=$2",
+            fyb, fye)
+        dividend_income = float(r['n'])
 
-        # Interest income: others type interest
-        int_row = await db.fetchrow("""
-            SELECT COALESCE(SUM(amount),0) AS n FROM others
-            WHERE record_date >= $1 AND record_date <= $2
-              AND LOWER(income_type) LIKE '%interest%'
-        """, fyb, fye)
-        # Money market settlement P&L
-        mm_row = await db.fetchrow("""
-            SELECT COALESCE(SUM(profit_loss),0) AS n FROM settlement
-            WHERE date >= $1 AND date <= $2
-              AND LOWER(asset_class) LIKE '%money market%'
-        """, fyb, fye)
-        interest_income = float(int_row['n']) + float(mm_row['n'])
-
+        r = await db.fetchrow(
+            "SELECT COALESCE(SUM(amount),0) n FROM others "
+            "WHERE record_date>=$1 AND record_date<=$2 AND LOWER(income_type) LIKE '%interest%'",
+            fyb, fye)
+        r2 = await db.fetchrow(
+            "SELECT COALESCE(SUM(profit_loss),0) n FROM settlement "
+            "WHERE date>=$1 AND date<=$2 AND LOWER(asset_class) LIKE '%money market%'",
+            fyb, fye)
+        interest_income = float(r['n']) + float(r2['n'])
         revenue = dividend_income + interest_income
 
-        # ── Costs ─────────────────────────────────────────────
-        # Get historical rows at FYB-1 and FYE
-        hist_fyb = await db.fetchrow("""
-            SELECT mng_fees, perf_fees FROM historical
-            WHERE date <= $1 ORDER BY date DESC LIMIT 1
-        """, fyb - __import__('datetime').timedelta(days=1))
-        hist_fye = await db.fetchrow("""
-            SELECT mng_fees, perf_fees FROM historical
-            WHERE date <= $1 ORDER BY date DESC LIMIT 1
-        """, fye)
+        # ── Costs (from historical delta + fee withdrawals) ──
+        h_open = await db.fetchrow(
+            "SELECT mng_fees, perf_fees FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1",
+            fyb1)
+        h_close = await db.fetchrow(
+            "SELECT mng_fees, perf_fees FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1",
+            fye)
+        mng_open  = float(h_open['mng_fees'])  if h_open  else 0.0
+        mng_close = float(h_close['mng_fees']) if h_close else 0.0
+        prf_open  = float(h_open['perf_fees'])  if h_open  else 0.0
+        prf_close = float(h_close['perf_fees']) if h_close else 0.0
 
-        mng_fyb  = float(hist_fyb['mng_fees'])  if hist_fyb  else 0.0
-        mng_fye  = float(hist_fye['mng_fees'])  if hist_fye  else 0.0
-        perf_fyb = float(hist_fyb['perf_fees']) if hist_fyb  else 0.0
-        perf_fye = float(hist_fye['perf_fees']) if hist_fye  else 0.0
+        fw_m = await db.fetchrow(
+            "SELECT COALESCE(SUM(amount),0) n FROM fee_withdrawals "
+            "WHERE date>=$1 AND date<=$2 AND fee_type='management'", fyb, fye)
+        fw_p = await db.fetchrow(
+            "SELECT COALESCE(SUM(amount),0) n FROM fee_withdrawals "
+            "WHERE date>=$1 AND date<=$2 AND fee_type='performance'", fyb, fye)
+        fw_mng  = float(fw_m['n'])
+        fw_perf = float(fw_p['n'])
 
-        fw_mng = await db.fetchrow("""
-            SELECT COALESCE(SUM(amount),0) AS n FROM fee_withdrawals
-            WHERE date >= $1 AND date <= $2 AND fee_type='management'
-        """, fyb, fye)
-        fw_prf = await db.fetchrow("""
-            SELECT COALESCE(SUM(amount),0) AS n FROM fee_withdrawals
-            WHERE date >= $1 AND date <= $2 AND fee_type='performance'
-        """, fyb, fye)
-
-        mng_cost  = max(0.0, (mng_fye  - mng_fyb)  + float(fw_mng['n']))
-        perf_cost = max(0.0, (perf_fye - perf_fyb) + float(fw_prf['n']))
+        mng_cost  = max(0.0, (mng_close - mng_open) + fw_mng)
+        perf_cost = max(0.0, (prf_close - prf_open) + fw_perf)
         total_costs = mng_cost + perf_cost
-
         gross_profit = revenue - total_costs
 
         # ── Other Income ──────────────────────────────────────
-        # Realised P&L (excl money market)
-        real_row = await db.fetchrow("""
-            SELECT COALESCE(SUM(profit_loss),0) AS n FROM settlement
-            WHERE date >= $1 AND date <= $2
-              AND LOWER(asset_class) NOT LIKE '%money market%'
-        """, fyb, fye)
-        realised = float(real_row['n'])
+        r = await db.fetchrow(
+            "SELECT COALESCE(SUM(profit_loss),0) n FROM settlement "
+            "WHERE date>=$1 AND date<=$2 AND LOWER(asset_class) NOT LIKE '%money market%'",
+            fyb, fye)
+        realised = float(r['n'])
 
-        # Others (excl interest)
-        oth_row = await db.fetchrow("""
-            SELECT COALESCE(SUM(amount),0) AS n FROM others
-            WHERE record_date >= $1 AND record_date <= $2
-              AND LOWER(income_type) NOT LIKE '%interest%'
-        """, fyb, fye)
-        other_income_misc = float(oth_row['n'])
+        r = await db.fetchrow(
+            "SELECT COALESCE(SUM(amount),0) n FROM others "
+            "WHERE record_date>=$1 AND record_date<=$2 AND LOWER(income_type) NOT LIKE '%interest%'",
+            fyb, fye)
+        other_misc = float(r['n'])
 
-        # Unrealised = FYE earnings - FYB earnings - realised
-        earn_fyb_row = await db.fetchrow("""
-            SELECT earnings FROM historical
-            WHERE date <= $1 ORDER BY date DESC LIMIT 1
-        """, fyb - __import__('datetime').timedelta(days=1))
-        earn_fye_row = await db.fetchrow("""
-            SELECT earnings FROM historical
-            WHERE date <= $1 ORDER BY date DESC LIMIT 1
-        """, fye)
-        earn_fyb   = float(earn_fyb_row['earnings']) if earn_fyb_row else 0.0
-        earn_fye   = float(earn_fye_row['earnings']) if earn_fye_row else 0.0
-        unrealised = (earn_fye - earn_fyb) - realised - other_income_misc
+        # Net profit = FYE retained earnings
+        earn_close = float(h_close['earnings'] if hasattr(h_close, '__getitem__') and 'earnings' in h_close.keys() else 0) if h_close else 0.0
+        # Re-fetch with earnings
+        h_close_full = await db.fetchrow(
+            "SELECT * FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1", fye)
+        net_profit = float(h_close_full['earnings']) if h_close_full else 0.0
 
-        other_total = realised + unrealised + other_income_misc
+        # Unrealised derived: net_profit - gross_profit - realised - other_misc
+        unrealised  = net_profit - gross_profit - realised - other_misc
+        other_total = realised + unrealised + other_misc
 
-        # Net Profit = FYE retained earnings
-        net_profit = earn_fye
+        # ── Balance Sheet (FYE) ───────────────────────────────
+        bs = h_close_full
+        sec   = float(bs['securities']   or 0) if bs else 0.0
+        deriv = float(bs['derivatives']  or 0) if bs else 0.0
+        reit  = float(bs['reits']        or 0) if bs else 0.0
+        bond  = float(bs['bonds']        or 0) if bs else 0.0
+        mm    = float(bs['money_market'] or 0) if bs else 0.0
+        recv  = float(bs['receivables']  or 0) if bs else 0.0
+        cash_b= float(bs['cash']         or 0) if bs else 0.0
+        mng_l = float(bs['mng_fees']     or 0) if bs else 0.0
+        prf_l = float(bs['perf_fees']    or 0) if bs else 0.0
+        cap   = float(bs['capital']      or 0) if bs else 0.0
+        earn  = float(bs['earnings']     or 0) if bs else 0.0
+        total_assets = sec+deriv+reit+bond+mm+recv+cash_b
+        total_liab   = mng_l + prf_l + float(bs['ints_on_fees'] or 0) if bs else 0.0
+        nav   = total_assets - total_liab
+        nta   = float(bs['nta']          or 0) if bs else 0.0
 
-        # ── Balance Sheet data (FYE historical row) ─────────
-        bs = hist_fye
-        total_assets = (float(bs['derivatives'] or 0) + float(bs['securities'] or 0) +
-                        float(bs['reits'] or 0) + float(bs['bonds'] or 0) +
-                        float(bs['money_market'] or 0) + float(bs['receivables'] or 0) +
-                        float(bs['cash'] or 0)) if bs else 0.0
-        total_liab = (float(bs['mng_fees'] or 0) + float(bs['perf_fees'] or 0) +
-                      float(bs['ints_on_fees'] or 0) + float(bs['loans'] or 0) +
-                      float(bs['ints_on_loans'] or 0)) if bs else 0.0
-        nav = total_assets - total_liab
+        # ── Cash Flow ─────────────────────────────────────────
+        r = await db.fetchrow(
+            "SELECT COALESCE(SUM(ABS(net_amount)),0) n FROM transactions "
+            "WHERE date>=$1 AND date<=$2 AND units>0", fyb, fye)
+        buys_total = float(r['n'])
 
-        # ── Cash Flow data ────────────────────────────────────
-        # Buys (cash out) and sells (cash in) from transactions
-        buys_row = await db.fetchrow("""
-            SELECT COALESCE(SUM(ABS(net_amount)),0) AS n FROM transactions
-            WHERE date>=$1 AND date<=$2 AND units>0
-        """, fyb, fye)
-        sells_row = await db.fetchrow("""
-            SELECT COALESCE(SUM(net_amount),0) AS n FROM transactions
-            WHERE date>=$1 AND date<=$2 AND units<0
-        """, fyb, fye)
-        subs_row = await db.fetchrow("""
-            SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) AS n
-            FROM principal_cashflows WHERE date>=$1 AND date<=$2
-        """, fyb, fye)
-        reds_row = await db.fetchrow("""
-            SELECT COALESCE(SUM(ABS(CASE WHEN amount<0 THEN amount ELSE 0 END)),0) AS n
-            FROM principal_cashflows WHERE date>=$1 AND date<=$2
-        """, fyb, fye)
-        dist_row = await db.fetchrow("""
-            SELECT COALESCE(SUM(total_dividend),0) AS n FROM distributions
-            WHERE pmt_date>=$1 AND pmt_date<=$2
-        """, fyb, fye)
-        cash_fyb_row = await db.fetchrow("""
-            SELECT cash FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1
-        """, fyb)
-        cash_fye_row = await db.fetchrow("""
-            SELECT cash FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1
-        """, fye)
-        cash_fyb_val = float(cash_fyb_row['cash']) if cash_fyb_row else 0.0
-        cash_fye_val = float(cash_fye_row['cash']) if cash_fye_row else 0.0
+        r = await db.fetchrow(
+            "SELECT COALESCE(SUM(net_amount),0) n FROM transactions "
+            "WHERE date>=$1 AND date<=$2 AND units<0", fyb, fye)
+        sells_total = float(r['n'])
 
-        # ── Ratio data ────────────────────────────────────────
-        nta_fyb_row = await db.fetchrow("""
-            SELECT nta, total_units FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1
-        """, fyb)
-        nta_fyb_val   = float(nta_fyb_row['nta']) if nta_fyb_row else 1.0
-        nta_fye_val   = float(bs['nta']) if bs else 1.0
-        total_units_v = float(bs['total_units']) if bs else 0.0
-        total_return  = ((nta_fye_val / nta_fyb_val) - 1) * 100 if nta_fyb_val > 0 else 0.0
+        r = await db.fetchrow(
+            "SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) n "
+            "FROM principal_cashflows WHERE date>=$1 AND date<=$2", fyb, fye)
+        subscriptions = float(r['n'])
 
-        # Total DPS for the FY
-        dps_row = await db.fetchrow("""
-            SELECT COALESCE(SUM(dps_sen),0) AS n FROM distributions
-            WHERE pmt_date>=$1 AND pmt_date<=$2
-        """, fyb, fye)
-        total_dps    = float(dps_row['n'])
-        net_margin   = (net_profit / revenue * 100) if revenue != 0 else 0.0
-        div_yield    = (dividend_income / nav * 100) if nav > 0 else 0.0
+        r = await db.fetchrow(
+            "SELECT COALESCE(SUM(ABS(CASE WHEN amount<0 THEN amount ELSE 0 END)),0) n "
+            "FROM principal_cashflows WHERE date>=$1 AND date<=$2", fyb, fye)
+        redemptions = float(r['n'])
+
+        r = await db.fetchrow(
+            "SELECT COALESCE(SUM(total_dividend),0) n FROM distributions "
+            "WHERE pmt_date>=$1 AND pmt_date<=$2", fyb, fye)
+        distributions_paid = float(r['n'])
+
+        h_open_full = await db.fetchrow(
+            "SELECT cash FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1", fyb1)
+        cash_open  = float(h_open_full['cash']) if h_open_full else 0.0
+        net_cash_change = cash_b - cash_open
+
+        # ── Ratios ────────────────────────────────────────────
+        h_open_nta = await db.fetchrow(
+            "SELECT nta FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1", fyb1)
+        nta_open      = float(h_open_nta['nta']) if h_open_nta else 1.0
+        total_return  = ((nta / nta_open) - 1) * 100 if nta_open > 0 else 0.0
+        net_margin    = (net_profit / revenue * 100) if revenue != 0 else 0.0
+        div_yield     = (dividend_income / nav * 100) if nav > 0 else 0.0
         expense_ratio = (total_costs / total_assets * 100) if total_assets > 0 else 0.0
 
+        r = await db.fetchrow(
+            "SELECT COALESCE(SUM(dps_sen),0) n FROM distributions "
+            "WHERE pmt_date>=$1 AND pmt_date<=$2", fyb, fye)
+        total_dps = float(r['n'])
+
         results.append({
-            "fy":              fy_label,
-            "fy_year":         fy,
-            "fyb":             str(fyb),
-            "fye":             str(fye),
-            "is_current":      fye >= today,
-            # Income Statement
+            "fy": fy_label, "fy_year": fy,
+            "fyb": str(fyb), "fye": str(fye),
+            "is_current": fye >= today,
+            # IS
             "dividend_income": round(dividend_income, 2),
             "interest_income": round(interest_income, 2),
             "revenue":         round(revenue, 2),
@@ -950,40 +900,40 @@ async def get_income_statement(
             "gross_profit":    round(gross_profit, 2),
             "realised":        round(realised, 2),
             "unrealised":      round(unrealised, 2),
-            "other_misc":      round(other_income_misc, 2),
+            "other_misc":      round(other_misc, 2),
             "other_total":     round(other_total, 2),
             "net_profit":      round(net_profit, 2),
-            # Balance Sheet (FYE)
-            "securities":      round(float(bs['securities'] or 0), 2) if bs else None,
-            "derivatives":     round(float(bs['derivatives'] or 0), 2) if bs else None,
-            "reits":           round(float(bs['reits'] or 0), 2) if bs else None,
-            "bonds":           round(float(bs['bonds'] or 0), 2) if bs else None,
-            "money_market":    round(float(bs['money_market'] or 0), 2) if bs else None,
-            "receivables":     round(float(bs['receivables'] or 0), 2) if bs else None,
-            "cash_bal":        round(float(bs['cash'] or 0), 2) if bs else None,
+            # BS
+            "securities":      round(sec,   2),
+            "derivatives":     round(deriv, 2),
+            "reits":           round(reit,  2),
+            "bonds":           round(bond,  2),
+            "money_market":    round(mm,    2),
+            "receivables":     round(recv,  2),
+            "cash_bal":        round(cash_b,2),
             "total_assets":    round(total_assets, 2),
-            "mng_fees_liab":   round(float(bs['mng_fees'] or 0), 2) if bs else None,
-            "perf_fees_liab":  round(float(bs['perf_fees'] or 0), 2) if bs else None,
+            "mng_fees_liab":   round(mng_l,  2),
+            "perf_fees_liab":  round(prf_l,  2),
             "total_liab":      round(total_liab, 2),
-            "capital":         round(float(bs['capital'] or 0), 2) if bs else None,
-            "earnings":        round(float(bs['earnings'] or 0), 2) if bs else None,
-            "nav":             round(nav, 2),
-            "nta":             round(nta_fye_val, 6),
-            # Cash Flow
-            "buys_total":        round(float(buys_row['n']), 2),
-            "sells_total":       round(float(sells_row['n']), 2),
-            "subscriptions":     round(float(subs_row['n']), 2),
-            "redemptions":       round(float(reds_row['n']), 2),
-            "distributions_paid":round(float(dist_row['n']), 2),
-            "fw_mng":            round(float(fw_mng['n']), 2),
-            "fw_perf":           round(float(fw_prf['n']), 2),
-            "net_cash_change":   round(cash_fye_val - cash_fyb_val, 2),
+            "capital":         round(cap,   2),
+            "earnings":        round(earn,  2),
+            "nav":             round(nav,   2),
+            "nta":             round(nta,   6),
+            # CF
+            "buys_total":         round(buys_total, 2),
+            "sells_total":        round(sells_total, 2),
+            "subscriptions":      round(subscriptions, 2),
+            "redemptions":        round(redemptions, 2),
+            "distributions_paid": round(distributions_paid, 2),
+            "fw_mng":             round(fw_mng,  2),
+            "fw_perf":            round(fw_perf, 2),
+            "net_cash_change":    round(net_cash_change, 2),
             # Ratios
-            "total_return_pct":  round(total_return, 4),
-            "net_margin_pct":    round(net_margin, 4),
-            "div_yield_pct":     round(div_yield, 4),
-            "expense_ratio_pct": round(expense_ratio, 4),
-            "total_dps":         round(total_dps, 4),
+            "total_return_pct":   round(total_return,  4),
+            "net_margin_pct":     round(net_margin,    4),
+            "div_yield_pct":      round(div_yield,     4),
+            "expense_ratio_pct":  round(expense_ratio, 4),
+            "total_dps":          round(total_dps,     4),
         })
 
     return results

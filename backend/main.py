@@ -68,6 +68,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
+    expose_headers=["*"],
 )
 
 app.include_router(public.router,  prefix="/api/public",  tags=["Public"])
