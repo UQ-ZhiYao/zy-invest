@@ -725,6 +725,182 @@ async def compute_holdings_and_settlement(
     }
 
 
+# ── Financial Statements ──────────────────────────────────────
+@router.get("/financials/income-statement")
+async def get_income_statement(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """
+    Income Statement per Financial Year (Dec 1 → Nov 30).
+    Returns all FYs from inception to latest, plus a 'all' summary.
+
+    Structure:
+      Revenue:
+        Dividend Income     = SUM(dividends.amount) where pmt_date in FY
+        Interest/Fixed      = SUM(others.amount) where income_type ILIKE '%interest%'
+                            + SUM(settlement.profit_loss) where asset_class='Money Market'
+      Costs:
+        Management Fees     = historical FYE mng_fees - historical FYB mng_fees + fee_withdrawals(management)
+        Performance Fees    = historical FYE perf_fees - historical FYB perf_fees + fee_withdrawals(performance)
+      Gross Profit = Revenue - Costs
+      Other Income:
+        Realised P&L        = SUM(settlement.profit_loss) excl Money Market
+        Unrealised Income   = FYE historical earnings - FYB historical earnings - net_realised
+        Others              = SUM(others.amount) excl interest
+      Net Profit = FYE historical earnings (retained earnings at year end)
+    """
+    from datetime import date as date_t
+
+    # Get fund settings for FYE month/day
+    settings = await db.fetchrow("SELECT * FROM fund_settings WHERE id=1")
+    fye_str  = (settings['financial_year_end'] if settings else '11-30')
+    fye_mm, fye_dd = int(fye_str.split('-')[0]), int(fye_str.split('-')[1])
+
+    # Build list of FYs from inception
+    inc_row  = await db.fetchrow("SELECT MIN(date) AS d FROM historical")
+    inc_date = inc_row['d'] if inc_row and inc_row['d'] else date_t(2021,12,13)
+    today    = date_t.today()
+
+    # FY periods: FYB = Dec 1 of previous year, FYE = Nov 30 of FY year
+    def fy_period(fy_year: int):
+        fyb = date_t(fy_year - 1, fye_mm + 1 if fye_mm < 12 else 1,
+                     1 if fye_mm < 11 else 1)
+        # Simpler: FYE is Nov 30, FYB is Dec 1 of prior year
+        fyb = date_t(fy_year - 1, 12, 1)
+        fye = date_t(fy_year,     11, 30)
+        return fyb, fye
+
+    # Determine FY years to compute
+    start_fy = inc_date.year if inc_date.month >= 12 else inc_date.year
+    end_fy   = today.year if today.month >= 12 else today.year
+    fy_years = list(range(start_fy, end_fy + 1))
+
+    results = []
+
+    for fy in fy_years:
+        fyb, fye = fy_period(fy)
+        if fye > today: fye = today   # current FY not complete
+        fy_label = f"FY{str(fy)[2:]}"
+
+        # ── Revenue ──────────────────────────────────────────
+        # Dividend Income
+        div_row = await db.fetchrow("""
+            SELECT COALESCE(SUM(amount),0) AS n FROM dividends
+            WHERE pmt_date >= $1 AND pmt_date <= $2
+        """, fyb, fye)
+        dividend_income = float(div_row['n'])
+
+        # Interest income: others type interest
+        int_row = await db.fetchrow("""
+            SELECT COALESCE(SUM(amount),0) AS n FROM others
+            WHERE record_date >= $1 AND record_date <= $2
+              AND LOWER(income_type) LIKE '%interest%'
+        """, fyb, fye)
+        # Money market settlement P&L
+        mm_row = await db.fetchrow("""
+            SELECT COALESCE(SUM(profit_loss),0) AS n FROM settlement
+            WHERE date >= $1 AND date <= $2
+              AND LOWER(asset_class) LIKE '%money market%'
+        """, fyb, fye)
+        interest_income = float(int_row['n']) + float(mm_row['n'])
+
+        revenue = dividend_income + interest_income
+
+        # ── Costs ─────────────────────────────────────────────
+        # Get historical rows at FYB-1 and FYE
+        hist_fyb = await db.fetchrow("""
+            SELECT mng_fees, perf_fees FROM historical
+            WHERE date <= $1 ORDER BY date DESC LIMIT 1
+        """, fyb - __import__('datetime').timedelta(days=1))
+        hist_fye = await db.fetchrow("""
+            SELECT mng_fees, perf_fees FROM historical
+            WHERE date <= $1 ORDER BY date DESC LIMIT 1
+        """, fye)
+
+        mng_fyb  = float(hist_fyb['mng_fees'])  if hist_fyb  else 0.0
+        mng_fye  = float(hist_fye['mng_fees'])  if hist_fye  else 0.0
+        perf_fyb = float(hist_fyb['perf_fees']) if hist_fyb  else 0.0
+        perf_fye = float(hist_fye['perf_fees']) if hist_fye  else 0.0
+
+        fw_mng = await db.fetchrow("""
+            SELECT COALESCE(SUM(amount),0) AS n FROM fee_withdrawals
+            WHERE date >= $1 AND date <= $2 AND fee_type='management'
+        """, fyb, fye)
+        fw_prf = await db.fetchrow("""
+            SELECT COALESCE(SUM(amount),0) AS n FROM fee_withdrawals
+            WHERE date >= $1 AND date <= $2 AND fee_type='performance'
+        """, fyb, fye)
+
+        mng_cost  = max(0.0, (mng_fye  - mng_fyb)  + float(fw_mng['n']))
+        perf_cost = max(0.0, (perf_fye - perf_fyb) + float(fw_prf['n']))
+        total_costs = mng_cost + perf_cost
+
+        gross_profit = revenue - total_costs
+
+        # ── Other Income ──────────────────────────────────────
+        # Realised P&L (excl money market)
+        real_row = await db.fetchrow("""
+            SELECT COALESCE(SUM(profit_loss),0) AS n FROM settlement
+            WHERE date >= $1 AND date <= $2
+              AND LOWER(asset_class) NOT LIKE '%money market%'
+        """, fyb, fye)
+        realised = float(real_row['n'])
+
+        # Others (excl interest)
+        oth_row = await db.fetchrow("""
+            SELECT COALESCE(SUM(amount),0) AS n FROM others
+            WHERE record_date >= $1 AND record_date <= $2
+              AND LOWER(income_type) NOT LIKE '%interest%'
+        """, fyb, fye)
+        other_income_misc = float(oth_row['n'])
+
+        # Unrealised = FYE earnings - FYB earnings - realised
+        earn_fyb_row = await db.fetchrow("""
+            SELECT earnings FROM historical
+            WHERE date <= $1 ORDER BY date DESC LIMIT 1
+        """, fyb - __import__('datetime').timedelta(days=1))
+        earn_fye_row = await db.fetchrow("""
+            SELECT earnings FROM historical
+            WHERE date <= $1 ORDER BY date DESC LIMIT 1
+        """, fye)
+        earn_fyb   = float(earn_fyb_row['earnings']) if earn_fyb_row else 0.0
+        earn_fye   = float(earn_fye_row['earnings']) if earn_fye_row else 0.0
+        unrealised = (earn_fye - earn_fyb) - realised - other_income_misc
+
+        other_total = realised + unrealised + other_income_misc
+
+        # Net Profit = FYE retained earnings
+        net_profit = earn_fye
+
+        results.append({
+            "fy":              fy_label,
+            "fy_year":         fy,
+            "fyb":             str(fyb),
+            "fye":             str(fye),
+            "is_current":      fye >= today,
+            # Revenue
+            "dividend_income": round(dividend_income, 2),
+            "interest_income": round(interest_income, 2),
+            "revenue":         round(revenue, 2),
+            # Costs
+            "mng_cost":        round(mng_cost, 2),
+            "perf_cost":       round(perf_cost, 2),
+            "total_costs":     round(total_costs, 2),
+            # Gross
+            "gross_profit":    round(gross_profit, 2),
+            # Other Income
+            "realised":        round(realised, 2),
+            "unrealised":      round(unrealised, 2),
+            "other_misc":      round(other_income_misc, 2),
+            "other_total":     round(other_total, 2),
+            # Net
+            "net_profit":      round(net_profit, 2),
+        })
+
+    return results
+
+
 # ── Principal cashflow ────────────────────────────────────────
 @router.get("/principal")
 async def get_principal(
