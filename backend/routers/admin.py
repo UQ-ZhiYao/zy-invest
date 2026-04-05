@@ -21,7 +21,7 @@ from typing import Optional, List
 from datetime import date
 import io
 
-from database import Database, get_db
+from database import Database, get_db, serialise
 from routers.auth import require_admin
 from services.price_fetcher import run_daily_price_fetch, update_manual_price
 from services.nta_engine import compute_portfolio_and_nta, compute_nta_range, compute_daily_nta
@@ -438,18 +438,19 @@ async def get_holdings(
     try:
         rows = await db.fetch("""
             SELECT instrument, asset_class, sector, region,
-                   units, vwap, total_costs, total_cost,
+                   units, avg_cost, total_cost,
                    last_price, market_value, unrealized_pl,
-                   return_pct, last_trade_date, updated_at
+                   return_pct, last_trade_date, cash
             FROM holdings
             ORDER BY
                 CASE WHEN instrument = '__CASH__' THEN 1 ELSE 0 END ASC,
-                COALESCE(market_value, total_costs, 0) DESC NULLS LAST
+                COALESCE(market_value, total_cost, 0) DESC NULLS LAST
         """)
         return [serialise(r) for r in rows]
     except Exception as e:
-        import logging; logging.getLogger(__name__).error(f"GET holdings: {e}")
-        return []
+        import logging
+        logging.getLogger(__name__).error(f"GET holdings error: {e}")
+        raise HTTPException(500, f"Holdings query failed: {e}")
 
 
 @router.post("/holdings/compute")
@@ -622,13 +623,13 @@ async def compute_holdings_and_settlement(
             await db.execute("""
                 INSERT INTO holdings
                     (instrument, asset_class, sector, region,
-                     units, vwap, total_costs, total_cost, updated_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$7,NOW())
+                     units, avg_cost, total_cost, last_updated)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
                 ON CONFLICT (instrument) DO UPDATE SET
                     asset_class=EXCLUDED.asset_class, sector=EXCLUDED.sector,
                     region=EXCLUDED.region, units=EXCLUDED.units,
-                    vwap=EXCLUDED.vwap, total_costs=EXCLUDED.total_costs,
-                    total_cost=EXCLUDED.total_cost, updated_at=NOW()
+                    avg_cost=EXCLUDED.avg_cost, total_cost=EXCLUDED.total_cost,
+                    last_updated=NOW()
             """, instr, p['ac'], p['sector'], p['region'],
                  q8(p['units']), q8(p['avg_cost']), q4(tc))
             saved += 1
@@ -640,11 +641,12 @@ async def compute_holdings_and_settlement(
         await db.execute("""
             INSERT INTO holdings
                 (instrument, asset_class, sector, region,
-                 units, vwap, total_costs, total_cost, updated_at)
+                 units, avg_cost, total_cost, cash, last_updated)
             VALUES ('__CASH__','Cash','','MY',1,0,$1,$1,NOW())
             ON CONFLICT (instrument) DO UPDATE SET
-                total_costs=EXCLUDED.total_costs,
-                total_cost=EXCLUDED.total_cost, updated_at=NOW()
+                total_cost=EXCLUDED.total_cost,
+                cash=EXCLUDED.cash,
+                last_updated=NOW()
         """, q2(cash))
     except Exception as e:
         errors.append(f"cash row: {e}")
