@@ -1,5 +1,5 @@
 """
-Auth router  v2.0.0  — Option B joint account support
+Auth router v2.1 — individual & joint account support
 POST /api/auth/login
 POST /api/auth/logout
 POST /api/auth/change-password
@@ -22,12 +22,12 @@ JWT_EXPIRE_H = 24
 
 # ── Schemas ───────────────────────────────────────────────────
 class LoginRequest(BaseModel):
-    email: str
+    email:    str
     password: str
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
-    new_password: str
+    new_password:     str
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -35,7 +35,7 @@ class TokenResponse(BaseModel):
     role:         str
     name:         str
     investor_id:  Optional[str]
-    holder_role:  Optional[str]   # primary / secondary / nominee
+    holder_role:  Optional[str]   # primary | secondary
 
 
 # ── JWT helpers ───────────────────────────────────────────────
@@ -68,46 +68,42 @@ def get_token_from_header(request: Request) -> str:
     return auth[7:]
 
 
+async def _resolve_investor(user_id: str, direct_investor_id, db: Database):
+    """
+    Resolve investor_id and holder_role for a user.
+    1. users.investor_id (primary link, kept for backward compat)
+    2. investor_holders junction table (joint account secondary holders)
+    Returns (investor_id_str, holder_role_str)
+    """
+    if direct_investor_id:
+        return str(direct_investor_id), "primary"
+
+    row = await db.fetchrow("""
+        SELECT investor_id, role FROM investor_holders
+        WHERE user_id = $1
+        ORDER BY CASE role WHEN 'primary' THEN 0 ELSE 1 END, created_at ASC
+        LIMIT 1
+    """, user_id)
+    if row:
+        return str(row["investor_id"]), row["role"]
+    return None, None
+
+
 async def get_current_user(request: Request,
                            db: Database = Depends(get_db)) -> dict:
-    """
-    Resolves the current user.
-    investor_id comes from:
-      1. users.investor_id  (primary link, always tried first)
-      2. investor_holders   (secondary / nominee link)
-    holder_role is populated from investor_holders.role.
-    """
     token  = get_token_from_header(request)
     claims = decode_jwt(token)
     user   = await db.fetchrow(
         "SELECT id, name, email, role, investor_id, is_active FROM users WHERE id=$1",
-        claims["sub"]
-    )
+        claims["sub"])
     if not user or not user["is_active"]:
         raise HTTPException(401, "User not found or inactive")
 
     u = dict(user)
-
-    # Resolve investor_id + holder_role
-    if u.get("investor_id"):
-        # Primary link via users.investor_id
-        u["holder_role"] = "primary"
-    else:
-        # Check investor_holders junction table
-        h = await db.fetchrow("""
-            SELECT investor_id, role FROM investor_holders
-            WHERE user_id = $1
-            ORDER BY CASE role WHEN 'primary' THEN 0
-                               WHEN 'secondary' THEN 1
-                               ELSE 2 END
-            LIMIT 1
-        """, str(u["id"]))
-        if h:
-            u["investor_id"] = str(h["investor_id"])
-            u["holder_role"] = h["role"]
-        else:
-            u["holder_role"] = None
-
+    inv_id, holder_role = await _resolve_investor(
+        str(u["id"]), u.get("investor_id"), db)
+    u["investor_id"]  = inv_id
+    u["holder_role"]  = holder_role
     return u
 
 
@@ -119,15 +115,14 @@ async def require_admin(request: Request,
     return user
 
 
-# ── Login ─────────────────────────────────────────────────────
+# ── Routes ────────────────────────────────────────────────────
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, request: Request,
                 db: Database = Depends(get_db)):
     user = await db.fetchrow(
         "SELECT id, name, email, password_hash, role, investor_id, is_active "
-        "FROM users WHERE email=$1",
-        body.email.lower().strip()
-    )
+        "FROM users WHERE email = $1",
+        body.email.lower().strip())
     if not user:
         raise HTTPException(401, "Invalid credentials")
     if not user["is_active"]:
@@ -135,35 +130,21 @@ async def login(body: LoginRequest, request: Request,
     if not bcrypt.checkpw(body.password.encode(), user["password_hash"].encode()):
         raise HTTPException(401, "Invalid credentials")
 
-    # Resolve investor_id and holder_role
-    investor_id = str(user["investor_id"]) if user["investor_id"] else None
-    holder_role = "primary" if investor_id else None
+    inv_id, holder_role = await _resolve_investor(
+        str(user["id"]), user["investor_id"], db)
 
-    if not investor_id:
-        h = await db.fetchrow("""
-            SELECT investor_id, role FROM investor_holders
-            WHERE user_id=$1
-            ORDER BY CASE role WHEN 'primary' THEN 0
-                               WHEN 'secondary' THEN 1
-                               ELSE 2 END
-            LIMIT 1
-        """, str(user["id"]))
-        if h:
-            investor_id = str(h["investor_id"])
-            holder_role = h["role"]
-
-    token = create_jwt(str(user["id"]), investor_id, user["role"], holder_role)
+    token = create_jwt(str(user["id"]), inv_id, user["role"], holder_role)
 
     await db.execute(
-        "INSERT INTO audit_log (user_id,action,table_name,ip_address) VALUES ($1,$2,$3,$4)",
-        str(user["id"]), "LOGIN", "users", request.client.host
-    )
+        "INSERT INTO audit_log (user_id,action,table_name,ip_address) "
+        "VALUES ($1,$2,$3,$4)",
+        str(user["id"]), "LOGIN", "users", request.client.host)
 
     return TokenResponse(
         access_token=token,
         role=user["role"],
         name=user["name"],
-        investor_id=investor_id,
+        investor_id=inv_id,
         holder_role=holder_role,
     )
 
@@ -175,7 +156,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "name":        current_user["name"],
         "email":       current_user["email"],
         "role":        current_user["role"],
-        "investor_id": str(current_user["investor_id"]) if current_user.get("investor_id") else None,
+        "investor_id": current_user.get("investor_id"),
         "holder_role": current_user.get("holder_role"),
     }
 
@@ -188,15 +169,16 @@ async def change_password(
 ):
     user = await db.fetchrow(
         "SELECT password_hash FROM users WHERE id=$1", str(current_user["id"]))
-    if not bcrypt.checkpw(body.current_password.encode(), user["password_hash"].encode()):
+    if not bcrypt.checkpw(body.current_password.encode(),
+                          user["password_hash"].encode()):
         raise HTTPException(400, "Current password incorrect")
     if len(body.new_password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
-    new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
+    new_hash = bcrypt.hashpw(
+        body.new_password.encode(), bcrypt.gensalt()).decode()
     await db.execute(
         "UPDATE users SET password_hash=$1, updated_at=NOW() WHERE id=$2",
-        new_hash, str(current_user["id"])
-    )
+        new_hash, str(current_user["id"]))
     return {"message": "Password updated successfully"}
 
 
@@ -205,6 +187,5 @@ async def logout(current_user: dict = Depends(get_current_user),
                  db: Database = Depends(get_db)):
     await db.execute(
         "INSERT INTO audit_log (user_id,action,table_name) VALUES ($1,$2,$3)",
-        str(current_user["id"]), "LOGOUT", "users"
-    )
+        str(current_user["id"]), "LOGOUT", "users")
     return {"message": "Logged out successfully"}

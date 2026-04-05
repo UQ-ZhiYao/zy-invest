@@ -424,17 +424,27 @@ def _inv_block(s, inv):
         v = inv.get(k)
         return str(v).strip() if v not in (None, '', 'None') else default
 
-    # Build registered name — for joint accounts show all holder names
-    holders    = inv.get('holders', [])
-    acct_type  = g('account_type', 'Individual').capitalize()
+    holders   = inv.get('holders', [])
+    acct_type = g('account_type', 'Individual')
+
+    # Registered name:
+    #   Individual → holder's own name
+    #   Joint      → "Primary Name & Secondary Name"
     if holders and len(holders) > 1:
-        reg_name = ' & '.join(h['name'] for h in holders)
+        primary   = [h['name'] for h in holders if h.get('role') == 'primary']
+        secondary = [h['name'] for h in holders if h.get('role') == 'secondary']
+        parts = primary + secondary
+        reg_name = ' & '.join(parts) if parts else g('name')
     else:
         reg_name = g('name')
 
-    # Nominee name — secondary/nominee holders
-    nominees   = [h['name'] for h in holders if h.get('role') in ('secondary','nominee')]
-    nom_name   = ', '.join(nominees) if nominees else '—'
+    # Share ratio line (joint only, informational)
+    ratio_str = '—'
+    if holders and len(holders) > 1:
+        ratio_parts = [
+            f"{h['name'].split()[0]}: {h.get('share_ratio', 0):.0f}%"
+            for h in holders]
+        ratio_str = ' / '.join(ratio_parts)
 
     return [
         *_sec(s, "Investor's Information"),
@@ -447,8 +457,8 @@ def _inv_block(s, inv):
              "Bank Name",       g('bank_name')],
             ["Email Address",   g('email'),
              "Bank Account No.",g('bank_account_no')],
-            ["Nominee Name",    nom_name,
-             "Total Days Held", f"{inv.get('days_held',0)} days"],
+            ["Share Ratio",     ratio_str,
+             "Total Days Held", f"{inv.get('days_held', 0)} days"],
         ]),
         Spacer(1, 2*mm),
     ]

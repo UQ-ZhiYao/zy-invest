@@ -1354,20 +1354,22 @@ async def generate_statement(
     from datetime import date as _date_type
 
     async def _enrich_inv(inv_row, investor_uuid):
-        """Add holders list to investor dict for PDF joint name display."""
+        """Add holders + their nominees to investor dict for PDF display."""
         d = dict(inv_row)
+        # Holders (primary first)
         holders = await db.fetch("""
-            SELECT u.name, u.email, ih.role
+            SELECT u.name, u.email, u.phone, ih.role, ih.share_ratio
             FROM investor_holders ih JOIN users u ON u.id=ih.user_id
             WHERE ih.investor_id=$1
-            ORDER BY CASE ih.role WHEN 'primary' THEN 0 WHEN 'secondary' THEN 1 ELSE 2 END
+            ORDER BY CASE ih.role WHEN 'primary' THEN 0 ELSE 1 END
         """, investor_uuid)
-        d['holders'] = [{"name": h["name"], "email": h["email"],
-                         "role": h["role"]} for h in holders]
-        # account_type from investors table
+        d['holders'] = [{"name":  h["name"],  "email": h["email"],
+                         "phone": h["phone"],  "role":  h["role"],
+                         "share_ratio": float(h["share_ratio"] or 100)}
+                        for h in holders]
         acc = await db.fetchval(
             "SELECT account_type FROM investors WHERE id=$1", investor_uuid)
-        d['account_type'] = acc or 'Individual'
+        d['account_type'] = (acc or 'individual').capitalize()
         return d
     try:
         investor_id = _uuid_mod.UUID(str(_inv_id_raw)) if _inv_id_raw else None
@@ -2121,3 +2123,159 @@ async def delete_document(
     if not deleted:
         raise HTTPException(404, "Document not found")
     return {"message": "Document deleted"}
+# ── Investor account_type + holder management ─────────────────
+@router.put("/investors/{investor_id}")
+async def update_investor(
+    investor_id: str,
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    allowed = {"account_type", "notes", "is_active"}
+    fields, vals, i = [], [], 1
+    for k, v in body.items():
+        if k in allowed:
+            fields.append(f"{k}=${i}"); vals.append(v); i += 1
+    if not fields:
+        return {"message": "Nothing to update"}
+    vals.append(investor_id)
+    await db.execute(
+        f"UPDATE investors SET {','.join(fields)}, updated_at=NOW() "
+        f"WHERE id=${i}::uuid", *vals)
+    return {"message": "Investor updated"}
+
+
+@router.get("/investors/{investor_id}/holders")
+async def list_holders(
+    investor_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    rows = await db.fetch("""
+        SELECT ih.id, ih.investor_id, ih.user_id, ih.role,
+               ih.share_ratio, ih.created_at,
+               u.name, u.email, u.phone, u.is_active
+        FROM investor_holders ih
+        JOIN users u ON u.id = ih.user_id
+        WHERE ih.investor_id = $1
+        ORDER BY CASE ih.role WHEN 'primary' THEN 0 ELSE 1 END, ih.created_at
+    """, investor_id)
+    return [serialise(r) for r in rows]
+
+
+@router.post("/investors/{investor_id}/holders")
+async def add_holder(
+    investor_id: str,
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    user_id     = body.get("user_id")
+    role        = body.get("role", "secondary")
+    share_ratio = float(body.get("share_ratio", 0))
+    if role not in ("primary", "secondary"):
+        raise HTTPException(400, "role must be primary or secondary")
+    if share_ratio <= 0 or share_ratio > 100:
+        raise HTTPException(400, "share_ratio must be between 0 and 100")
+
+    # If promoting to primary, demote current primary → secondary
+    if role == "primary":
+        await db.execute("""
+            UPDATE investor_holders SET role='secondary'
+            WHERE investor_id=$1::uuid AND role='primary'
+        """, investor_id)
+        # Sync users.investor_id for the new primary
+        await db.execute(
+            "UPDATE users SET investor_id=$1::uuid WHERE id=$2::uuid",
+            investor_id, user_id)
+
+    await db.execute("""
+        INSERT INTO investor_holders (investor_id, user_id, role, share_ratio)
+        VALUES ($1::uuid, $2::uuid, $3, $4)
+        ON CONFLICT (investor_id, user_id)
+        DO UPDATE SET role=EXCLUDED.role, share_ratio=EXCLUDED.share_ratio
+    """, investor_id, user_id, role, share_ratio)
+    return {"message": "Holder added"}
+
+
+@router.put("/investors/{investor_id}/holders/{holder_id}")
+async def update_holder(
+    investor_id: str,
+    holder_id: str,
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    role        = body.get("role")
+    share_ratio = body.get("share_ratio")
+
+    if role and role not in ("primary", "secondary"):
+        raise HTTPException(400, "role must be primary or secondary")
+
+    if role == "primary":
+        # Get user_id for the new primary before demoting others
+        row = await db.fetchrow(
+            "SELECT user_id FROM investor_holders WHERE id=$1::uuid", holder_id)
+        if row:
+            await db.execute("""
+                UPDATE investor_holders SET role='secondary'
+                WHERE investor_id=$1::uuid AND role='primary' AND id!=$2::uuid
+            """, investor_id, holder_id)
+            await db.execute(
+                "UPDATE users SET investor_id=$1::uuid WHERE id=$2::uuid",
+                investor_id, str(row["user_id"]))
+
+    fields, vals, i = [], [], 1
+    if role:        fields.append(f"role=${i}");        vals.append(role);        i += 1
+    if share_ratio is not None:
+        fields.append(f"share_ratio=${i}"); vals.append(float(share_ratio)); i += 1
+    if fields:
+        vals.extend([holder_id, investor_id])
+        await db.execute(
+            f"UPDATE investor_holders SET {','.join(fields)} "
+            f"WHERE id=${i}::uuid AND investor_id=${i+1}::uuid", *vals)
+    return {"message": "Holder updated"}
+
+
+@router.delete("/investors/{investor_id}/holders/{holder_id}")
+async def remove_holder(
+    investor_id: str,
+    holder_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    row = await db.fetchrow(
+        "SELECT role FROM investor_holders "
+        "WHERE id=$1::uuid AND investor_id=$2::uuid",
+        holder_id, investor_id)
+    if not row:
+        raise HTTPException(404, "Holder not found")
+    if row["role"] == "primary":
+        raise HTTPException(400, "Cannot remove primary holder. Promote another holder first.")
+    await db.execute(
+        "DELETE FROM investor_holders WHERE id=$1::uuid", holder_id)
+    return {"message": "Holder removed"}
+
+
+# ── Nominees per investor (admin view across all holders) ─────
+@router.get("/investors/{investor_id}/nominees")
+async def list_all_nominees(
+    investor_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Returns nominees for all holders of this investor account."""
+    rows = await db.fetch("""
+        SELECT n.id, n.holder_user_id, n.name, n.phone, n.email,
+               n.address_line1, n.address_line2, n.city, n.postcode,
+               n.state, n.country, n.relationship, n.created_at,
+               u.name AS holder_name, ih.role AS holder_role
+        FROM investor_holders ih
+        JOIN users u ON u.id = ih.user_id
+        LEFT JOIN nominees n ON n.holder_user_id = ih.user_id
+        WHERE ih.investor_id = $1
+        ORDER BY CASE ih.role WHEN 'primary' THEN 0 ELSE 1 END, n.name
+    """, investor_id)
+    return [serialise(r) for r in rows]
+
+

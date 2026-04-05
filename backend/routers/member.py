@@ -1,8 +1,7 @@
 """
-Member router  v2.0.0  — joint account / nominee support
-Data is filtered by investor_id from the JWT.
-Primary/secondary holders see the same investor.
-Nominees are accessible via nominee_links.
+Member router v2.1 — individual & joint account support
+All member endpoints filtered by investor_id from JWT.
+Nominees are per-holder contact records (no investor link).
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -16,106 +15,53 @@ from services.irr import compute_irr
 router = APIRouter()
 
 
-# ── Core helper ───────────────────────────────────────────────
 def investor_id_from_user(user: dict) -> str:
-    """
-    Returns the investor_id for the current user.
-    Works for primary holders (users.investor_id)
-    and secondary/nominee holders (investor_holders).
-    Both are resolved in get_current_user() and stored in user dict.
-    """
     iid = user.get("investor_id")
     if not iid:
-        raise HTTPException(403, "No investor profile linked to this account")
+        raise HTTPException(
+            403, "No investor profile linked to this account")
     return str(iid)
-
-
-async def get_accessible_investor_ids(user: dict, db: Database) -> list:
-    """
-    Returns ALL investor_ids accessible to this user:
-    - Their own investor_id
-    - Any nominees they can manage (via nominee_links)
-    """
-    own = investor_id_from_user(user)
-    nominees = await db.fetch("""
-        SELECT nominee_investor_id FROM nominee_links
-        WHERE holder_investor_id = $1
-    """, own)
-    return [own] + [str(r["nominee_investor_id"]) for r in nominees]
 
 
 # ── Account Summary ───────────────────────────────────────────
 @router.get("/account/summary")
 async def account_summary(
-    investor_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
     db: Database = Depends(get_db)
 ):
-    """
-    investor_id param allows viewing a nominee's account.
-    If not provided, returns the caller's own account.
-    """
-    own_id      = investor_id_from_user(current_user)
-    accessible  = await get_accessible_investor_ids(current_user, db)
-
-    target_id = investor_id or own_id
-    if target_id not in accessible:
-        raise HTTPException(403, "Access denied to this investor account")
-
+    inv_id   = investor_id_from_user(current_user)
     investor = await db.fetchrow(
-        "SELECT * FROM v_investor_profile WHERE id=$1", target_id)
+        "SELECT * FROM v_investor_profile WHERE id=$1", inv_id)
     if not investor:
         raise HTTPException(404, "Investor profile not found")
 
     cashflows = await db.fetch(
         "SELECT date, amount, cashflow_type FROM principal_cashflows "
-        "WHERE investor_id=$1 ORDER BY date", target_id)
+        "WHERE investor_id=$1 ORDER BY date", inv_id)
     dist_received = await db.fetch(
         "SELECT dl.paid_date AS date, dl.amount FROM distribution_ledger dl "
-        "WHERE dl.investor_id=$1 AND dl.paid=TRUE ORDER BY dl.paid_date", target_id)
+        "WHERE dl.investor_id=$1 AND dl.paid=TRUE ORDER BY dl.paid_date", inv_id)
 
     irr = compute_irr(
         principal_cashflows=list(cashflows),
         distributions=list(dist_received),
         current_market_value=float(investor["market_value"] or 0),
-        today=date.today()
-    )
+        today=date.today())
 
-    # Attach holder info for the response
+    # Co-holders for joint accounts
     holders = await db.fetch("""
-        SELECT u.name, u.email, ih.role
+        SELECT u.name, u.email, ih.role, ih.share_ratio
         FROM investor_holders ih
         JOIN users u ON u.id = ih.user_id
         WHERE ih.investor_id = $1
-        ORDER BY CASE ih.role WHEN 'primary' THEN 0 WHEN 'secondary' THEN 1 ELSE 2 END
-    """, target_id)
+        ORDER BY CASE ih.role WHEN 'primary' THEN 0 ELSE 1 END
+    """, inv_id)
 
     return {
         **serialise(investor),
         "irr":     round(irr * 100, 4) if irr is not None else None,
-        "holders": [{"name": h["name"], "email": h["email"],
-                     "role": h["role"]} for h in holders],
-        "is_nominee_view": target_id != own_id,
+        "holders": [serialise(h) for h in holders],
     }
-
-
-# ── Nominee list ──────────────────────────────────────────────
-@router.get("/account/nominees")
-async def my_nominees(
-    current_user: dict = Depends(get_current_user),
-    db: Database = Depends(get_db)
-):
-    """Returns all nominee accounts this user can manage."""
-    own_id = investor_id_from_user(current_user)
-    rows = await db.fetch("""
-        SELECT i.id, i.name, i.account_type, i.units, i.is_active,
-               nl.created_at AS linked_at
-        FROM nominee_links nl
-        JOIN investors i ON i.id = nl.nominee_investor_id
-        WHERE nl.holder_investor_id = $1
-        ORDER BY i.name
-    """, own_id)
-    return [serialise(r) for r in rows]
 
 
 # ── Profile ───────────────────────────────────────────────────
@@ -130,25 +76,24 @@ async def get_profile(
                   address_line1, address_line2, city, postcode, state, country,
                   created_at
            FROM users WHERE id=$1""",
-        str(current_user["id"])
-    )
+        str(current_user["id"]))
     if not user:
         raise HTTPException(404, "User not found")
     return serialise(dict(user))
 
 
 class ProfileUpdate(BaseModel):
-    name: Optional[str]            = None
-    email: Optional[str]           = None
-    phone: Optional[str]           = None
-    bank_name: Optional[str]       = None
+    name:            Optional[str] = None
+    email:           Optional[str] = None
+    phone:           Optional[str] = None
+    bank_name:       Optional[str] = None
     bank_account_no: Optional[str] = None
-    address_line1: Optional[str]   = None
-    address_line2: Optional[str]   = None
-    city: Optional[str]            = None
-    postcode: Optional[str]        = None
-    state: Optional[str]           = None
-    country: Optional[str]         = None
+    address_line1:   Optional[str] = None
+    address_line2:   Optional[str] = None
+    city:            Optional[str] = None
+    postcode:        Optional[str] = None
+    state:           Optional[str] = None
+    country:         Optional[str] = None
 
 
 @router.put("/account/profile")
@@ -165,51 +110,127 @@ async def update_profile(
         return {"message": "Nothing to update"}
     vals.append(str(current_user["id"]))
     await db.execute(
-        f"UPDATE users SET {','.join(fields)},updated_at=NOW() WHERE id=${idx}", *vals)
+        f"UPDATE users SET {','.join(fields)},updated_at=NOW() WHERE id=${idx}",
+        *vals)
     return {"message": "Profile updated"}
+
+
+# ── Nominees (per holder — plain contacts, no investor link) ──
+@router.get("/account/nominees")
+async def get_nominees(
+    current_user: dict = Depends(get_current_user),
+    db: Database = Depends(get_db)
+):
+    rows = await db.fetch(
+        "SELECT * FROM nominees WHERE holder_user_id=$1 ORDER BY name",
+        str(current_user["id"]))
+    return [serialise(r) for r in rows]
+
+
+class NomineeCreate(BaseModel):
+    name:         str
+    phone:        Optional[str] = None
+    email:        Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city:         Optional[str] = None
+    postcode:     Optional[str] = None
+    state:        Optional[str] = None
+    country:      Optional[str] = "Malaysia"
+    relationship: Optional[str] = None
+
+
+@router.post("/account/nominees")
+async def add_nominee(
+    body: NomineeCreate,
+    current_user: dict = Depends(get_current_user),
+    db: Database = Depends(get_db)
+):
+    await db.execute("""
+        INSERT INTO nominees
+            (holder_user_id, name, phone, email,
+             address_line1, address_line2, city, postcode, state, country,
+             relationship)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    """, str(current_user["id"]),
+        body.name, body.phone, body.email,
+        body.address_line1, body.address_line2,
+        body.city, body.postcode, body.state, body.country,
+        body.relationship)
+    return {"message": "Nominee added"}
+
+
+@router.put("/account/nominees/{nominee_id}")
+async def update_nominee(
+    nominee_id: str,
+    body: NomineeCreate,
+    current_user: dict = Depends(get_current_user),
+    db: Database = Depends(get_db)
+):
+    row = await db.fetchrow(
+        "SELECT id FROM nominees WHERE id=$1::uuid AND holder_user_id=$2",
+        nominee_id, str(current_user["id"]))
+    if not row:
+        raise HTTPException(404, "Nominee not found")
+    await db.execute("""
+        UPDATE nominees SET
+            name=$1, phone=$2, email=$3,
+            address_line1=$4, address_line2=$5,
+            city=$6, postcode=$7, state=$8, country=$9,
+            relationship=$10, updated_at=NOW()
+        WHERE id=$11::uuid AND holder_user_id=$12
+    """, body.name, body.phone, body.email,
+        body.address_line1, body.address_line2,
+        body.city, body.postcode, body.state, body.country,
+        body.relationship, nominee_id, str(current_user["id"]))
+    return {"message": "Nominee updated"}
+
+
+@router.delete("/account/nominees/{nominee_id}")
+async def delete_nominee(
+    nominee_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Database = Depends(get_db)
+):
+    await db.execute(
+        "DELETE FROM nominees WHERE id=$1::uuid AND holder_user_id=$2",
+        nominee_id, str(current_user["id"]))
+    return {"message": "Nominee deleted"}
 
 
 # ── Distributions ─────────────────────────────────────────────
 @router.get("/account/distributions")
 async def my_distributions(
-    investor_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
     db: Database = Depends(get_db)
 ):
-    accessible = await get_accessible_investor_ids(current_user, db)
-    target_id  = investor_id or investor_id_from_user(current_user)
-    if target_id not in accessible:
-        raise HTTPException(403, "Access denied")
+    inv_id = investor_id_from_user(current_user)
     rows = await db.fetch(
-        "SELECT * FROM v_distribution_breakdown WHERE investor_id=$1 ORDER BY pmt_date DESC",
-        target_id)
+        "SELECT * FROM v_distribution_breakdown "
+        "WHERE investor_id=$1 ORDER BY pmt_date DESC", inv_id)
     return [serialise(r) for r in rows]
 
 
 # ── Transactions ──────────────────────────────────────────────
 @router.get("/account/transactions")
 async def my_transactions(
-    investor_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
     db: Database = Depends(get_db),
-    page: int = 1,
-    limit: int = 50
+    page: int = 1, limit: int = 50
 ):
-    accessible = await get_accessible_investor_ids(current_user, db)
-    target_id  = investor_id or investor_id_from_user(current_user)
-    if target_id not in accessible:
-        raise HTTPException(403, "Access denied")
+    inv_id = investor_id_from_user(current_user)
     offset = (page - 1) * limit
     rows = await db.fetch(
         "SELECT date,asset_class,sector,instrument,units,price,net_amount,theme "
-        "FROM transactions WHERE investor_id=$1 ORDER BY date DESC LIMIT $2 OFFSET $3",
-        target_id, limit, offset)
+        "FROM transactions WHERE investor_id=$1 "
+        "ORDER BY date DESC LIMIT $2 OFFSET $3",
+        inv_id, limit, offset)
     total = await db.fetchval(
-        "SELECT COUNT(*) FROM transactions WHERE investor_id=$1", target_id)
+        "SELECT COUNT(*) FROM transactions WHERE investor_id=$1", inv_id)
     return {"data": [serialise(r) for r in rows], "total": total, "page": page}
 
 
-# ── Fund Performance (fund-wide, no filtering) ────────────────
+# ── Fund Performance ──────────────────────────────────────────
 @router.get("/fund/performance")
 async def fund_performance(db: Database = Depends(get_db),
                            _: dict = Depends(get_current_user)):
@@ -227,7 +248,8 @@ async def fund_performance(db: Database = Depends(get_db),
             else:
                 ref_date = latest["date"] - _dt.timedelta(days=days)
             ref = await db.fetchrow(
-                "SELECT nta FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1", ref_date)
+                "SELECT nta FROM historical WHERE date<=$1 "
+                "ORDER BY date DESC LIMIT 1", ref_date)
             if ref and ref["nta"]:
                 periods[label] = round(
                     (float(latest["nta"]) / float(ref["nta"]) - 1) * 100, 4)
@@ -244,7 +266,8 @@ async def fund_performance(db: Database = Depends(get_db),
 @router.get("/fund/statement")
 async def fund_statement(db: Database = Depends(get_db),
                          _: dict = Depends(get_current_user)):
-    rows = await db.fetch("SELECT * FROM v_fund_statement ORDER BY financial_year")
+    rows = await db.fetch(
+        "SELECT * FROM v_fund_statement ORDER BY financial_year")
     return [serialise(r) for r in rows]
 
 
@@ -271,8 +294,7 @@ async def fund_analysis(db: Database = Depends(get_db),
                SUM(CASE WHEN units<0 THEN ABS(net_amount) ELSE 0 END) AS proceeds,
                SUM(CASE WHEN units>0 THEN -ABS(net_amount)
                         WHEN units<0 THEN  ABS(net_amount) ELSE 0 END) AS net_deployed
-        FROM transactions
-        GROUP BY DATE_TRUNC('quarter',date) ORDER BY 2""")
+        FROM transactions GROUP BY DATE_TRUNC('quarter',date) ORDER BY 2""")
     return {
         "by_class":             [serialise(r) for r in by_class],
         "by_sector":            [serialise(r) for r in by_sector],
@@ -287,20 +309,17 @@ async def fund_analysis(db: Database = Depends(get_db),
 # ── Documents ─────────────────────────────────────────────────
 @router.get("/fund/documents")
 async def my_documents(
-    investor_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
     db: Database = Depends(get_db)
 ):
-    accessible = await get_accessible_investor_ids(current_user, db)
-    target_id  = investor_id or investor_id_from_user(current_user)
-    if target_id not in accessible:
-        raise HTTPException(403, "Access denied")
+    inv_id = investor_id_from_user(current_user)
     rows = await db.fetch("""
-        SELECT id,title,doc_type,file_name,file_size_kb,visibility,financial_year,created_at
+        SELECT id,title,doc_type,file_name,file_size_kb,
+               visibility,financial_year,created_at
         FROM documents
         WHERE visibility='fund' OR investor_id=$1
         ORDER BY created_at DESC
-    """, target_id)
+    """, inv_id)
     return [serialise(r) for r in rows]
 
 
@@ -310,11 +329,13 @@ async def download_document(
     current_user: dict = Depends(get_current_user),
     db: Database = Depends(get_db)
 ):
-    accessible = await get_accessible_investor_ids(current_user, db)
+    inv_id = investor_id_from_user(current_user)
     doc = await db.fetchrow(
-        "SELECT file_url,visibility,investor_id,title FROM documents WHERE id=$1", doc_id)
+        "SELECT file_url,visibility,investor_id,title FROM documents WHERE id=$1",
+        doc_id)
     if not doc:
         raise HTTPException(404, "Document not found")
-    if doc["visibility"] == "member" and str(doc["investor_id"]) not in accessible:
+    if (doc["visibility"] == "member"
+            and str(doc["investor_id"]) != inv_id):
         raise HTTPException(403, "Access denied")
     return {"url": doc["file_url"], "title": doc["title"]}
