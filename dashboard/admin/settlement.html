@@ -98,8 +98,8 @@ function renderTable(data) {
   const tbody = document.getElementById('settlement-table');
   if (!data.length) { tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">No settlement records. Add SELL trades via Trade Transactions.</td></tr>'; return; }
   tbody.innerHTML = data.map(r => {
-    const cost     = Number(r.cost_basis || (Number(r.units) * Number(r.bought_price||0)));
-    const proceeds = Number(r.proceeds   || (Number(r.units) * Number(r.sale_price||0)));
+    const cost     = Number(r.cost_basis || 0);   // from DB — exact, no recompute
+    const proceeds = Number(r.proceeds   || 0);   // from DB — abs(net_amount)
     const pl       = Number(r.profit_loss||0);
     const ret      = Number(r.return_pct||0);
     return `<tr>

@@ -496,6 +496,7 @@ async def compute_holdings_and_settlement(
 
     # Round only at DB write time
     def r8(v): return float(D(v).quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP))
+    def r6(v): return float(D(v).quantize(Decimal('0.000001'),   rounding=ROUND_HALF_UP))
     def r4(v): return float(D(v).quantize(Decimal('0.0001'),     rounding=ROUND_HALF_UP))
     def r2(v): return float(D(v).quantize(Decimal('0.01'),       rounding=ROUND_HALF_UP))
 
@@ -581,12 +582,16 @@ async def compute_holdings_and_settlement(
             ret_pct     = (realised_pl / cost_basis * 100) if cost_basis > Decimal('0') else Decimal('0')
 
             # Append settlement — round ONLY here at DB write time
+            # cost_basis and proceeds stored at full precision so
+            # realised_pl = proceeds - cost_basis is always exact when read from DB
             settlements.append((
                 d, region, ac, sector, instr,
                 r8(units_sold),
-                r8(avg_cost),       # bought_price  = total_cost/units (AVCO, no rounding)
-                r8(sale_price),     # sale_price    = proceeds/units_sold
-                r4(realised_pl),    # realised_pl   = proceeds - cost_basis (exact)
+                r8(avg_cost),       # bought_price = total_cost/units (AVCO)
+                r8(sale_price),     # sale_price   = proceeds/units_sold
+                r6(cost_basis),     # cost_basis   = (total_cost/units) × units_sold
+                r6(proceeds),       # proceeds     = abs(net_amount)
+                r4(realised_pl),    # realised_pl  = proceeds - cost_basis (exact)
                 r4(ret_pct),
             ))
 
@@ -609,8 +614,9 @@ async def compute_holdings_and_settlement(
             await db.execute("""
                 INSERT INTO settlement
                     (date, region, asset_class, sector, instrument, units,
-                     bought_price, sale_price, profit_loss, return_pct, remark)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'auto-computed VWAP')
+                     bought_price, sale_price, cost_basis, proceeds,
+                     profit_loss, return_pct, remark)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'auto-computed VWAP')
             """, *s)
             sc += 1
         except Exception as e:
