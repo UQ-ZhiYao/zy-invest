@@ -423,18 +423,31 @@ def _inv_block(s, inv):
     def g(k, default='—'):
         v = inv.get(k)
         return str(v).strip() if v not in (None, '', 'None') else default
+
+    # Build registered name — for joint accounts show all holder names
+    holders    = inv.get('holders', [])
+    acct_type  = g('account_type', 'Individual').capitalize()
+    if holders and len(holders) > 1:
+        reg_name = ' & '.join(h['name'] for h in holders)
+    else:
+        reg_name = g('name')
+
+    # Nominee name — secondary/nominee holders
+    nominees   = [h['name'] for h in holders if h.get('role') in ('secondary','nominee')]
+    nom_name   = ', '.join(nominees) if nominees else '—'
+
     return [
         *_sec(s, "Investor's Information"),
         _inv_grid(s, [
-            ["Account Type",    g('account_type','Nominee Account'),
+            ["Account Type",    acct_type,
              "Account ID",      g('account_id')],
-            ["Registered Name", g('name'),
+            ["Registered Name", reg_name,
              "Settlement Type", "Banking"],
             ["Phone No.",       g('phone'),
              "Bank Name",       g('bank_name')],
             ["Email Address",   g('email'),
              "Bank Account No.",g('bank_account_no')],
-            ["Nominee Name",    "—",
+            ["Nominee Name",    nom_name,
              "Total Days Held", f"{inv.get('days_held',0)} days"],
         ]),
         Spacer(1, 2*mm),

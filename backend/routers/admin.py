@@ -1345,14 +1345,30 @@ async def generate_statement(
         generate_dividend_statement, generate_account_statement
     )
 
-    stmt_type   = body.get('statement_type')   # factsheet|subscription|dividend|account
-    _inv_id_raw = body.get('investor_id')       # None for factsheet
+    stmt_type   = body.get('statement_type')
+    _inv_id_raw = body.get('investor_id')
     fin_year    = body.get('financial_year', '')
     period      = body.get('period', '')
 
-    # Convert investor_id to uuid.UUID so asyncpg binds it correctly
     import uuid as _uuid_mod
     from datetime import date as _date_type
+
+    async def _enrich_inv(inv_row, investor_uuid):
+        """Add holders list to investor dict for PDF joint name display."""
+        d = dict(inv_row)
+        holders = await db.fetch("""
+            SELECT u.name, u.email, ih.role
+            FROM investor_holders ih JOIN users u ON u.id=ih.user_id
+            WHERE ih.investor_id=$1
+            ORDER BY CASE ih.role WHEN 'primary' THEN 0 WHEN 'secondary' THEN 1 ELSE 2 END
+        """, investor_uuid)
+        d['holders'] = [{"name": h["name"], "email": h["email"],
+                         "role": h["role"]} for h in holders]
+        # account_type from investors table
+        acc = await db.fetchval(
+            "SELECT account_type FROM investors WHERE id=$1", investor_uuid)
+        d['account_type'] = acc or 'Individual'
+        return d
     try:
         investor_id = _uuid_mod.UUID(str(_inv_id_raw)) if _inv_id_raw else None
     except (ValueError, AttributeError):
@@ -1538,10 +1554,21 @@ async def generate_statement(
                            END,
                            0
                        )::int AS days_held
-                FROM investors i LEFT JOIN users u ON u.investor_id = i.id
+                FROM investors i LEFT JOIN LATERAL (
+                SELECT id,name,email,phone,bank_name,bank_account_no,
+                       address_line1,address_line2,city,postcode,state,country
+                FROM users u2
+                WHERE u2.id = (
+                    SELECT ih.user_id FROM investor_holders ih
+                    WHERE ih.investor_id = i.id
+                      AND ih.role = 'primary'
+                    ORDER BY ih.created_at ASC LIMIT 1
+                )
+            ) u ON TRUE
                 WHERE i.id = $1
             """, investor_id)
             if not inv: raise HTTPException(404, "Investor not found")
+            inv = await _enrich_inv(inv, investor_id)
             # Use selected_date if provided, otherwise latest
             selected_date = selected_date_obj
             if selected_date:
@@ -1585,10 +1612,21 @@ async def generate_statement(
                            END,
                            0
                        )::int AS days_held
-                FROM investors i LEFT JOIN users u ON u.investor_id = i.id
+                FROM investors i LEFT JOIN LATERAL (
+                SELECT id,name,email,phone,bank_name,bank_account_no,
+                       address_line1,address_line2,city,postcode,state,country
+                FROM users u2
+                WHERE u2.id = (
+                    SELECT ih.user_id FROM investor_holders ih
+                    WHERE ih.investor_id = i.id
+                      AND ih.role = 'primary'
+                    ORDER BY ih.created_at ASC LIMIT 1
+                )
+            ) u ON TRUE
                 WHERE i.id = $1
             """, investor_id)
             if not inv: raise HTTPException(404, "Investor not found")
+            inv = await _enrich_inv(inv, investor_id)
             selected_date = selected_date_obj
             if selected_date:
                 target = await db.fetchrow("""
@@ -1638,10 +1676,21 @@ async def generate_statement(
                            END,
                            0
                        )::int AS days_held
-                FROM investors i LEFT JOIN users u ON u.investor_id = i.id
+                FROM investors i LEFT JOIN LATERAL (
+                SELECT id,name,email,phone,bank_name,bank_account_no,
+                       address_line1,address_line2,city,postcode,state,country
+                FROM users u2
+                WHERE u2.id = (
+                    SELECT ih.user_id FROM investor_holders ih
+                    WHERE ih.investor_id = i.id
+                      AND ih.role = 'primary'
+                    ORDER BY ih.created_at ASC LIMIT 1
+                )
+            ) u ON TRUE
                 WHERE i.id = $1
             """, investor_id)
             if not inv: raise HTTPException(404, "Investor not found")
+            inv = await _enrich_inv(inv, investor_id)
             # Get distribution ledger for this investor (most recent record for FY)
             dists = await db.fetch("""
                 SELECT dl.units_at_ex_date, dl.amount, dl.paid,
@@ -1674,11 +1723,22 @@ async def generate_statement(
                 SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
                        u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
                 FROM investors i
-                LEFT JOIN users u ON u.investor_id = i.id
+                LEFT JOIN LATERAL (
+                SELECT id,name,email,phone,bank_name,bank_account_no,
+                       address_line1,address_line2,city,postcode,state,country
+                FROM users u2
+                WHERE u2.id = (
+                    SELECT ih.user_id FROM investor_holders ih
+                    WHERE ih.investor_id = i.id
+                      AND ih.role = 'primary'
+                    ORDER BY ih.created_at ASC LIMIT 1
+                )
+            ) u ON TRUE
                 WHERE i.id = $1
             """, investor_id)
             if not inv:
                 raise HTTPException(404, "Investor not found")
+            inv = await _enrich_inv(inv, investor_id)
             summary = await db.fetchrow("SELECT * FROM v_investor_profile WHERE id = $1", investor_id)
             if not summary:
                 raise HTTPException(404, "Investor profile not found")
@@ -1857,7 +1917,19 @@ async def generate_fy_statements(
         inv_full = await db.fetchrow("""
             SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
                    u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
-            FROM investors i LEFT JOIN users u ON u.investor_id=i.id WHERE i.id=$1
+            FROM investors i
+            LEFT JOIN LATERAL (
+                SELECT id,name,email,phone,bank_name,bank_account_no,
+                       address_line1,address_line2,city,postcode,state,country
+                FROM users u2
+                WHERE u2.id = (
+                    SELECT ih.user_id FROM investor_holders ih
+                    WHERE ih.investor_id = i.id
+                      AND ih.role = 'primary'
+                    ORDER BY ih.created_at ASC LIMIT 1
+                )
+            ) u ON TRUE
+            WHERE i.id=$1
         """, inv_id)
         if not inv_full: continue
         summary = await db.fetchrow("SELECT * FROM v_investor_profile WHERE id=$1", inv_id)
