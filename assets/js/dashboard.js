@@ -44,37 +44,37 @@ function renderSidebar(activePage) {
     <div class="nav-section">
       <div class="nav-section-label">Overview</div>
       <a href="${base}dashboard/index.html" class="nav-item ${activePage==='dashboard'?'active':''}" data-tooltip="Dashboard">
-        <span class="nav-icon">⊞</span><span class="nav-label">Dashboard</span>
+        <span class="nav-icon">📊</span><span class="nav-label">Dashboard</span>
       </a>
     </div>
     <div class="nav-section">
       <div class="nav-section-label">My Account</div>
       <a href="${base}dashboard/account-summary.html" class="nav-item ${activePage==='account-summary'?'active':''}" data-tooltip="Account Summary">
-        <span class="nav-icon">◫</span><span class="nav-label">Account Summary</span>
+        <span class="nav-icon">💼</span><span class="nav-label">Account Summary</span>
       </a>
       <a href="${base}dashboard/distributions.html" class="nav-item ${activePage==='distributions'?'active':''}" data-tooltip="My Distributions">
-        <span class="nav-icon">◈</span><span class="nav-label">My Distributions</span>
+        <span class="nav-icon">💎</span><span class="nav-label">My Distributions</span>
       </a>
       <a href="${base}dashboard/profile.html" class="nav-item ${activePage==='profile'?'active':''}" data-tooltip="Personal Profile">
-        <span class="nav-icon">○</span><span class="nav-label">Personal Profile</span>
+        <span class="nav-icon">👤</span><span class="nav-label">Personal Profile</span>
       </a>
       <a href="${base}dashboard/security.html" class="nav-item ${activePage==='security'?'active':''}" data-tooltip="Security">
-        <span class="nav-icon">⊠</span><span class="nav-label">Security &amp; Password</span>
+        <span class="nav-icon">🔒</span><span class="nav-label">Security &amp; Password</span>
       </a>
     </div>
     <div class="nav-section">
       <div class="nav-section-label">Fund</div>
       <a href="${base}dashboard/performance.html" class="nav-item ${activePage==='performance'?'active':''}" data-tooltip="Fund Performance">
-        <span class="nav-icon">↗</span><span class="nav-label">Fund Performance</span>
+        <span class="nav-icon">📈</span><span class="nav-label">Fund Performance</span>
       </a>
       <a href="${base}dashboard/statement.html" class="nav-item ${activePage==='statement'?'active':''}" data-tooltip="Corporate Results">
-        <span class="nav-icon">≡</span><span class="nav-label">Corporate Results</span>
+        <span class="nav-icon">📋</span><span class="nav-label">Corporate Results</span>
       </a>
       <a href="${base}dashboard/analysis.html" class="nav-item ${activePage==='analysis'?'active':''}" data-tooltip="Data Analysis">
-        <span class="nav-icon">◎</span><span class="nav-label">Data Analysis</span>
+        <span class="nav-icon">🔍</span><span class="nav-label">Data Analysis</span>
       </a>
       <a href="${base}dashboard/documents.html" class="nav-item ${activePage==='documents'?'active':''}" data-tooltip="Documents">
-        <span class="nav-icon">▤</span><span class="nav-label">Documents</span>
+        <span class="nav-icon">📁</span><span class="nav-label">Documents</span>
       </a>
     </div>
   `;
@@ -83,13 +83,13 @@ function renderSidebar(activePage) {
     <div class="nav-section">
       <div class="nav-section-label">Admin</div>
       <a href="${base}dashboard/admin/index.html" class="nav-item ${activePage==='admin-dashboard'?'active':''}" data-tooltip="Admin Dashboard">
-        <span class="nav-icon">⊞</span><span class="nav-label">Admin Dashboard</span>
+        <span class="nav-icon">🏠</span><span class="nav-label">Admin Dashboard</span>
       </a>
       <a href="${base}dashboard/admin/investors.html" class="nav-item ${activePage==='admin-investors'?'active':''}" data-tooltip="Account Management">
-        <span class="nav-icon">◫</span><span class="nav-label">Account Management</span>
+        <span class="nav-icon">👥</span><span class="nav-label">Account Management</span>
       </a>
       <a href="${base}dashboard/admin/principal.html" class="nav-item ${activePage==='admin-principal'?'active':''}" data-tooltip="Principal Cashflow">
-        <span class="nav-icon">↕</span><span class="nav-label">Principal Cashflow</span>
+        <span class="nav-icon">💵</span><span class="nav-label">Principal Cashflow</span>
       </a>
     </div>
     <div class="nav-section">
@@ -98,37 +98,37 @@ function renderSidebar(activePage) {
         <span class="nav-icon">⇄</span><span class="nav-label">Trade Transactions</span>
       </a>
       <a href="${base}dashboard/admin/holdings.html" class="nav-item ${activePage==='admin-holdings'?'active':''}" data-tooltip="Holdings">
-        <span class="nav-icon">◧</span><span class="nav-label">Holdings</span>
+        <span class="nav-icon">📦</span><span class="nav-label">Holdings</span>
       </a>
       <a href="${base}dashboard/admin/settlement.html" class="nav-item ${activePage==='admin-settlement'?'active':''}" data-tooltip="Settlement">
         <span class="nav-icon">✓</span><span class="nav-label">Settlement</span>
       </a>
       <a href="${base}dashboard/admin/dividends.html" class="nav-item ${activePage==='admin-dividends'?'active':''}" data-tooltip="Dividends">
-        <span class="nav-icon">◈</span><span class="nav-label">Dividends</span>
+        <span class="nav-icon">💰</span><span class="nav-label">Dividends</span>
       </a>
       <a href="${base}dashboard/admin/distributions.html" class="nav-item ${activePage==='admin-distributions'?'active':''}" data-tooltip="Distributions">
-        <span class="nav-icon">↓</span><span class="nav-label">Distributions</span>
+        <span class="nav-icon">📤</span><span class="nav-label">Distributions</span>
       </a>
       <a href="${base}dashboard/admin/others.html" class="nav-item ${activePage==='admin-others'?'active':''}" data-tooltip="Others">
-        <span class="nav-icon">⊕</span><span class="nav-label">Others</span>
+        <span class="nav-icon">⚙</span><span class="nav-label">Others</span>
       </a>
     </div>
     <div class="nav-section">
       <div class="nav-section-label">System</div>
       <a href="${base}dashboard/admin/fee-schedule.html" class="nav-item ${activePage==='fee-schedule'?'active':''}" data-tooltip="Fee Schedule">
-        <span class="nav-icon">▦</span><span class="nav-label">Fee Schedule</span>
+        <span class="nav-icon">🗓</span><span class="nav-label">Fee Schedule</span>
       </a>
       <a href="${base}dashboard/admin/fee-withdrawal.html" class="nav-item ${activePage==='fee-withdrawal'?'active':''}" data-tooltip="Fee Withdrawal">
-        <span class="nav-icon">↑</span><span class="nav-label">Fee Withdrawal</span>
+        <span class="nav-icon">💸</span><span class="nav-label">Fee Withdrawal</span>
       </a>
       <a href="${base}dashboard/admin/price-override.html" class="nav-item ${activePage==='price-override'?'active':''}" data-tooltip="Price Override">
-        <span class="nav-icon">≈</span><span class="nav-label">Price Override</span>
+        <span class="nav-icon">💱</span><span class="nav-label">Price Override</span>
       </a>
       <a href="${base}dashboard/admin/documents.html" class="nav-item ${activePage==='admin-documents'?'active':''}" data-tooltip="Document Management">
-        <span class="nav-icon">▤</span><span class="nav-label">Document Management</span>
+        <span class="nav-icon">📁</span><span class="nav-label">Document Management</span>
       </a>
 <a href="${base}dashboard/admin/statements.html" class="nav-item ${activePage==='admin-statements'?'active':''}" data-tooltip="Generate Statements">
-        <span class="nav-icon">≡</span><span class="nav-label">Generate Statements</span>
+        <span class="nav-icon">📋</span><span class="nav-label">Generate Statements</span>
       </a>
 
       </a>
