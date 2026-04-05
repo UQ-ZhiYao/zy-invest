@@ -1332,275 +1332,548 @@ async def update_user(
         )
     return {"message": "User updated"}
 
-# ── Statement Generation ──────────────────────────────────────
 @router.post("/statements/generate")
 async def generate_statement(
     body: dict,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    """Generate PDF statement and return as base64."""
+    """Generate PDF statement and store in documents table."""
     import io, base64, traceback as _tb
+    from services.pdf_statements import (
+        generate_factsheet, generate_subscription, generate_redemption,
+        generate_dividend_statement, generate_account_statement
+    )
+
+    stmt_type   = body.get('statement_type')   # factsheet|subscription|dividend|account
+    _inv_id_raw = body.get('investor_id')       # None for factsheet
+    fin_year    = body.get('financial_year', '')
+    period      = body.get('period', '')
+
+    # Convert investor_id to uuid.UUID so asyncpg binds it correctly
+    import uuid as _uuid_mod
+    from datetime import date as _date_type
     try:
-        from services.pdf_statements import (
-            generate_factsheet, generate_subscription, generate_redemption,
-            generate_dividend_statement, generate_account_statement
-        )
-    except ImportError as e:
-        raise HTTPException(500, f"PDF service unavailable: {e}")
+        investor_id = _uuid_mod.UUID(str(_inv_id_raw)) if _inv_id_raw else None
+    except (ValueError, AttributeError):
+        raise HTTPException(400, f"Invalid investor_id format: {_inv_id_raw}")
 
-    import uuid as _uuid
-    from datetime import date as _date
-
-    stmt_type    = body.get('statement_type', 'factsheet')
-    _inv_id_raw  = body.get('investor_id')
-    fin_year     = body.get('financial_year', '')
-    period       = body.get('period', '')
-    mgr_comment  = body.get('manager_comment', '')
-    selected_dist = body.get('selected_distribution')
-
-    # Convert investor_id to UUID object (asyncpg needs native types)
-    investor_id = None
-    if _inv_id_raw:
-        try:    investor_id = _uuid.UUID(str(_inv_id_raw))
-        except: raise HTTPException(400, f"Invalid investor_id: {_inv_id_raw}")
-
-    # Convert selected_date string to datetime.date (asyncpg needs native date type)
-    selected_date_str = body.get('selected_date')
-    selected_date = None
-    if selected_date_str:
-        try:    selected_date = _date.fromisoformat(str(selected_date_str)[:10])
-        except: raise HTTPException(400, f"Invalid date: {selected_date_str}")
-
-    pdf_bytes = None
-    title     = ''
-    visibility = 'fund'
-    inv_id_for_doc = None
+    # Convert selected_date string to datetime.date (asyncpg requires date object)
+    _sel_date_raw = body.get('selected_date')
+    selected_date_obj = None
+    if _sel_date_raw:
+        try:
+            selected_date_obj = _date_type.fromisoformat(str(_sel_date_raw))
+        except ValueError:
+            raise HTTPException(400, f"Invalid selected_date format: {_sel_date_raw}")
 
     try:
-        # ── Common fund data ──────────────────────────────────
-        settings = await db.fetchrow("SELECT * FROM fund_settings WHERE id=1")
-        fund = dict(settings) if settings else {}
+        pdf_bytes = None
+        title     = ''
+        visibility = 'fund'
+        inv_id_for_doc = None
+
+        # ── Fetch common fund data ────────────────────────────
+        overview = await db.fetchrow("SELECT * FROM v_fund_overview")
+        fund_data = dict(overview) if overview else {}
 
         if stmt_type == 'factsheet':
-            # ── Factsheet ─────────────────────────────────────
-            as_of = selected_date if selected_date else _date.today()
+            from datetime import date as date_type, timedelta as _td
+            import datetime as _dt
 
-            hist = await db.fetchrow(
-                "SELECT * FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1", as_of)
-            holdings = await db.fetch(
-                "SELECT * FROM holdings WHERE instrument != '__CASH__'")
-            distributions = await db.fetch(
-                "SELECT * FROM distributions ORDER BY pmt_date DESC LIMIT 10")
+            # Use selected period date (end-of-month date from dropdown)
+            # All data filtered UP TO this date
+            as_of = selected_date_obj or date_type.today()
 
+            # Holdings and sector as of the as_of date
+            # (holdings table is current; for historical we filter by date)
+            holdings = await db.fetch("""
+                SELECT instrument, total_cost,
+                       CASE WHEN units > 0 THEN total_cost / NULLIF((SELECT SUM(total_cost) FROM holdings WHERE units > 0.001),0)*100
+                            ELSE 0 END AS weight_pct
+                FROM holdings WHERE units > 0.001 ORDER BY total_cost DESC LIMIT 10
+            """)
+            sector_data = await db.fetch("SELECT * FROM v_holdings_by_class ORDER BY total_market_value DESC")
+
+            # NTA history up to as_of date
+            nta_hist = await db.fetch(
+                "SELECT date, nta FROM historical WHERE date <= $1 ORDER BY date ASC", as_of)
+
+            # Distributions up to as_of date
+            dists = await db.fetch(
+                "SELECT * FROM distributions WHERE ex_date <= $1 ORDER BY ex_date DESC LIMIT 8", as_of)
+
+            # Fund data as of the as_of date (NTA at that date)
+            latest = await db.fetchrow(
+                "SELECT nta, date FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1", as_of)
+            # Override fund_data with as_of values
+            if latest:
+                fund_data = dict(fund_data)
+                fund_data['current_nta'] = float(latest['nta'])
+                # AUM and units at as_of
+                aum_row = await db.fetchrow(
+                    "SELECT nta * total_units AS aum, total_units FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1", as_of)
+                if aum_row:
+                    fund_data['aum']         = float(aum_row['aum'])
+                    fund_data['total_units'] = float(aum_row['total_units'])
+
+            # Period returns relative to as_of date
+            periods = {}
+            if latest:
+                inception = await db.fetchrow("SELECT nta FROM historical ORDER BY date ASC LIMIT 1")
+                for label, days in [("1M",30),("3M",90),("6M",180),("1Y",365),("3Y",1095)]:
+                    ref_date = as_of - _td(days=days)
+                    ref = await db.fetchrow(
+                        "SELECT nta FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1", ref_date)
+                    if ref and ref["nta"]:
+                        periods[label] = round((float(latest["nta"]) / float(ref["nta"]) - 1) * 100, 4)
+                if inception and inception["nta"]:
+                    total_ret = round((float(latest["nta"]) / float(inception["nta"]) - 1) * 100, 4)
+                else:
+                    total_ret = float(fund_data.get('total_return_pct', 0))
+            else:
+                total_ret = 0.0
+
+            perf_data = {'period_returns': periods, 'total_return_pct': total_ret}
+            manager_comment = body.get('manager_comment', '')
             pdf_bytes = generate_factsheet(
-                fund=fund,
-                as_of=as_of,
-                historical=dict(hist) if hist else {},
+                fund_data=fund_data,
                 holdings=[dict(h) for h in holdings],
-                distributions=[dict(d) for d in distributions],
-                manager_comment=mgr_comment,
+                performance=perf_data,
+                as_of_date=as_of,
+                distributions=[dict(d) for d in dists],
+                nta_history=[dict(r) for r in nta_hist],
+                sector_data=[dict(r) for r in sector_data],
+                manager_comment=manager_comment,
             )
-            title = f"ZY Family Vision Portfolio — {as_of.strftime('%B %Y')}"
+            title = f"ZY-Invest Factsheet {period or fund_data.get('last_nta_date','')}"
+            visibility = 'fund'
 
-        else:
-            # ── Per-investor statements ───────────────────────
+        elif stmt_type == 'subscription':
             if not investor_id:
                 raise HTTPException(400, "investor_id required")
-            inv = await db.fetchrow(
-                "SELECT * FROM investors WHERE id=$1", investor_id)
+            inv = await db.fetchrow("""
+                SELECT i.*,
+                       u.email, u.phone, u.bank_name, u.bank_account_no,
+                       u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country,
+                       COALESCE(
+                           CASE WHEN i.joined_date IS NOT NULL
+                                THEN (CURRENT_DATE - i.joined_date)
+                                ELSE (SELECT CURRENT_DATE - MIN(date)
+                                      FROM principal_cashflows
+                                      WHERE investor_id=i.id)
+                           END,
+                           0
+                       )::int AS days_held
+                FROM investors i LEFT JOIN users u ON u.investor_id = i.id
+                WHERE i.id = $1
+            """, investor_id)
+            if not inv: raise HTTPException(404, "Investor not found")
+            # Use selected_date if provided, otherwise latest
+            selected_date = selected_date_obj
+            if selected_date:
+                target = await db.fetchrow("""
+                    SELECT * FROM principal_cashflows
+                    WHERE investor_id=$1 AND amount>0 AND date=$2::date
+                    ORDER BY created_at DESC LIMIT 1
+                """, investor_id, selected_date)
+            else:
+                target = await db.fetchrow("""
+                    SELECT * FROM principal_cashflows
+                    WHERE investor_id=$1 AND amount>0 ORDER BY date DESC LIMIT 1
+                """, investor_id)
+            if not target: raise HTTPException(404, "No subscription record found")
+            prior_cfs = await db.fetch("""
+                SELECT * FROM principal_cashflows
+                WHERE investor_id=$1
+                  AND (date < $2 OR (date = $2 AND created_at < $3))
+                ORDER BY date ASC
+            """, investor_id, target['date'], target['created_at'])
+            cf_rec = dict(target)
+            cf_rec['prior_cashflows'] = [dict(c) for c in (prior_cfs or [])]
+            pdf_bytes = generate_subscription(investor=dict(inv), cashflow_record=cf_rec)
+            title = f"Subscription Statement — {inv['name']} ({str(cf_rec.get('date',''))[:10]})"
+            visibility = 'member'
+            inv_id_for_doc = str(investor_id)
+
+        elif stmt_type == 'redemption':
+            if not investor_id:
+                raise HTTPException(400, "investor_id required")
+            inv = await db.fetchrow("""
+                SELECT i.*,
+                       u.email, u.phone, u.bank_name, u.bank_account_no,
+                       u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country,
+                       COALESCE(
+                           CASE WHEN i.joined_date IS NOT NULL
+                                THEN (CURRENT_DATE - i.joined_date)
+                                ELSE (SELECT CURRENT_DATE - MIN(date)
+                                      FROM principal_cashflows
+                                      WHERE investor_id=i.id)
+                           END,
+                           0
+                       )::int AS days_held
+                FROM investors i LEFT JOIN users u ON u.investor_id = i.id
+                WHERE i.id = $1
+            """, investor_id)
+            if not inv: raise HTTPException(404, "Investor not found")
+            selected_date = selected_date_obj
+            if selected_date:
+                target = await db.fetchrow("""
+                    SELECT * FROM principal_cashflows
+                    WHERE investor_id=$1 AND amount<0 AND date=$2::date
+                    ORDER BY created_at DESC LIMIT 1
+                """, investor_id, selected_date)
+            else:
+                target = await db.fetchrow("""
+                    SELECT * FROM principal_cashflows
+                    WHERE investor_id=$1 AND amount<0 ORDER BY date DESC LIMIT 1
+                """, investor_id)
+            if not target: raise HTTPException(404, "No redemption record found")
+            prior_cfs = await db.fetch("""
+                SELECT * FROM principal_cashflows
+                WHERE investor_id=$1
+                  AND (date < $2 OR (date = $2 AND created_at < $3))
+                ORDER BY date ASC
+            """, investor_id, target['date'], target['created_at'])
+            red_rec = await db.fetchrow("""
+                SELECT * FROM redemption_ledger
+                WHERE cashflow_id=$1 ORDER BY created_at DESC LIMIT 1
+            """, target['id'])
+            cf_rec = dict(target)
+            cf_rec['prior_cashflows'] = [dict(c) for c in (prior_cfs or [])]
+            if red_rec:
+                cf_rec.update({k: float(red_rec[k]) for k in
+                    ['realized_pl','cost_basis','redemption_value','avg_cost_at_redemption']})
+            pdf_bytes = generate_redemption(investor=dict(inv), cashflow_record=cf_rec)
+            title = f"Redemption Statement — {inv['name']} ({str(cf_rec.get('date',''))[:10]})"
+            visibility = 'member'
+            inv_id_for_doc = str(investor_id)
+
+        elif stmt_type == 'dividend':
+            if not investor_id:
+                raise HTTPException(400, "investor_id required")
+            inv = await db.fetchrow("""
+                SELECT i.*,
+                       u.email, u.phone, u.bank_name, u.bank_account_no,
+                       u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country,
+                       COALESCE(
+                           CASE WHEN i.joined_date IS NOT NULL
+                                THEN (CURRENT_DATE - i.joined_date)
+                                ELSE (SELECT CURRENT_DATE - MIN(date)
+                                      FROM principal_cashflows
+                                      WHERE investor_id=i.id)
+                           END,
+                           0
+                       )::int AS days_held
+                FROM investors i LEFT JOIN users u ON u.investor_id = i.id
+                WHERE i.id = $1
+            """, investor_id)
+            if not inv: raise HTTPException(404, "Investor not found")
+            # Get distribution ledger for this investor (most recent record for FY)
+            dists = await db.fetch("""
+                SELECT dl.units_at_ex_date, dl.amount, dl.paid,
+                       d.title, d.dist_type, d.dps_sen, d.ex_date, d.pmt_date,
+                       d.financial_year, d.payout_ratio
+                FROM distribution_ledger dl
+                JOIN distributions d ON d.id = dl.distribution_id
+                WHERE dl.investor_id = $1
+                  AND ($2 = '' OR d.financial_year = $2)
+                ORDER BY d.ex_date DESC
+            """, investor_id, fin_year)
+            if not dists: raise HTTPException(404, "No dividend records found for this investor/FY")
+            # Use selected distribution title if provided, else most recent
+            selected_dist = body.get('selected_distribution')
+            if selected_dist:
+                matching = [d for d in dists if d.get('title') == selected_dist]
+                dist_rec = dict(matching[0]) if matching else dict(dists[0])
+            else:
+                dist_rec = dict(dists[0])
+            pdf_bytes = generate_dividend_statement(
+                investor=dict(inv), dist_record=dist_rec, financial_year=fin_year or dist_rec.get('financial_year',''))
+            title = f"Dividend Statement {fin_year} — {inv['name']}"
+            visibility = 'member'
+            inv_id_for_doc = str(investor_id)
+
+        elif stmt_type == 'account':
+            if not investor_id:
+                raise HTTPException(400, "investor_id required")
+            inv = await db.fetchrow("""
+                SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
+                       u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
+                FROM investors i
+                LEFT JOIN users u ON u.investor_id = i.id
+                WHERE i.id = $1
+            """, investor_id)
             if not inv:
                 raise HTTPException(404, "Investor not found")
-            inv_id_for_doc = investor_id
-            visibility     = 'investor'
+            summary = await db.fetchrow("SELECT * FROM v_investor_profile WHERE id = $1", investor_id)
+            if not summary:
+                raise HTTPException(404, "Investor profile not found")
+            # Override realized_pl with sum from redemption_ledger (pure redemption P&L only)
+            redemption_pl = await db.fetchval("""
+                SELECT COALESCE(SUM(realized_pl), 0)
+                FROM redemption_ledger
+                WHERE investor_id = $1
+            """, investor_id)
+            summary = dict(summary)
+            summary['realized_pl'] = float(redemption_pl or 0)
 
-            if stmt_type == 'subscription':
-                if selected_date:
-                    target = await db.fetchrow("""
-                        SELECT * FROM principal_cashflows
-                        WHERE investor_id=$1 AND amount>0 AND date=$2::date
-                        ORDER BY created_at DESC LIMIT 1
-                    """, investor_id, selected_date)
-                else:
-                    target = await db.fetchrow("""
-                        SELECT * FROM principal_cashflows
-                        WHERE investor_id=$1 AND amount>0 ORDER BY date DESC LIMIT 1
-                    """, investor_id)
-                if not target:
-                    raise HTTPException(404, "No subscription record found")
-                prior = await db.fetch("""
-                    SELECT * FROM principal_cashflows
-                    WHERE investor_id=$1 AND created_at<$2 ORDER BY date ASC
-                """, investor_id, target['created_at'])
-                cf_rec = dict(target)
-                cf_rec['prior_cashflows'] = [dict(c) for c in (prior or [])]
-                pdf_bytes = generate_subscription(investor=dict(inv), cashflow_record=cf_rec)
-                d_str = str(cf_rec.get('date',''))[:10]
-                title = f"Subscription Statement — {inv['name']} ({d_str})"
+            # Parse FY period dates (Dec 1 - Nov 30)
+            if fin_year and fin_year.startswith('FY'):
+                yr = int(fin_year[2:]) + 2000
+                fy_start = date(yr-1, 12, 1)
+                fy_end   = date(yr,   11, 30)
+                period   = period or f"{fy_start.strftime('%d/%m/%Y')} - {fy_end.strftime('%d/%m/%Y')}"
+            else:
+                fy_start, fy_end = date(2000,1,1), date.today()
 
-            elif stmt_type == 'redemption':
-                if selected_date:
-                    target = await db.fetchrow("""
-                        SELECT * FROM principal_cashflows
-                        WHERE investor_id=$1 AND amount<0 AND date=$2::date
-                        ORDER BY created_at DESC LIMIT 1
-                    """, investor_id, selected_date)
-                else:
-                    target = await db.fetchrow("""
-                        SELECT * FROM principal_cashflows
-                        WHERE investor_id=$1 AND amount<0 ORDER BY date DESC LIMIT 1
-                    """, investor_id)
-                if not target:
-                    raise HTTPException(404, "No redemption record found")
-                prior = await db.fetch("""
-                    SELECT * FROM principal_cashflows
-                    WHERE investor_id=$1 AND created_at<$2 ORDER BY date ASC
-                """, investor_id, target['created_at'])
-                cf_rec = dict(target)
-                cf_rec['prior_cashflows'] = [dict(c) for c in (prior or [])]
-                pdf_bytes = generate_redemption(investor=dict(inv), cashflow_record=cf_rec)
-                d_str = str(cf_rec.get('date',''))[:10]
-                title = f"Redemption Statement — {inv['name']} ({d_str})"
+            cfs = await db.fetch("""
+                SELECT date, cashflow_type, amount, nta_at_date, units
+                FROM principal_cashflows
+                WHERE investor_id = $1 AND date BETWEEN $2 AND $3
+                ORDER BY date
+            """, investor_id, fy_start, fy_end)
 
-            elif stmt_type == 'dividend':
-                dists = await db.fetch("""
-                    SELECT dl.*, d.title, d.financial_year, d.dist_type,
-                           d.ex_date, d.pmt_date, d.dps_sen
-                    FROM distribution_ledger dl
-                    JOIN distributions d ON d.id = dl.distribution_id
-                    WHERE dl.investor_id=$1
-                    ORDER BY d.pmt_date DESC
-                """, investor_id)
-                if not dists:
-                    raise HTTPException(404, "No dividend records found")
-                if selected_dist:
-                    matching = [d for d in dists if d.get('title') == selected_dist]
-                    dist_rec = dict(matching[0]) if matching else dict(dists[0])
-                else:
-                    dist_rec = dict(dists[0])
-                pdf_bytes = generate_dividend_statement(
-                    investor=dict(inv), distribution=dist_rec)
-                title = f"Dividend Statement — {inv['name']} ({dist_rec.get('title','')})"
+            dists = await db.fetch("""
+                SELECT dl.units_at_ex_date, dl.amount,
+                       d.title, d.dps_sen, d.ex_date, d.pmt_date, d.financial_year
+                FROM distribution_ledger dl
+                JOIN distributions d ON d.id = dl.distribution_id
+                WHERE dl.investor_id = $1
+                  AND d.ex_date BETWEEN $2 AND $3
+                ORDER BY d.ex_date
+            """, investor_id, fy_start, fy_end)
 
-            elif stmt_type == 'account':
-                all_cf = await db.fetch("""
-                    SELECT * FROM principal_cashflows
-                    WHERE investor_id=$1 ORDER BY date ASC
-                """, investor_id)
-                all_divs = await db.fetch("""
-                    SELECT dl.*, d.title, d.financial_year, d.dps_sen, d.pmt_date
-                    FROM distribution_ledger dl
-                    JOIN distributions d ON d.id=dl.distribution_id
-                    WHERE dl.investor_id=$1 ORDER BY d.pmt_date
-                """, investor_id)
-                hist_rows = await db.fetch(
-                    "SELECT * FROM historical ORDER BY date ASC")
-                pdf_bytes = generate_account_statement(
-                    investor=dict(inv),
-                    cashflows=[dict(c) for c in all_cf],
-                    distributions=[dict(d) for d in all_divs],
-                    historical=[dict(h) for h in hist_rows],
-                    financial_year=fin_year,
-                    period=period,
-                )
-                title = f"Investment Account Statement — {inv['name']}" + (f" ({fin_year})" if fin_year else "")
+            # Build cashflow rows with description
+            cfs_list = []
+            cum_units = 0
+            for cf in cfs:
+                u = float(cf['units'])
+                cum_units += u
+                cfs_list.append({
+                    **dict(cf),
+                    'description': ('Subscription' if float(cf['amount']) > 0 else 'Redemption')
+                                  + (' @ Fund Switching' if cf.get('notes','').lower().find('switch') >= 0 else ''),
+                })
+
+            # Days held
+            first_cf = await db.fetchrow("""
+                SELECT date FROM principal_cashflows WHERE investor_id=$1 ORDER BY date ASC LIMIT 1
+            """, investor_id)
+            days_held = (date.today() - first_cf['date']).days if first_cf else 0
+
+            # Dividend received total
+            div_total = await db.fetchval("""
+                SELECT COALESCE(SUM(dl.amount),0)
+                FROM distribution_ledger dl
+                JOIN distributions d ON d.id = dl.distribution_id
+                WHERE dl.investor_id=$1 AND dl.paid=TRUE
+            """, investor_id) or 0
+
+            sum_data = {
+                **dict(summary),
+                'days_held': days_held,
+                'dividends_received': float(div_total),
+                'adjustment': 0,
+                'account_type': 'Nominee Account',
+            }
+
+            pdf_bytes = generate_account_statement(
+                investor=dict(inv),
+                summary=sum_data,
+                cashflows=cfs_list,
+                dist_history=[dict(d) for d in dists],
+                statement_period=period,
+                financial_year=fin_year
+            )
+            title = f"Account Statement {fin_year} — {inv['name']}"
+            visibility = 'member'
+            inv_id_for_doc = str(investor_id)
+
+        else:
+            raise HTTPException(400, f"Unknown statement_type: {stmt_type}")
 
         if not pdf_bytes:
-            raise HTTPException(500, "PDF generation returned empty")
+            raise HTTPException(500, "PDF generation failed")
 
-        # ── Store document ────────────────────────────────────
-        file_b64  = base64.b64encode(pdf_bytes).decode()
-        file_name = title.replace(' ', '_').replace('—', '-').replace('/', '-') + '.pdf'
-        file_kb   = round(len(pdf_bytes) / 1024, 1)
+        # Store in documents table (file_url = base64 data URI for now)
+        import base64
+        file_b64 = base64.b64encode(pdf_bytes).decode()
+        file_url  = f"data:application/pdf;base64,{file_b64}"
+        file_name = title.replace(' ','_').replace('—','').replace('/','_') + '.pdf'
+        file_size = len(pdf_bytes) // 1024
 
-        try:
-            await db.execute("""
-                INSERT INTO documents
-                    (title, file_name, file_size_kb, content_b64,
-                     visibility, investor_id, generated_by, created_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
-            """, title, file_name, file_kb, file_b64,
-                 visibility, inv_id_for_doc, admin.get('user_id'))
-        except Exception:
-            pass  # Don't fail if document storage fails
+        doc_id = await db.fetchval("""
+            INSERT INTO documents
+            (title, doc_type, file_url, file_name, file_size_kb,
+             visibility, investor_id, financial_year, uploaded_by)
+            VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$8,$9::uuid)
+            RETURNING id
+        """,
+            title, 'member_statement', file_url, file_name, file_size,
+            visibility,
+            inv_id_for_doc,
+            fin_year or None,
+            str(admin['id'])
+        )
 
         return {
-            "message":      "Statement generated",
-            "title":        title,
-            "file_name":    file_name,
-            "file_size_kb": file_kb,
-            "pdf_b64":      file_b64,
+            "message": "Statement generated",
+            "doc_id": str(doc_id),
+            "title": title,
+            "file_name": file_name,
+            "file_size_kb": file_size,
+            "pdf_b64": file_b64,
         }
-
     except HTTPException:
         raise
     except Exception as exc:
+        import traceback as _tb2
         print(f"[generate_statement] {type(exc).__name__}: {exc}")
-        print(_tb.format_exc())
-        raise HTTPException(500, str(exc))
+        print(_tb2.format_exc())
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
-# ── Auto-generate FY account statements ──────────────────────
+# ── Auto-generate Account Statements for completed FYs ────────
 @router.post("/statements/generate-fy-statements")
 async def generate_fy_statements(
+    body: dict,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    """Generate FY account statements for all active investors."""
-    investors = await db.fetch(
-        "SELECT * FROM investors WHERE is_active=TRUE")
-    fy_years  = ['FY22', 'FY23', 'FY24', 'FY25']
+    """Auto-generate Investment Account Statements for all investors for completed FYs."""
+    import base64
+    from services.pdf_statements import generate_account_statement
+    from datetime import date as date_t
+
+    today = date_t.today()
+    # Completed FYs: FY22=Dec21-Nov22, FY23=Dec22-Nov23, FY24=Dec23-Nov24, FY25=Dec24-Nov25
+    # FY26 not included as Nov 2026 hasn't passed
+    fy_ranges = []
+    for yr in range(22, 26):  # FY22 to FY25
+        fy_label = f"FY{yr}"
+        start = date_t(2000 + yr - 1, 12, 1)
+        end   = date_t(2000 + yr,     11, 30)
+        if today > end:
+            fy_ranges.append((fy_label, start, end))
+
+    specific_fy = body.get('financial_year')
+    if specific_fy:
+        yr = int(specific_fy[2:])
+        fy_ranges = [(specific_fy, date_t(2000+yr-1,12,1), date_t(2000+yr,11,30))]
+
+    investors = await db.fetch("SELECT id, name FROM investors WHERE is_active=TRUE")
     generated = 0
-    errors    = []
+    errors = []
 
     for inv in investors:
-        for fy in fy_years:
+        inv_id = str(inv['id'])
+        inv_full = await db.fetchrow("""
+            SELECT i.*, u.email, u.phone, u.bank_name, u.bank_account_no,
+                   u.address_line1, u.address_line2, u.city, u.postcode, u.state, u.country
+            FROM investors i LEFT JOIN users u ON u.investor_id=i.id WHERE i.id=$1
+        """, inv_id)
+        if not inv_full: continue
+        summary = await db.fetchrow("SELECT * FROM v_investor_profile WHERE id=$1", inv_id)
+        if not summary: continue
+
+        for fy_label, fy_start, fy_end in fy_ranges:
+            # Skip if already generated
+            existing = await db.fetchval("""
+                SELECT id FROM documents WHERE investor_id=$1 AND financial_year=$2
+                AND doc_type='member_statement' AND title LIKE '%Account Statement%'
+            """, inv_id, fy_label)
+            if existing: continue
+
+            cfs = await db.fetch("""
+                SELECT date, cashflow_type, amount, nta_at_date, units
+                FROM principal_cashflows
+                WHERE investor_id=$1 AND date BETWEEN $2 AND $3 ORDER BY date
+            """, inv_id, fy_start, fy_end)
+
+            dists = await db.fetch("""
+                SELECT dl.units_at_ex_date, dl.amount, d.title, d.dps_sen,
+                       d.ex_date, d.pmt_date, d.financial_year
+                FROM distribution_ledger dl
+                JOIN distributions d ON d.id=dl.distribution_id
+                WHERE dl.investor_id=$1 AND d.ex_date BETWEEN $2 AND $3
+                ORDER BY d.ex_date
+            """, inv_id, fy_start, fy_end)
+
+            first_cf = await db.fetchrow("""
+                SELECT date FROM principal_cashflows WHERE investor_id=$1 ORDER BY date ASC LIMIT 1
+            """, inv_id)
+            days_held = (date_t.today() - first_cf['date']).days if first_cf else 0
+            div_total = await db.fetchval("""
+                SELECT COALESCE(SUM(dl.amount),0) FROM distribution_ledger dl
+                JOIN distributions d ON d.id=dl.distribution_id
+                WHERE dl.investor_id=$1 AND dl.paid=TRUE AND d.ex_date BETWEEN $2 AND $3
+            """, inv_id, fy_start, fy_end) or 0
+
+            cfs_list = []
+            running = 0.0
+            for cf in cfs:
+                u = float(cf['units']); amt = float(cf['amount'])
+                running += u
+                cfs_list.append({**dict(cf),
+                    'description': 'Subscription' if amt > 0 else 'Redemption'})
+
+            sum_data = {
+                **dict(summary), 'days_held': days_held,
+                'dividends_received': float(div_total),
+                'adjustment': 0, 'account_type': 'Nominee Account',
+            }
+            period = f"{fy_start.strftime('%d/%m/%Y')} - {fy_end.strftime('%d/%m/%Y')}"
+
             try:
-                body = {
-                    'statement_type': 'account',
-                    'investor_id':    str(inv['id']),
-                    'financial_year': fy,
-                    'period':         '',
-                    'manager_comment': '',
-                }
-                result = await generate_statement(body=body, admin=admin, db=db)
-                if result:
-                    generated += 1
+                pdf_b = generate_account_statement(
+                    investor=dict(inv_full), summary=sum_data,
+                    cashflows=cfs_list, dist_history=[dict(d) for d in dists],
+                    statement_period=period, financial_year=fy_label)
+                b64 = base64.b64encode(pdf_b).decode()
+                title = f"Account Statement {fy_label} — {inv['name']}"
+                fname = f"Account_{fy_label}_{inv['name'].replace(' ','_')}.pdf"
+                await db.execute("""
+                    INSERT INTO documents (title,doc_type,file_url,file_name,file_size_kb,
+                        visibility,investor_id,financial_year,uploaded_by)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$8,$9::uuid)
+                """, title,'member_statement',f"data:application/pdf;base64,{b64}",
+                    fname, len(pdf_b)//1024, 'member', inv_id, fy_label, str(admin['id']))
+                generated += 1
             except Exception as e:
-                errors.append(f"{inv['name']} {fy}: {e}")
+                errors.append(f"{inv['name']} {fy_label}: {str(e)[:80]}")
 
     return {"generated": generated, "errors": errors[:10]}
 
-
-# ── Cashflow dates per investor ───────────────────────────────
+# ── Get available cashflow dates for statement generation ─────
 @router.get("/investors/{investor_id}/cashflow-dates")
 async def get_cashflow_dates(
     investor_id: str,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
+    """Return all subscription and redemption dates for date picker."""
     rows = await db.fetch("""
         SELECT date, cashflow_type, amount, units, nta_at_date
         FROM principal_cashflows
-        WHERE investor_id=$1
+        WHERE investor_id = $1
         ORDER BY date DESC
     """, investor_id)
     return [serialise(r) for r in rows]
 
 
-# ── Distribution list per investor ───────────────────────────
 @router.get("/investors/{investor_id}/distribution-list")
 async def get_distribution_list(
     investor_id: str,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
+    """Return all distributions for this investor (for dropdown)."""
     rows = await db.fetch("""
-        SELECT d.title, d.financial_year, d.dist_type, d.ex_date,
-               d.pmt_date, d.dps_sen, dl.amount
+        SELECT d.title, d.financial_year, d.dist_type, d.ex_date, d.pmt_date, d.dps_sen
         FROM distribution_ledger dl
         JOIN distributions d ON d.id = dl.distribution_id
-        WHERE dl.investor_id=$1
-        ORDER BY d.pmt_date DESC NULLS LAST
+        WHERE dl.investor_id = $1
+        ORDER BY d.pmt_date DESC
     """, investor_id)
     return [serialise(r) for r in rows]

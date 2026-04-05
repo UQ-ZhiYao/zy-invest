@@ -106,6 +106,7 @@
             <div class="panel-header"><h3>2. Set Parameters</h3></div>
             <div class="panel-body">
 
+              <!-- Investor selector -->
               <div id="investor-group" style="display:none" class="form-group">
                 <label class="form-label">Select Investor</label>
                 <select id="investor-select" class="form-input">
@@ -113,6 +114,7 @@
                 </select>
               </div>
 
+              <!-- Transaction date picker (subscription / redemption) -->
               <div id="date-group" style="display:none" class="form-group">
                 <label class="form-label">Transaction Date
                   <span style="font-weight:400;color:var(--text-muted)">(select specific record)</span>
@@ -122,6 +124,7 @@
                 </select>
               </div>
 
+              <!-- Distribution picker (dividend) -->
               <div id="dist-group" style="display:none" class="form-group">
                 <label class="form-label">Distribution Record</label>
                 <select id="dist-select" class="form-input">
@@ -129,6 +132,7 @@
                 </select>
               </div>
 
+              <!-- FY selector (dividend + account) -->
               <div id="fy-group" style="display:none" class="form-row">
                 <div class="form-group">
                   <label class="form-label">Financial Year</label>
@@ -147,11 +151,13 @@
                 </div>
               </div>
 
+              <!-- Period/Month for factsheet — end-of-month dropdown -->
               <div id="period-group" class="form-group">
                 <label class="form-label">Period / Month</label>
                 <select id="factsheet-period" class="form-input"></select>
               </div>
 
+              <!-- Manager comment (factsheet) -->
               <div id="comment-group" class="form-group">
                 <label class="form-label">Manager's Comments
                   <span style="font-weight:400;color:var(--text-muted)">(required for factsheet)</span>
@@ -161,6 +167,7 @@
                   style="resize:vertical;font-size:0.85rem;line-height:1.5"></textarea>
               </div>
 
+              <!-- Bulk for factsheet -->
               <div id="bulk-group" style="display:none" class="form-group">
                 <label class="form-label">Generate For</label>
                 <select id="bulk-select" class="form-input">
@@ -214,9 +221,11 @@ let selectedType = 'factsheet';
 let allInvestors = [];
 let generated    = [];
 
+/* ── Init ────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', async () => {
   buildMonthDropdown();
   selectType('factsheet');
+
   try {
     allInvestors = await api.get('/api/admin/investors') || [];
     const sel = document.getElementById('investor-select');
@@ -226,30 +235,36 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch(e) { showToast('Failed to load investors', 'error'); }
 });
 
+/* ── Build end-of-month dropdown for factsheet ───────────── */
 function buildMonthDropdown() {
   const sel = document.getElementById('factsheet-period');
   sel.innerHTML = '';
   const now = new Date();
   for (let i = 0; i < 24; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+    const d = new Date(now.getFullYear(), now.getMonth() - i + 1, 0); // last day of month
+    // Format as "31 March 2026"
     const label = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-    const value = d.toISOString().slice(0, 10);
+    const value = d.toISOString().slice(0, 10); // YYYY-MM-DD for backend
     const opt = document.createElement('option');
-    opt.value = value; opt.textContent = label;
+    opt.value = value;
+    opt.textContent = label;
     if (i === 0) opt.selected = true;
     sel.appendChild(opt);
   }
 }
 
+/* ── Select type ─────────────────────────────────────────── */
 function selectType(type) {
   selectedType = type;
   document.querySelectorAll('.stmt-card').forEach(c => c.classList.remove('selected'));
   document.getElementById('card-' + type).classList.add('selected');
+
   const isFactsheet = type === 'factsheet';
   const needsFY     = type === 'dividend' || type === 'account';
   const needsInv    = type !== 'factsheet';
   const needsDate   = type === 'subscription' || type === 'redemption';
   const needsDist   = type === 'dividend';
+
   document.getElementById('investor-group').style.display = needsInv    ? 'block' : 'none';
   document.getElementById('date-group').style.display     = needsDate   ? 'block' : 'none';
   document.getElementById('dist-group').style.display     = needsDist   ? 'block' : 'none';
@@ -257,12 +272,16 @@ function selectType(type) {
   document.getElementById('period-group').style.display   = isFactsheet ? 'block' : 'none';
   document.getElementById('comment-group').style.display  = isFactsheet ? 'block' : 'none';
   document.getElementById('bulk-group').style.display     = needsInv    ? 'block' : 'none';
+
+  // Reload cashflow options when type changes (if investor already selected)
   if (needsDate || needsDist) loadCashflowOptions();
 }
 
+/* ── Load cashflow dates / distributions ─────────────────── */
 async function loadCashflowOptions() {
   const invId = document.getElementById('investor-select').value;
   if (!invId) return;
+
   if (selectedType === 'subscription' || selectedType === 'redemption') {
     const dateSel = document.getElementById('date-select');
     dateSel.innerHTML = '<option value="">Loading...</option>';
@@ -279,8 +298,10 @@ async function loadCashflowOptions() {
         }).join('');
     } catch(e) {
       dateSel.innerHTML = '<option value="">— Error loading dates —</option>';
+      console.error('cashflow-dates error:', e);
     }
   }
+
   if (selectedType === 'dividend') {
     const distSel = document.getElementById('dist-select');
     distSel.innerHTML = '<option value="">Loading...</option>';
@@ -293,13 +314,16 @@ async function loadCashflowOptions() {
         }).join('');
     } catch(e) {
       distSel.innerHTML = '<option value="">— Error loading —</option>';
+      console.error('distribution-list error:', e);
     }
   }
 }
 
+/* ── Generate PDF ────────────────────────────────────────── */
 async function generateStatement() {
   const btn = document.getElementById('gen-btn');
   btn.disabled = true; btn.textContent = '⏳ Generating...';
+
   try {
     const investorId     = document.getElementById('investor-select').value;
     const finYear        = document.getElementById('fy-select').value;
@@ -307,6 +331,8 @@ async function generateStatement() {
     const selectedDist   = document.getElementById('dist-select').value || null;
     const managerComment = document.getElementById('manager-comment').value.trim();
     const bulk           = document.getElementById('bulk-select').value;
+
+    // For factsheet: use the end-of-month period date
     const period = selectedType === 'factsheet'
       ? document.getElementById('factsheet-period').value
       : document.getElementById('period-input').value;
@@ -335,11 +361,11 @@ async function generateStatement() {
           financial_year:        finYear,
           period:                period,
           manager_comment:       managerComment,
-          selected_date:         selectedType === 'factsheet' ? period : selectedDate,
+          selected_date:         selectedDate,
           selected_distribution: selectedDist,
         };
         const res = await api.post('/api/admin/statements/generate', body);
-        if (!res) throw new Error('Server returned empty response');
+        if (!res) throw new Error('Server returned empty response (possible auth issue — try logging out and back in)');
         if (!res.title) throw new Error(`Unexpected response: ${JSON.stringify(res)}`);
         generated.unshift(res);
         renderGenerated();
@@ -352,9 +378,11 @@ async function generateStatement() {
   } catch(e) {
     showToast('Generation failed: ' + e.message, 'error');
   }
+
   btn.disabled = false; btn.textContent = '⚙ Generate PDF';
 }
 
+/* ── Render generated list ───────────────────────────────── */
 function renderGenerated() {
   const list = document.getElementById('generated-list');
   document.getElementById('gen-count').textContent = generated.length;
@@ -376,6 +404,7 @@ function renderGenerated() {
       </div>`).join('') + '</div>';
 }
 
+/* ── Auto-generate FY account statements ─────────────────── */
 async function generateAllFY() {
   const btn = event.target;
   btn.disabled = true; btn.textContent = '⏳ Generating...';
@@ -387,6 +416,7 @@ async function generateAllFY() {
   btn.disabled = false; btn.textContent = '⚙ Auto-Generate All FY Account Statements';
 }
 
+/* ── Download PDF blob ───────────────────────────────────── */
 function downloadPdf(b64, filename) {
   const bytes  = atob(b64);
   const buf    = new Uint8Array(bytes.length);
