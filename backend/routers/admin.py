@@ -1349,13 +1349,28 @@ async def generate_statement(
     except ImportError as e:
         raise HTTPException(500, f"PDF service unavailable: {e}")
 
+    import uuid as _uuid
+    from datetime import date as _date
+
     stmt_type    = body.get('statement_type', 'factsheet')
-    investor_id  = body.get('investor_id')
+    _inv_id_raw  = body.get('investor_id')
     fin_year     = body.get('financial_year', '')
     period       = body.get('period', '')
     mgr_comment  = body.get('manager_comment', '')
-    selected_date = body.get('selected_date')
     selected_dist = body.get('selected_distribution')
+
+    # Convert investor_id to UUID object (asyncpg needs native types)
+    investor_id = None
+    if _inv_id_raw:
+        try:    investor_id = _uuid.UUID(str(_inv_id_raw))
+        except: raise HTTPException(400, f"Invalid investor_id: {_inv_id_raw}")
+
+    # Convert selected_date string to datetime.date (asyncpg needs native date type)
+    selected_date_str = body.get('selected_date')
+    selected_date = None
+    if selected_date_str:
+        try:    selected_date = _date.fromisoformat(str(selected_date_str)[:10])
+        except: raise HTTPException(400, f"Invalid date: {selected_date_str}")
 
     pdf_bytes = None
     title     = ''
@@ -1369,8 +1384,7 @@ async def generate_statement(
 
         if stmt_type == 'factsheet':
             # ── Factsheet ─────────────────────────────────────
-            from datetime import date as dt
-            as_of = dt.fromisoformat(selected_date) if selected_date else dt.today()
+            as_of = selected_date if selected_date else _date.today()
 
             hist = await db.fetchrow(
                 "SELECT * FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1", as_of)
