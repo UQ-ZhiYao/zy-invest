@@ -1769,21 +1769,34 @@ async def generate_statement(
         if not pdf_bytes:
             raise HTTPException(500, "PDF generation failed")
 
-        # Store in documents table (file_url = base64 data URI for now)
-        import base64
-        file_b64 = base64.b64encode(pdf_bytes).decode()
+        # Store in documents table
+        import base64 as _b64mod
+        file_b64  = _b64mod.b64encode(pdf_bytes).decode()
+        # Store as data URI so it is self-contained
         file_url  = f"data:application/pdf;base64,{file_b64}"
-        file_name = title.replace(' ','_').replace('—','').replace('/','_') + '.pdf'
+        file_name = (title
+            .replace(' ', '_').replace('—', '-').replace('/', '-')
+            .replace(':', '').replace('*', '')) + '.pdf'
         file_size = len(pdf_bytes) // 1024
+
+        # Map stmt_type to valid doc_type (schema CHECK constraint)
+        _doc_type_map = {
+            'factsheet':    'annual_report',
+            'subscription': 'member_statement',
+            'redemption':   'member_statement',
+            'dividend':     'distribution_notice',
+            'account':      'member_statement',
+        }
+        _doc_type = _doc_type_map.get(stmt_type, 'member_statement')
 
         doc_id = await db.fetchval("""
             INSERT INTO documents
-            (title, doc_type, file_url, file_name, file_size_kb,
-             visibility, investor_id, financial_year, uploaded_by)
+                (title, doc_type, file_url, file_name, file_size_kb,
+                 visibility, investor_id, financial_year, uploaded_by)
             VALUES ($1,$2,$3,$4,$5,$6,$7::uuid,$8,$9::uuid)
             RETURNING id
         """,
-            title, 'member_statement', file_url, file_name, file_size,
+            title, _doc_type, file_url, file_name, file_size,
             visibility,
             inv_id_for_doc,
             fin_year or None,
@@ -2009,8 +2022,20 @@ async def download_document(
     if not row:
         raise HTTPException(404, "Document not found")
     file_url = row['file_url'] or ''
-    b64 = file_url.split(',', 1)[1] if file_url.startswith('data:') and ',' in file_url else file_url
-    return {"title": row['title'], "file_name": row['file_name'], "pdf_b64": b64}
+    if not file_url:
+        raise HTTPException(404, "No file stored for this document")
+    # Extract raw base64 from data URI  (data:application/pdf;base64,XXXX)
+    if ',' in file_url:
+        b64 = file_url.split(',', 1)[1]
+    else:
+        b64 = file_url   # already raw base64
+    if not b64:
+        raise HTTPException(404, "File data is empty")
+    return {
+        "title":     row['title'],
+        "file_name": row['file_name'],
+        "pdf_b64":   b64,
+    }
 
 
 @router.delete("/documents/{doc_id}")

@@ -367,8 +367,8 @@ async function loadStats() {
     const [all, mem, acct, fact] = await Promise.all([
       api.get('/api/admin/documents?limit=1'),
       api.get('/api/admin/documents?limit=1&doc_type=member_statement'),
-      api.get('/api/admin/documents?limit=1&doc_type=account_statement'),
-      api.get('/api/admin/documents?limit=1&doc_type=factsheet'),
+      api.get('/api/admin/documents?limit=1&doc_type=member_statement'),
+      api.get('/api/admin/documents?limit=1&doc_type=annual_report'),
     ]);
     set('s-total', (all.total  || 0));
     set('s-stmts', (mem.total  || 0));
@@ -395,9 +395,13 @@ async function loadDocs(page) {
   const lim    = parseInt(document.getElementById('q-limit').value) || 50;
 
   // Map UI filter type to doc_type column value
+  // Map UI filter → actual doc_type stored in DB (matches schema CHECK constraint)
   const typeMap = {
-    subscription:'member_statement', redemption:'member_statement',
-    dividend:'member_statement', account:'account_statement', factsheet:'factsheet'
+    subscription: 'member_statement',
+    redemption:   'member_statement',
+    dividend:     'distribution_notice',
+    account:      'member_statement',
+    factsheet:    'annual_report',
   };
   let url = `/api/admin/documents?page=${page}&limit=${lim}`;
   if (type)   url += `&doc_type=${encodeURIComponent(typeMap[type] || type)}`;
@@ -537,8 +541,9 @@ function updateBulk() {
 async function dlDoc(id, filename) {
   try {
     const data = await api.get(`/api/admin/documents/${id}/download`);
-    if (!data?.url) { showToast('No file URL returned','error'); return; }
-    blobDl(data.url, data.file_name || filename);
+    if (!data?.pdf_b64) { showToast('No file data returned','error'); return; }
+    const dataUri = 'data:application/pdf;base64,' + data.pdf_b64;
+    blobDl(dataUri, data.file_name || filename);
   } catch(e) { showToast('Download failed: ' + e.message, 'error'); }
 }
 
@@ -562,11 +567,17 @@ function blobDl(url, name) {
 async function prevDoc(id, title) {
   try {
     const data = await api.get(`/api/admin/documents/${id}/download`);
-    if (!data?.url) return;
-    prevUrl  = data.url;
+    if (!data?.pdf_b64) { showToast('Preview unavailable','error'); return; }
+    // Convert base64 → blob URL (data URIs are blocked in iframes by browsers)
+    const bytes = atob(data.pdf_b64);
+    const buf   = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+    const blob  = new Blob([buf], {type:'application/pdf'});
+    const bUrl  = URL.createObjectURL(blob);
+    prevUrl  = 'data:application/pdf;base64,' + data.pdf_b64;
     prevName = data.file_name || title + '.pdf';
     document.getElementById('prev-title').textContent = title;
-    document.getElementById('prev-frame').src = data.url;
+    document.getElementById('prev-frame').src = bUrl;
     document.getElementById('prev-dl').onclick = () => blobDl(prevUrl, prevName);
     document.getElementById('prev-overlay').classList.add('open');
   } catch(e) { showToast('Preview failed: ' + e.message,'error'); }
