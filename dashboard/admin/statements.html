@@ -34,6 +34,32 @@
     .gen-item-meta { font-size:0.75rem; color:var(--text-muted); word-break:break-all; }
     .gen-item-actions { display:flex; gap:8px; }
     @media(max-width:680px){ .stmt-cards{grid-template-columns:1fr;} .form-row{grid-template-columns:1fr;} }
+
+    /* Corporate Results */
+    .corp-tab { background:none; border:none; padding:12px 20px; font-size:0.88rem;
+                font-weight:600; color:var(--text-muted); cursor:pointer;
+                border-bottom:3px solid transparent; margin-bottom:-2px;
+                transition:.15s; }
+    .corp-tab:hover  { color:var(--blue); }
+    .corp-tab.active { color:var(--blue); border-bottom-color:var(--blue); }
+    .corp-table { width:100%; border-collapse:collapse; font-size:0.84rem; min-width:600px; }
+    .corp-table th { padding:8px 14px; text-align:right; font-size:0.75rem;
+                     font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+                     color:var(--text-muted); background:var(--gray-50);
+                     border-bottom:2px solid var(--border); white-space:nowrap; }
+    .corp-table th:first-child { text-align:left; }
+    .corp-table td { padding:8px 14px; border-bottom:1px solid var(--border); white-space:nowrap; }
+    .corp-table td:not(:first-child) { text-align:right; }
+    .corp-table .r-section td { background:var(--gray-50); font-size:0.75rem;
+                                 font-weight:700; text-transform:uppercase;
+                                 letter-spacing:.06em; color:var(--text-muted);
+                                 padding:10px 14px; }
+    .corp-table .r-sub td:first-child { padding-left:28px; color:var(--gray-700); }
+    .corp-table .r-total td { font-weight:700; border-top:2px solid var(--border);
+                               border-bottom:2px solid var(--border); }
+    .corp-table .r-net   td { font-weight:700; font-size:0.95rem;
+                               border-top:3px double var(--border); background:var(--gray-50); }
+    .pos { color:var(--green); } .neg { color:#DC2626; }
   </style>
 </head>
 <body>
@@ -58,12 +84,49 @@
       <div class="page-header">
         <div class="breadcrumb">
           <a href="../../index.html">ZY-Invest</a><span>›</span>
-          <span>Admin</span><span>›</span><span>Generate Statements</span>
+          <span>Admin</span><span>›</span><span>Corporate Results</span>
         </div>
-        <h1>Generate Statements</h1>
-        <p>Generate PDF statements for individual members or fund-wide.
-           Statements are stored in the Documents library.</p>
+        <h1>Corporate Results</h1>
+        <p>Fund financial statements by financial year (1 Dec — 30 Nov).</p>
       </div>
+
+      <!-- ── CORPORATE RESULTS ───────────────────────────── -->
+      <div class="card" style="margin-bottom:24px">
+        <!-- Statement tabs -->
+        <div style="display:flex;gap:0;border-bottom:2px solid var(--border);padding:0 20px">
+          <button class="corp-tab active" id="tab-is"  onclick="switchTab('is')">Income Statement</button>
+          <button class="corp-tab"        id="tab-bs"  onclick="switchTab('bs')">Balance Sheet</button>
+          <button class="corp-tab"        id="tab-cf"  onclick="switchTab('cf')">Cash Flow</button>
+          <button class="corp-tab"        id="tab-rat" onclick="switchTab('rat')">Ratios</button>
+        </div>
+
+        <div style="padding:20px">
+          <!-- Chart: Revenue (blue bar) & Net Profit (green/red bar) -->
+          <div id="corp-chart-wrap" style="height:220px;margin-bottom:24px;position:relative">
+            <canvas id="corp-chart"></canvas>
+          </div>
+
+          <!-- Statement table — columns = FY years, rows = line items -->
+          <div style="overflow-x:auto">
+            <table class="corp-table" id="corp-table">
+              <thead id="corp-thead"></thead>
+              <tbody id="corp-tbody">
+                <tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">
+                  Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PDF GENERATOR (collapsible) ───────────────────── -->
+      <div class="card" style="margin-bottom:24px">
+        <div class="card-header" style="cursor:pointer" onclick="togglePDF()">
+          <h3 class="card-title">📄 Generate PDF Statements</h3>
+          <span id="pdf-toggle-icon" style="color:var(--text-muted);font-size:0.85rem">▼ expand</span>
+        </div>
+        <div id="pdf-section" style="display:none">
+          <div class="card-body">
 
       <div style="display:grid;grid-template-columns:1fr 360px;gap:24px;align-items:start">
         <div>
@@ -206,26 +269,21 @@
         </div>
 
       </div><!-- /grid -->
-    </div><!-- /dash-content -->
-  </div><!-- /dash-main -->
-</div><!-- /dash-root -->
 
-<script src="../../assets/js/api.js"></script>
+          </div>
+        </div>
+      </div>
+    </div><!-- /dash-content --><script src="../../assets/js/api.js"></script>
 <script src="../../assets/js/dashboard.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 /* ── Bootstrap ───────────────────────────────────────────── */
-initDashboard('admin-statements', 'Generate Statements');
-if (!adminRequired()) throw new Error('Not admin');
-
-let selectedType = 'factsheet';
-let allInvestors = [];
-let generated    = [];
-
-/* ── Init ────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', async () => {
+  initDashboard('admin-statements', 'Corporate Results');
+  if (!adminRequired()) return;
   buildMonthDropdown();
   selectType('factsheet');
-
+  await loadCorpData();
   try {
     allInvestors = await api.get('/api/admin/investors') || [];
     const sel = document.getElementById('investor-select');
@@ -235,36 +293,217 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch(e) { showToast('Failed to load investors', 'error'); }
 });
 
-/* ── Build end-of-month dropdown for factsheet ───────────── */
+let selectedType = 'factsheet';
+let allInvestors = [];
+let generated    = [];
+
+/* ── Corporate Results ───────────────────────────────────── */
+let corpData  = [];
+let corpChart = null;
+let activeTab = 'is';
+
+async function loadCorpData() {
+  try {
+    corpData = await api.get('/api/admin/financials/income-statement') || [];
+    renderCorpChart();
+    renderCorpTable('is');
+  } catch(e) { console.warn('Corporate data:', e.message); }
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.corp-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  renderCorpTable(tab);
+}
+
+function togglePDF() {
+  const sec  = document.getElementById('pdf-section');
+  const icon = document.getElementById('pdf-toggle-icon');
+  const open = sec.style.display !== 'none';
+  sec.style.display = open ? 'none' : 'block';
+  icon.textContent  = open ? '▼ expand' : '▲ collapse';
+}
+
+function fmtAmt(v) {
+  if (v === null || v === undefined) return '—';
+  const abs = Math.abs(v);
+  const s   = 'RM ' + abs.toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return v < 0 ? '(' + s + ')' : s;
+}
+function amtTD(v) {
+  if (v === null || v === undefined) return '<td>—</td>';
+  const cls = v < 0 ? 'neg' : v > 0 ? 'pos' : '';
+  return `<td class="${cls}">${fmtAmt(v)}</td>`;
+}
+function fmtPct(v) {
+  if (v === null || v === undefined) return '—';
+  return (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+}
+function getCol(key) { return corpData.map(d => d[key] ?? null); }
+
+function renderCorpChart() {
+  if (!corpData.length) return;
+  const labels = corpData.map(d => d.fy);
+  const rev    = corpData.map(d => d.revenue    || 0);
+  const net    = corpData.map(d => d.net_profit  || 0);
+  if (corpChart) corpChart.destroy();
+  const ctx = document.getElementById('corp-chart').getContext('2d');
+  corpChart = new Chart(ctx, {
+    data: {
+      labels,
+      datasets: [
+        { type:'bar', label:'Revenue',
+          data: rev,
+          backgroundColor:'rgba(21,101,192,0.75)',
+          borderRadius:4, order:2 },
+        { type:'bar', label:'Net Profit',
+          data: net,
+          backgroundColor: net.map(v => v>=0 ? 'rgba(46,125,50,0.8)' : 'rgba(220,38,38,0.8)'),
+          borderRadius:4, order:1 },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ position:'bottom', labels:{boxWidth:12,font:{size:11}} },
+        tooltip:{ callbacks:{ label: c => c.dataset.label+': '+fmtAmt(c.parsed.y) }}
+      },
+      scales:{
+        y:{ ticks:{ callback: v =>
+          'RM '+(Math.abs(v)>=1000?(v/1000).toFixed(0)+'K':v.toFixed(0)) } }
+      }
+    }
+  });
+}
+
+function renderCorpTable(tab) {
+  if (!corpData.length) return;
+  const fys   = corpData.map(d => d.fy);
+  const thead = document.getElementById('corp-thead');
+  const tbody = document.getElementById('corp-tbody');
+  thead.innerHTML = '<tr><th>Item</th>' + fys.map(f=>`<th>${f}</th>`).join('') + '</tr>';
+  if      (tab==='is')  renderIS(fys, tbody);
+  else if (tab==='bs')  renderBS(fys, tbody);
+  else if (tab==='cf')  renderCF(fys, tbody);
+  else if (tab==='rat') renderRat(fys, tbody);
+}
+
+function buildRows(rows, fys) {
+  return rows.map(r => {
+    if (r.type==='section')
+      return `<tr class="r-section"><td colspan="${fys.length+1}">${r.label}</td></tr>`;
+    const cl = r.type==='net'?'r-net':r.type==='total'?'r-total':r.type==='sub'?'r-sub':'';
+    const tds = (r.vals||[]).map(v => typeof v==='string'
+      ? `<td class="${v.startsWith('+')?'pos':v.startsWith('-')?'neg':''}">${v}</td>`
+      : amtTD(v)).join('');
+    return `<tr class="${cl}"><td>${r.label}</td>${tds}</tr>`;
+  }).join('');
+}
+
+function renderIS(fys, tbody) {
+  tbody.innerHTML = buildRows([
+    { type:'section', label:'Revenue' },
+    { type:'sub',   label:'Dividend Income',        vals: getCol('dividend_income') },
+    { type:'sub',   label:'Interest & Fixed Income', vals: getCol('interest_income') },
+    { type:'total', label:'Total Revenue',            vals: getCol('revenue') },
+    { type:'section', label:'Operating Costs' },
+    { type:'sub',   label:'Management Fees',         vals: getCol('mng_cost').map(v=>v?-v:v) },
+    { type:'sub',   label:'Performance Fees',        vals: getCol('perf_cost').map(v=>v?-v:v) },
+    { type:'total', label:'Total Costs',              vals: getCol('total_costs').map(v=>v?-v:v) },
+    { type:'total', label:'Gross Profit',             vals: getCol('gross_profit') },
+    { type:'section', label:'Other Income / (Loss)' },
+    { type:'sub',   label:'Realised P&L',            vals: getCol('realised') },
+    { type:'sub',   label:'Unrealised Gains/(Loss)', vals: getCol('unrealised') },
+    { type:'sub',   label:'Other Income',            vals: getCol('other_misc') },
+    { type:'total', label:'Total Other Income',       vals: getCol('other_total') },
+    { type:'net',   label:'Net Profit / (Loss)',      vals: getCol('net_profit') },
+  ], fys);
+}
+
+function renderBS(fys, tbody) {
+  tbody.innerHTML = buildRows([
+    { type:'section', label:'Assets' },
+    { type:'sub',   label:'Securities',              vals: getCol('securities') },
+    { type:'sub',   label:'Derivatives',             vals: getCol('derivatives') },
+    { type:'sub',   label:'REITs',                   vals: getCol('reits') },
+    { type:'sub',   label:'Bonds',                   vals: getCol('bonds') },
+    { type:'sub',   label:'Money Market',            vals: getCol('money_market') },
+    { type:'sub',   label:'Receivables',             vals: getCol('receivables') },
+    { type:'sub',   label:'Cash',                    vals: getCol('cash_bal') },
+    { type:'total', label:'Total Assets',             vals: getCol('total_assets') },
+    { type:'section', label:'Liabilities' },
+    { type:'sub',   label:'Management Fee Accrual',  vals: getCol('mng_fees_liab').map(v=>v?-v:v) },
+    { type:'sub',   label:'Performance Fee Accrual', vals: getCol('perf_fees_liab').map(v=>v?-v:v) },
+    { type:'total', label:'Total Liabilities',        vals: getCol('total_liab').map(v=>v?-v:v) },
+    { type:'section', label:'Equity' },
+    { type:'sub',   label:'Capital (Paid-in)',        vals: getCol('capital') },
+    { type:'sub',   label:'Retained Earnings',        vals: getCol('earnings') },
+    { type:'net',   label:'Total Equity (NAV)',        vals: getCol('nav') },
+    { type:'net',   label:'NTA per Unit',             vals: getCol('nta') },
+  ], fys);
+}
+
+function renderCF(fys, tbody) {
+  tbody.innerHTML = buildRows([
+    { type:'section', label:'Operating Activities' },
+    { type:'sub',   label:'Dividend Received',        vals: getCol('dividend_income') },
+    { type:'sub',   label:'Interest Received',        vals: getCol('interest_income') },
+    { type:'sub',   label:'Management Fee Paid',      vals: getCol('fw_mng').map(v=>v?-v:v) },
+    { type:'sub',   label:'Performance Fee Paid',     vals: getCol('fw_perf').map(v=>v?-v:v) },
+    { type:'section', label:'Investing Activities' },
+    { type:'sub',   label:'Securities Purchased',     vals: getCol('buys_total').map(v=>v?-v:v) },
+    { type:'sub',   label:'Securities Sold (Proceeds)',vals: getCol('sells_total') },
+    { type:'section', label:'Financing Activities' },
+    { type:'sub',   label:'Subscriptions Received',   vals: getCol('subscriptions') },
+    { type:'sub',   label:'Redemptions Paid',         vals: getCol('redemptions').map(v=>v?-v:v) },
+    { type:'sub',   label:'Distributions Paid',       vals: getCol('distributions_paid').map(v=>v?-v:v) },
+    { type:'net',   label:'Net Change in Cash',        vals: getCol('net_cash_change') },
+  ], fys);
+}
+
+function renderRat(fys, tbody) {
+  tbody.innerHTML = buildRows([
+    { type:'section', label:'Performance' },
+    { type:'sub',   label:'NTA at FYE',              vals: getCol('nta') },
+    { type:'sub',   label:'Total Return %',          vals: getCol('total_return_pct').map(fmtPct) },
+    { type:'sub',   label:'AUM at FYE',              vals: getCol('nav') },
+    { type:'section', label:'Income Quality' },
+    { type:'sub',   label:'Net Profit Margin %',     vals: getCol('net_margin_pct').map(fmtPct) },
+    { type:'sub',   label:'Dividend Yield %',        vals: getCol('div_yield_pct').map(fmtPct) },
+    { type:'sub',   label:'Total DPS (sen)',         vals: getCol('total_dps') },
+    { type:'section', label:'Costs' },
+    { type:'sub',   label:'Expense Ratio %',         vals: getCol('expense_ratio_pct').map(fmtPct) },
+  ], fys);
+}
+
+/* ── PDF Generator ───────────────────────────────────────── */
 function buildMonthDropdown() {
   const sel = document.getElementById('factsheet-period');
   sel.innerHTML = '';
   const now = new Date();
   for (let i = 0; i < 24; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i + 1, 0); // last day of month
-    // Format as "31 March 2026"
-    const label = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-    const value = d.toISOString().slice(0, 10); // YYYY-MM-DD for backend
+    const d = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+    const label = d.toLocaleDateString('en-GB', {day:'numeric', month:'long', year:'numeric'});
+    const value = d.toISOString().slice(0, 10);
     const opt = document.createElement('option');
-    opt.value = value;
-    opt.textContent = label;
+    opt.value = value; opt.textContent = label;
     if (i === 0) opt.selected = true;
     sel.appendChild(opt);
   }
 }
 
-/* ── Select type ─────────────────────────────────────────── */
 function selectType(type) {
   selectedType = type;
   document.querySelectorAll('.stmt-card').forEach(c => c.classList.remove('selected'));
-  document.getElementById('card-' + type).classList.add('selected');
-
+  const card = document.getElementById('card-' + type);
+  if (card) card.classList.add('selected');
   const isFactsheet = type === 'factsheet';
   const needsFY     = type === 'dividend' || type === 'account';
   const needsInv    = type !== 'factsheet';
   const needsDate   = type === 'subscription' || type === 'redemption';
   const needsDist   = type === 'dividend';
-
   document.getElementById('investor-group').style.display = needsInv    ? 'block' : 'none';
   document.getElementById('date-group').style.display     = needsDate   ? 'block' : 'none';
   document.getElementById('dist-group').style.display     = needsDist   ? 'block' : 'none';
@@ -272,161 +511,116 @@ function selectType(type) {
   document.getElementById('period-group').style.display   = isFactsheet ? 'block' : 'none';
   document.getElementById('comment-group').style.display  = isFactsheet ? 'block' : 'none';
   document.getElementById('bulk-group').style.display     = needsInv    ? 'block' : 'none';
-
-  // Reload cashflow options when type changes (if investor already selected)
   if (needsDate || needsDist) loadCashflowOptions();
 }
 
-/* ── Load cashflow dates / distributions ─────────────────── */
 async function loadCashflowOptions() {
   const invId = document.getElementById('investor-select').value;
   if (!invId) return;
-
   if (selectedType === 'subscription' || selectedType === 'redemption') {
     const dateSel = document.getElementById('date-select');
     dateSel.innerHTML = '<option value="">Loading...</option>';
     try {
       const rows = await api.get(`/api/admin/investors/${encodeURIComponent(invId)}/cashflow-dates`);
-      const filtered = (rows || []).filter(r =>
+      const filtered = (rows||[]).filter(r =>
         selectedType === 'subscription' ? r.amount > 0 : r.amount < 0);
       dateSel.innerHTML = '<option value="">Latest record</option>' +
         filtered.map(r => {
-          const d   = new Date(r.date + 'T00:00:00');
-          const lbl = d.toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'});
-          const amt = Math.abs(Number(r.amount)).toLocaleString('en-MY', {minimumFractionDigits:2, maximumFractionDigits:2});
+          const d   = new Date(r.date+'T00:00:00');
+          const lbl = d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+          const amt = Math.abs(Number(r.amount)).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
           return `<option value="${r.date}">${lbl} — RM ${amt}</option>`;
         }).join('');
-    } catch(e) {
-      dateSel.innerHTML = '<option value="">— Error loading dates —</option>';
-      console.error('cashflow-dates error:', e);
-    }
+    } catch(e) { dateSel.innerHTML = '<option value="">— Error —</option>'; }
   }
-
   if (selectedType === 'dividend') {
     const distSel = document.getElementById('dist-select');
     distSel.innerHTML = '<option value="">Loading...</option>';
     try {
       const rows = await api.get(`/api/admin/investors/${encodeURIComponent(invId)}/distribution-list`);
       distSel.innerHTML = '<option value="">Latest distribution</option>' +
-        (rows || []).map(r => {
-          const d = r.pmt_date ? new Date(r.pmt_date + 'T00:00:00').toLocaleDateString('en-GB') : '';
+        (rows||[]).map(r => {
+          const d = r.pmt_date ? new Date(r.pmt_date+'T00:00:00').toLocaleDateString('en-GB') : '';
           return `<option value="${r.title}">${r.title} (${r.financial_year}) ${d}</option>`;
         }).join('');
-    } catch(e) {
-      distSel.innerHTML = '<option value="">— Error loading —</option>';
-      console.error('distribution-list error:', e);
-    }
+    } catch(e) { distSel.innerHTML = '<option value="">— Error —</option>'; }
   }
 }
 
-/* ── Generate PDF ────────────────────────────────────────── */
 async function generateStatement() {
   const btn = document.getElementById('gen-btn');
   btn.disabled = true; btn.textContent = '⏳ Generating...';
-
   try {
-    const investorId     = document.getElementById('investor-select').value;
-    const finYear        = document.getElementById('fy-select').value;
-    const selectedDate   = document.getElementById('date-select').value || null;
-    const selectedDist   = document.getElementById('dist-select').value || null;
+    const investorId   = document.getElementById('investor-select').value;
+    const finYear      = document.getElementById('fy-select').value;
+    const selectedDate = document.getElementById('date-select').value || null;
+    const selectedDist = document.getElementById('dist-select').value || null;
     const managerComment = document.getElementById('manager-comment').value.trim();
-    const bulk           = document.getElementById('bulk-select').value;
-
-    // For factsheet: use the end-of-month period date
-    const period = selectedType === 'factsheet'
+    const bulk         = document.getElementById('bulk-select').value;
+    const period       = selectedType === 'factsheet'
       ? document.getElementById('factsheet-period').value
       : document.getElementById('period-input').value;
 
     if (selectedType !== 'factsheet' && !investorId && bulk !== 'all') {
       showToast('Please select an investor', 'error');
-      btn.disabled = false; btn.textContent = '⚙ Generate PDF';
-      return;
+      btn.disabled = false; btn.textContent = '⚙ Generate PDF'; return;
     }
-
     let targets = [];
-    if (selectedType === 'factsheet') {
-      targets = [{ investor_id: null }];
-    } else if (bulk === 'all') {
-      targets = allInvestors.map(i => ({ investor_id: i.id, name: i.name }));
-    } else {
-      const inv = allInvestors.find(i => i.id === investorId);
-      targets = [{ investor_id: investorId, name: inv?.name || '' }];
-    }
+    if (selectedType === 'factsheet') targets = [{investor_id:null}];
+    else if (bulk === 'all') targets = allInvestors.map(i=>({investor_id:i.id,name:i.name}));
+    else { const inv = allInvestors.find(i=>i.id===investorId); targets = [{investor_id:investorId,name:inv?.name||''}]; }
 
     for (const target of targets) {
       try {
-        const body = {
-          statement_type:        selectedType,
-          investor_id:           target.investor_id,
-          financial_year:        finYear,
-          period:                period,
-          manager_comment:       managerComment,
-          // For factsheet: period IS the as-of date; for others: use date-select
-          selected_date:         selectedType === 'factsheet' ? period : selectedDate,
-          selected_distribution: selectedDist,
-        };
+        const body = { statement_type:selectedType, investor_id:target.investor_id,
+          financial_year:finYear, period, manager_comment:managerComment,
+          selected_date: selectedType==='factsheet' ? period : selectedDate,
+          selected_distribution:selectedDist };
         const res = await api.post('/api/admin/statements/generate', body);
-        if (!res) throw new Error('Server returned empty response (possible auth issue — try logging out and back in)');
-        if (!res.title) throw new Error(`Unexpected response: ${JSON.stringify(res)}`);
-        generated.unshift(res);
-        renderGenerated();
+        if (!res?.title) throw new Error(`Unexpected: ${JSON.stringify(res)}`);
+        generated.unshift(res); renderGenerated();
         showToast(`Generated: ${res.title}`, 'success');
-        if (targets.length === 1) downloadPdf(res.pdf_b64, res.file_name);
-      } catch(e) {
-        showToast(`Failed for ${target.name || 'fund'}: ${e.message}`, 'error');
-      }
+        if (targets.length===1) downloadPdf(res.pdf_b64, res.file_name);
+      } catch(e) { showToast(`Failed for ${target.name||'fund'}: ${e.message}`, 'error'); }
     }
-  } catch(e) {
-    showToast('Generation failed: ' + e.message, 'error');
-  }
-
+  } catch(e) { showToast('Generation failed: ' + e.message, 'error'); }
   btn.disabled = false; btn.textContent = '⚙ Generate PDF';
 }
 
-/* ── Render generated list ───────────────────────────────── */
 function renderGenerated() {
   const list = document.getElementById('generated-list');
   document.getElementById('gen-count').textContent = generated.length;
   if (!generated.length) {
-    list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted);font-size:0.88rem">No statements generated yet.</div>';
+    list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted)">No statements generated yet.</div>';
     return;
   }
   list.innerHTML = '<div class="generated-list">' +
-    generated.map(g => `
-      <div class="gen-item">
-        <div class="gen-item-info">
-          <span class="gen-item-name">${g.title}</span>
-          <span class="gen-item-meta">📄 ${g.file_name} · ${g.file_size_kb} KB</span>
-        </div>
-        <div class="gen-item-actions">
-          <button class="btn btn-outline" style="padding:5px 12px;font-size:0.78rem"
-            onclick="downloadPdf('${g.pdf_b64}','${g.file_name}')">↓ Download</button>
-        </div>
-      </div>`).join('') + '</div>';
+    generated.map(g => `<div class="gen-item">
+      <span class="gen-item-name">${g.title}</span>
+      <span class="gen-item-meta">📄 ${g.file_name} · ${g.file_size_kb} KB</span>
+      <div class="gen-item-actions">
+        <button class="btn btn-outline" style="padding:5px 12px;font-size:0.78rem"
+          onclick="downloadPdf('${g.pdf_b64}','${g.file_name}')">↓ Download</button>
+      </div></div>`).join('') + '</div>';
 }
 
-/* ── Auto-generate FY account statements ─────────────────── */
 async function generateAllFY() {
   const btn = event.target;
   btn.disabled = true; btn.textContent = '⏳ Generating...';
   try {
     const r = await api.post('/api/admin/statements/generate-fy-statements', {});
-    showToast(`Generated ${r.generated} account statements.` +
-      (r.errors?.length ? ` Some errors: ${r.errors[0]}` : ''), 'success');
+    showToast(`Generated ${r.generated} account statements.`, 'success');
   } catch(e) { showToast('Failed: ' + e.message, 'error'); }
   btn.disabled = false; btn.textContent = '⚙ Auto-Generate All FY Account Statements';
 }
 
-/* ── Download PDF blob ───────────────────────────────────── */
 function downloadPdf(b64, filename) {
-  const bytes  = atob(b64);
-  const buf    = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
-  const blob = new Blob([buf], { type: 'application/pdf' });
+  const bytes = atob(b64); const buf = new Uint8Array(bytes.length);
+  for (let i=0;i<bytes.length;i++) buf[i]=bytes.charCodeAt(i);
+  const blob = new Blob([buf],{type:'application/pdf'});
   const url  = URL.createObjectURL(blob);
-  const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
-  a.click();
-  URL.revokeObjectURL(url);
+  const a    = Object.assign(document.createElement('a'),{href:url,download:filename});
+  a.click(); URL.revokeObjectURL(url);
 }
 </script>
 </body>

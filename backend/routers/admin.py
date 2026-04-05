@@ -873,29 +873,117 @@ async def get_income_statement(
         # Net Profit = FYE retained earnings
         net_profit = earn_fye
 
+        # ── Balance Sheet data (FYE historical row) ─────────
+        bs = hist_fye
+        total_assets = (float(bs['derivatives'] or 0) + float(bs['securities'] or 0) +
+                        float(bs['reits'] or 0) + float(bs['bonds'] or 0) +
+                        float(bs['money_market'] or 0) + float(bs['receivables'] or 0) +
+                        float(bs['cash'] or 0)) if bs else 0.0
+        total_liab = (float(bs['mng_fees'] or 0) + float(bs['perf_fees'] or 0) +
+                      float(bs['ints_on_fees'] or 0) + float(bs['loans'] or 0) +
+                      float(bs['ints_on_loans'] or 0)) if bs else 0.0
+        nav = total_assets - total_liab
+
+        # ── Cash Flow data ────────────────────────────────────
+        # Buys (cash out) and sells (cash in) from transactions
+        buys_row = await db.fetchrow("""
+            SELECT COALESCE(SUM(ABS(net_amount)),0) AS n FROM transactions
+            WHERE date>=$1 AND date<=$2 AND units>0
+        """, fyb, fye)
+        sells_row = await db.fetchrow("""
+            SELECT COALESCE(SUM(net_amount),0) AS n FROM transactions
+            WHERE date>=$1 AND date<=$2 AND units<0
+        """, fyb, fye)
+        subs_row = await db.fetchrow("""
+            SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) AS n
+            FROM principal_cashflows WHERE date>=$1 AND date<=$2
+        """, fyb, fye)
+        reds_row = await db.fetchrow("""
+            SELECT COALESCE(SUM(ABS(CASE WHEN amount<0 THEN amount ELSE 0 END)),0) AS n
+            FROM principal_cashflows WHERE date>=$1 AND date<=$2
+        """, fyb, fye)
+        dist_row = await db.fetchrow("""
+            SELECT COALESCE(SUM(total_dividend),0) AS n FROM distributions
+            WHERE pmt_date>=$1 AND pmt_date<=$2
+        """, fyb, fye)
+        cash_fyb_row = await db.fetchrow("""
+            SELECT cash FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1
+        """, fyb)
+        cash_fye_row = await db.fetchrow("""
+            SELECT cash FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1
+        """, fye)
+        cash_fyb_val = float(cash_fyb_row['cash']) if cash_fyb_row else 0.0
+        cash_fye_val = float(cash_fye_row['cash']) if cash_fye_row else 0.0
+
+        # ── Ratio data ────────────────────────────────────────
+        nta_fyb_row = await db.fetchrow("""
+            SELECT nta, total_units FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1
+        """, fyb)
+        nta_fyb_val   = float(nta_fyb_row['nta']) if nta_fyb_row else 1.0
+        nta_fye_val   = float(bs['nta']) if bs else 1.0
+        total_units_v = float(bs['total_units']) if bs else 0.0
+        total_return  = ((nta_fye_val / nta_fyb_val) - 1) * 100 if nta_fyb_val > 0 else 0.0
+
+        # Total DPS for the FY
+        dps_row = await db.fetchrow("""
+            SELECT COALESCE(SUM(dps_sen),0) AS n FROM distributions
+            WHERE pmt_date>=$1 AND pmt_date<=$2
+        """, fyb, fye)
+        total_dps    = float(dps_row['n'])
+        net_margin   = (net_profit / revenue * 100) if revenue != 0 else 0.0
+        div_yield    = (dividend_income / nav * 100) if nav > 0 else 0.0
+        expense_ratio = (total_costs / total_assets * 100) if total_assets > 0 else 0.0
+
         results.append({
             "fy":              fy_label,
             "fy_year":         fy,
             "fyb":             str(fyb),
             "fye":             str(fye),
             "is_current":      fye >= today,
-            # Revenue
+            # Income Statement
             "dividend_income": round(dividend_income, 2),
             "interest_income": round(interest_income, 2),
             "revenue":         round(revenue, 2),
-            # Costs
             "mng_cost":        round(mng_cost, 2),
             "perf_cost":       round(perf_cost, 2),
             "total_costs":     round(total_costs, 2),
-            # Gross
             "gross_profit":    round(gross_profit, 2),
-            # Other Income
             "realised":        round(realised, 2),
             "unrealised":      round(unrealised, 2),
             "other_misc":      round(other_income_misc, 2),
             "other_total":     round(other_total, 2),
-            # Net
             "net_profit":      round(net_profit, 2),
+            # Balance Sheet (FYE)
+            "securities":      round(float(bs['securities'] or 0), 2) if bs else None,
+            "derivatives":     round(float(bs['derivatives'] or 0), 2) if bs else None,
+            "reits":           round(float(bs['reits'] or 0), 2) if bs else None,
+            "bonds":           round(float(bs['bonds'] or 0), 2) if bs else None,
+            "money_market":    round(float(bs['money_market'] or 0), 2) if bs else None,
+            "receivables":     round(float(bs['receivables'] or 0), 2) if bs else None,
+            "cash_bal":        round(float(bs['cash'] or 0), 2) if bs else None,
+            "total_assets":    round(total_assets, 2),
+            "mng_fees_liab":   round(float(bs['mng_fees'] or 0), 2) if bs else None,
+            "perf_fees_liab":  round(float(bs['perf_fees'] or 0), 2) if bs else None,
+            "total_liab":      round(total_liab, 2),
+            "capital":         round(float(bs['capital'] or 0), 2) if bs else None,
+            "earnings":        round(float(bs['earnings'] or 0), 2) if bs else None,
+            "nav":             round(nav, 2),
+            "nta":             round(nta_fye_val, 6),
+            # Cash Flow
+            "buys_total":        round(float(buys_row['n']), 2),
+            "sells_total":       round(float(sells_row['n']), 2),
+            "subscriptions":     round(float(subs_row['n']), 2),
+            "redemptions":       round(float(reds_row['n']), 2),
+            "distributions_paid":round(float(dist_row['n']), 2),
+            "fw_mng":            round(float(fw_mng['n']), 2),
+            "fw_perf":           round(float(fw_prf['n']), 2),
+            "net_cash_change":   round(cash_fye_val - cash_fyb_val, 2),
+            # Ratios
+            "total_return_pct":  round(total_return, 4),
+            "net_margin_pct":    round(net_margin, 4),
+            "div_yield_pct":     round(div_yield, 4),
+            "expense_ratio_pct": round(expense_ratio, 4),
+            "total_dps":         round(total_dps, 4),
         })
 
     return results
