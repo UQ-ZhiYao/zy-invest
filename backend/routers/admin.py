@@ -1379,74 +1379,147 @@ async def generate_statement(
 
         if stmt_type == 'factsheet':
             from datetime import date as date_type, timedelta as _td
-            import datetime as _dt
 
-            # Use selected period date (end-of-month date from dropdown)
-            # All data filtered UP TO this date
+            # (a) Selective date — all data filtered to this date
             as_of = selected_date_obj or date_type.today()
 
-            # Holdings and sector as of the as_of date
-            # (holdings table is current; for historical we filter by date)
-            holdings = await db.fetch("""
-                SELECT instrument, total_cost,
-                       CASE WHEN units > 0 THEN total_cost / NULLIF((SELECT SUM(total_cost) FROM holdings WHERE units > 0.001),0)*100
-                            ELSE 0 END AS weight_pct
-                FROM holdings WHERE units > 0.001 ORDER BY total_cost DESC LIMIT 10
-            """)
-            sector_data = await db.fetch("SELECT * FROM v_holdings_by_class ORDER BY total_market_value DESC")
+            # (b) Fund Details from historical at as_of
+            hist_row = await db.fetchrow("""
+                SELECT nta, total_units, cash,
+                       securities, derivatives, reits, bonds, money_market,
+                       receivables, mng_fees, perf_fees
+                FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1
+            """, as_of)
+            if hist_row:
+                fund_data = dict(fund_data)
+                nta_val   = float(hist_row['nta']          or 0)
+                units_val = float(hist_row['total_units']  or 0)
+                sec_val   = float(hist_row['securities']   or 0)
+                der_val   = float(hist_row['derivatives']  or 0)
+                rei_val   = float(hist_row['reits']        or 0)
+                bon_val   = float(hist_row['bonds']        or 0)
+                mm_val    = float(hist_row['money_market'] or 0)
+                rec_val   = float(hist_row['receivables']  or 0)
+                csh_val   = float(hist_row['cash']         or 0)
+                total_assets = sec_val+der_val+rei_val+bon_val+mm_val+rec_val+csh_val
+                total_liab   = float(hist_row['mng_fees']  or 0) + float(hist_row['perf_fees'] or 0)
+                aum_val   = total_assets - total_liab
+                fund_data['current_nta']  = nta_val
+                fund_data['aum']          = aum_val
+                fund_data['total_units']  = units_val
+            else:
+                nta_val = units_val = aum_val = 0.0
+                total_assets = 0.0
 
-            # NTA history up to as_of date
+            # (c) Sector breakdown from historical at as_of
+            # Compute weights from the historical asset buckets at as_of
+            sector_data = []
+            if hist_row and total_assets > 0:
+                buckets = [
+                    ('Securities',    float(hist_row['securities']   or 0)),
+                    ('Derivatives',   float(hist_row['derivatives']  or 0)),
+                    ('REITs',         float(hist_row['reits']        or 0)),
+                    ('Bonds',         float(hist_row['bonds']        or 0)),
+                    ('Money Market',  float(hist_row['money_market'] or 0)),
+                    ('Receivables',   float(hist_row['receivables']  or 0)),
+                    ('Cash',          float(hist_row['cash']         or 0)),
+                ]
+                for name, val in buckets:
+                    if val > 0:
+                        sector_data.append({
+                            'asset_class':         name,
+                            'total_market_value':  val,
+                            'weight_pct':          round(val / total_assets * 100, 2),
+                        })
+
+            # (d) NTA history from inception to as_of
             nta_hist = await db.fetch(
                 "SELECT date, nta FROM historical WHERE date <= $1 ORDER BY date ASC", as_of)
 
-            # Distributions up to as_of date
+            # Distributions up to as_of
             dists = await db.fetch(
                 "SELECT * FROM distributions WHERE ex_date <= $1 ORDER BY ex_date DESC LIMIT 8", as_of)
 
-            # Fund data as of the as_of date (NTA at that date)
-            latest = await db.fetchrow(
-                "SELECT nta, date FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1", as_of)
-            # Override fund_data with as_of values
-            if latest:
-                fund_data = dict(fund_data)
-                fund_data['current_nta'] = float(latest['nta'])
-                # AUM and units at as_of
-                aum_row = await db.fetchrow(
-                    "SELECT nta * total_units AS aum, total_units FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1", as_of)
-                if aum_row:
-                    fund_data['aum']         = float(aum_row['aum'])
-                    fund_data['total_units'] = float(aum_row['total_units'])
-
-            # Period returns relative to as_of date
+            # (e) Period returns — relative to NTA at as_of date
             periods = {}
-            if latest:
-                inception = await db.fetchrow("SELECT nta FROM historical ORDER BY date ASC LIMIT 1")
+            if hist_row and nta_val > 0:
+                inception_row = await db.fetchrow(
+                    "SELECT nta FROM historical ORDER BY date ASC LIMIT 1")
                 for label, days in [("1M",30),("3M",90),("6M",180),("1Y",365),("3Y",1095)]:
                     ref_date = as_of - _td(days=days)
                     ref = await db.fetchrow(
-                        "SELECT nta FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1", ref_date)
-                    if ref and ref["nta"]:
-                        periods[label] = round((float(latest["nta"]) / float(ref["nta"]) - 1) * 100, 4)
-                if inception and inception["nta"]:
-                    total_ret = round((float(latest["nta"]) / float(inception["nta"]) - 1) * 100, 4)
+                        "SELECT nta FROM historical WHERE date <= $1 ORDER BY date DESC LIMIT 1",
+                        ref_date)
+                    if ref and ref["nta"] and float(ref["nta"]) > 0:
+                        periods[label] = round(
+                            (nta_val / float(ref["nta"]) - 1) * 100, 4)
+                if inception_row and float(inception_row["nta"] or 0) > 0:
+                    total_ret = round(
+                        (nta_val / float(inception_row["nta"]) - 1) * 100, 4)
                 else:
-                    total_ret = float(fund_data.get('total_return_pct', 0))
+                    total_ret = 0.0
             else:
                 total_ret = 0.0
 
             perf_data = {'period_returns': periods, 'total_return_pct': total_ret}
+
+            # (f) Largest Holdings as-of: replay transactions up to as_of date
+            positions = {}
+            trades = await db.fetch("""
+                SELECT instrument, asset_class, units, net_amount
+                FROM transactions WHERE date <= $1
+                ORDER BY date ASC,
+                         CASE WHEN units > 0 THEN 0 ELSE 1 END ASC,
+                         created_at ASC
+            """, as_of)
+            for t in trades:
+                instr = t['instrument']
+                u     = float(t['units'])
+                net   = float(t['net_amount'])
+                if instr not in positions:
+                    positions[instr] = {'units': 0.0, 'total_cost': 0.0,
+                                        'asset_class': t['asset_class'] or 'Securities [H]'}
+                p = positions[instr]
+                if u > 0:                          # BUY
+                    p['units']      += u
+                    p['total_cost'] += abs(net)
+                elif u < 0 and p['units'] > 0:     # SELL
+                    sell_u    = min(abs(u), p['units'])
+                    proportion         = sell_u / p['units']
+                    p['total_cost']   -= p['total_cost'] * proportion
+                    p['units']        -= sell_u
+                    if p['units'] < 0.0001:
+                        p['units'] = 0.0; p['total_cost'] = 0.0
+
+            total_cost_all = sum(
+                p['total_cost'] for p in positions.values() if p['units'] > 0.0001)
+            holdings = []
+            for instr, p in sorted(
+                    positions.items(),
+                    key=lambda x: x[1]['total_cost'], reverse=True):
+                if p['units'] > 0.0001 and total_cost_all > 0:
+                    holdings.append({
+                        'instrument': instr,
+                        'asset_class': p['asset_class'],
+                        'total_cost': round(p['total_cost'], 2),
+                        'weight_pct': round(p['total_cost'] / total_cost_all * 100, 2),
+                    })
+
             manager_comment = body.get('manager_comment', '')
+            # (a) Title uses as_of date
+            as_of_label = as_of.strftime('%d %B %Y')
+            title = f"ZY-Invest Monthly Factsheet — {as_of_label}"
+
             pdf_bytes = generate_factsheet(
                 fund_data=fund_data,
-                holdings=[dict(h) for h in holdings],
+                holdings=holdings[:10],
                 performance=perf_data,
                 as_of_date=as_of,
                 distributions=[dict(d) for d in dists],
                 nta_history=[dict(r) for r in nta_hist],
-                sector_data=[dict(r) for r in sector_data],
+                sector_data=sector_data,
                 manager_comment=manager_comment,
             )
-            title = f"ZY-Invest Factsheet {period or fund_data.get('last_nta_date','')}"
             visibility = 'fund'
 
         elif stmt_type == 'subscription':
@@ -1877,3 +1950,63 @@ async def get_distribution_list(
         ORDER BY d.pmt_date DESC
     """, investor_id)
     return [serialise(r) for r in rows]
+
+# ── Document Management ───────────────────────────────────────
+@router.get("/documents")
+async def list_documents(
+    page:       int = 1,
+    limit:      int = 20,
+    doc_type:   str = None,
+    investor_id: str = None,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    offset = (page - 1) * limit
+    where, params, i = ["1=1"], [], 1
+    if doc_type:
+        where.append(f"doc_type=${i}"); params.append(doc_type); i += 1
+    if investor_id:
+        where.append(f"investor_id=${i}::uuid"); params.append(investor_id); i += 1
+    w = " AND ".join(where)
+
+    total = await db.fetchval(f"SELECT COUNT(*) FROM documents WHERE {w}", *params)
+    rows  = await db.fetch(f"""
+        SELECT d.id, d.title, d.doc_type, d.file_name, d.file_size_kb,
+               d.visibility, d.investor_id, d.financial_year,
+               d.created_at, i.name AS investor_name
+        FROM documents d
+        LEFT JOIN investors i ON i.id = d.investor_id
+        WHERE {w}
+        ORDER BY d.created_at DESC
+        LIMIT {limit} OFFSET {offset}
+    """, *params)
+    return {"total": total, "page": page, "limit": limit,
+            "items": [serialise(r) for r in rows]}
+
+
+@router.get("/documents/{doc_id}/download")
+async def download_document(
+    doc_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    row = await db.fetchrow(
+        "SELECT title, file_name, file_url FROM documents WHERE id=$1::uuid", doc_id)
+    if not row:
+        raise HTTPException(404, "Document not found")
+    file_url = row['file_url'] or ''
+    b64 = file_url.split(',', 1)[1] if file_url.startswith('data:') and ',' in file_url else file_url
+    return {"title": row['title'], "file_name": row['file_name'], "pdf_b64": b64}
+
+
+@router.delete("/documents/{doc_id}")
+async def delete_document(
+    doc_id: str,
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    deleted = await db.fetchval(
+        "DELETE FROM documents WHERE id=$1::uuid RETURNING id", doc_id)
+    if not deleted:
+        raise HTTPException(404, "Document not found")
+    return {"message": "Document deleted"}
