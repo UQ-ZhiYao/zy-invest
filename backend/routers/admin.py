@@ -538,7 +538,6 @@ async def compute_holdings_and_settlement(
             positions[instr] = {
                 'units':      Decimal('0'),
                 'total_cost': Decimal('0'),
-                'avg_cost':   Decimal('0'),
                 'ac': ac, 'sector': sector, 'region': region,
                 'last_date': d,
             }
@@ -546,51 +545,59 @@ async def compute_holdings_and_settlement(
 
         if units > Decimal('0'):
             # ── BUY ──────────────────────────────────────────
-            # Cost = abs(net_amount) — the real cash paid including all fees
-            cost          = abs(net)
-            new_units     = p['units'] + units
-            new_total     = p['total_cost'] + cost
-            p['avg_cost'] = new_total / new_units   # AVCO: recalculate weighted average
-            p['total_cost'] = new_total
-            p['units']      = new_units
-            p['ac']         = ac
-            p['sector']     = sector
-            p['region']     = region
-            p['last_date']  = d
+            # cost = abs(net_amount) — real cash paid including all fees
+            cost            = abs(net)
+            p['units']      += units
+            p['total_cost'] += cost
+            p['ac']          = ac
+            p['sector']      = sector
+            p['region']      = region
+            p['last_date']   = d
+            # avg_cost always derived: never stored with rounding error
+            # computed fresh at read time as total_cost / units
 
         elif units < Decimal('0'):
             # ── SELL ─────────────────────────────────────────
             units_sold = abs(units)
+
+            # Skip if position already flat (avoid zero settlements)
+            if p['units'] <= Decimal('0'):
+                errors.append(f"SKIP {instr} {d}: sell {units_sold} but position is 0")
+                continue
+
             # Cap at held units (handles tiny rounding differences)
             units_sold = min(units_sold, p['units'])
 
+            # avg_cost = total_cost / units — Option 2: always recompute, no rounding error
+            avg_cost   = p['total_cost'] / p['units']
+
             # proceeds and cost_basis — NEVER use units × price
-            proceeds   = abs(net)                        # exact cash received from DB
-            cost_basis = p['avg_cost'] * units_sold      # AVCO: avg_cost stays unchanged
-            realised_pl = proceeds - cost_basis          # exact subtraction, full precision
-            sale_price  = proceeds / units_sold if units_sold > Decimal('0') else Decimal('0')
+            proceeds    = abs(net)                   # exact cash received from DB
+            cost_basis  = avg_cost * units_sold      # AVCO cost at full precision
+            realised_pl = proceeds - cost_basis      # exact subtraction
+            sale_price  = proceeds / units_sold      # for display only
             ret_pct     = (realised_pl / cost_basis * 100) if cost_basis > Decimal('0') else Decimal('0')
 
             # Collect settlement — round only here at write time
             settlements.append((
                 d, region, ac, sector, instr,
                 r8(units_sold),
-                r8(p['avg_cost']),   # bought_price = AVCO avg_cost
+                r8(avg_cost),        # bought_price = AVCO (recomputed, no rounding error)
                 r8(sale_price),      # sale_price   = proceeds / units_sold
                 r4(realised_pl),     # realised_pl  = proceeds - cost_basis (exact)
                 r4(ret_pct),
             ))
 
-            # Reduce position — avg_cost stays the same (AVCO)
+            # Reduce position — total_cost proportionally reduced
+            proportion      = units_sold / p['units']
+            p['total_cost'] -= p['total_cost'] * proportion
             p['units']      -= units_sold
-            p['total_cost']  = p['avg_cost'] * p['units']  # recalculate remaining cost
             p['last_date']   = d
 
-            # Clear dust (rounding residuals)
+            # Clear dust — any residual < 0.0001 is a rounding artifact
             if p['units'] < Decimal('0.0001'):
                 p['units']      = Decimal('0')
                 p['total_cost'] = Decimal('0')
-                p['avg_cost']   = Decimal('0')
 
     # ── 3. Write settlements ──────────────────────────────────
     sc = 0
@@ -672,7 +679,9 @@ async def compute_holdings_and_settlement(
                     last_updated=NOW()
             """,
                 instr, p['ac'], p['sector'], p['region'],
-                r8(p['units']), r8(p['avg_cost']), r4(p['total_cost']),
+                r8(p['units']),
+                r8(p['total_cost'] / p['units']),   # avg_cost = total_cost/units, no rounding error
+                r4(p['total_cost']),
                 p['last_date'])
             saved += 1
         except Exception as e:
