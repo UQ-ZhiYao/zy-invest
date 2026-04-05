@@ -560,44 +560,47 @@ async def compute_holdings_and_settlement(
             # ── SELL ─────────────────────────────────────────
             units_sold = abs(units)
 
-            # Skip if position already flat (avoid zero settlements)
-            if p['units'] <= Decimal('0'):
-                errors.append(f"SKIP {instr} {d}: sell {units_sold} but position is 0")
-                continue
+            # PROCEEDS: always abs(net_amount) — direct from DB, never units × price
+            proceeds = abs(net)
 
-            # Cap at held units (handles tiny rounding differences)
-            units_sold = min(units_sold, p['units'])
+            # COST BASIS: (total_cost / units) × units_sold — from holdings, full precision
+            # If position is 0 (e.g. warrant with zero cost), cost_basis = 0
+            if p['units'] > Decimal('0'):
+                # Cap units_sold at held (handles tiny rounding differences)
+                units_sold  = min(units_sold, p['units'])
+                cost_basis  = (p['total_cost'] / p['units']) * units_sold  # no rounding
+                avg_cost    = p['total_cost'] / p['units']                  # for display
+            else:
+                # Position is 0 — warrant/rights with zero cost basis
+                cost_basis  = Decimal('0')
+                avg_cost    = Decimal('0')
 
-            # avg_cost = total_cost / units — Option 2: always recompute, no rounding error
-            avg_cost   = p['total_cost'] / p['units']
-
-            # proceeds and cost_basis — NEVER use units × price
-            proceeds    = abs(net)                   # exact cash received from DB
-            cost_basis  = avg_cost * units_sold      # AVCO cost at full precision
-            realised_pl = proceeds - cost_basis      # exact subtraction
-            sale_price  = proceeds / units_sold      # for display only
+            # REALISED P&L: proceeds - cost_basis — exact, no intermediate rounding
+            realised_pl = proceeds - cost_basis
+            sale_price  = proceeds / units_sold if units_sold > Decimal('0') else Decimal('0')
             ret_pct     = (realised_pl / cost_basis * 100) if cost_basis > Decimal('0') else Decimal('0')
 
-            # Collect settlement — round only here at write time
+            # Append settlement — round ONLY here at DB write time
             settlements.append((
                 d, region, ac, sector, instr,
                 r8(units_sold),
-                r8(avg_cost),        # bought_price = AVCO (recomputed, no rounding error)
-                r8(sale_price),      # sale_price   = proceeds / units_sold
-                r4(realised_pl),     # realised_pl  = proceeds - cost_basis (exact)
+                r8(avg_cost),       # bought_price  = total_cost/units (AVCO, no rounding)
+                r8(sale_price),     # sale_price    = proceeds/units_sold
+                r4(realised_pl),    # realised_pl   = proceeds - cost_basis (exact)
                 r4(ret_pct),
             ))
 
-            # Reduce position — total_cost proportionally reduced
-            proportion      = units_sold / p['units']
-            p['total_cost'] -= p['total_cost'] * proportion
-            p['units']      -= units_sold
-            p['last_date']   = d
+            # Reduce position — total_cost reduced proportionally
+            if p['units'] > Decimal('0'):
+                proportion      = units_sold / p['units']
+                p['total_cost'] -= p['total_cost'] * proportion
+                p['units']      -= units_sold
+                p['last_date']   = d
 
-            # Clear dust — any residual < 0.0001 is a rounding artifact
-            if p['units'] < Decimal('0.0001'):
-                p['units']      = Decimal('0')
-                p['total_cost'] = Decimal('0')
+                # Clear dust — residual < 0.0001 is rounding artifact
+                if p['units'] < Decimal('0.0001'):
+                    p['units']      = Decimal('0')
+                    p['total_cost'] = Decimal('0')
 
     # ── 3. Write settlements ──────────────────────────────────
     sc = 0
