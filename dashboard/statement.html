@@ -8,30 +8,43 @@
   <link rel="stylesheet" href="../assets/css/dashboard.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
-    .corp-tab { background:none; border:none; padding:12px 20px; font-size:0.88rem;
-                font-weight:600; color:var(--text-muted); cursor:pointer;
-                border-bottom:3px solid transparent; margin-bottom:-2px; transition:.15s; }
+    .corp-tabs { display:flex; gap:0; border-bottom:2px solid var(--border);
+                 padding:0 0; overflow-x:auto; }
+    .corp-tab  { background:none; border:none; padding:14px 24px; font-size:0.88rem;
+                 font-weight:600; color:var(--text-muted); cursor:pointer;
+                 border-bottom:3px solid transparent; margin-bottom:-2px;
+                 white-space:nowrap; transition:.15s; }
     .corp-tab:hover  { color:var(--blue); }
     .corp-tab.active { color:var(--blue); border-bottom-color:var(--blue); }
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
 
-    .corp-table { width:100%; border-collapse:collapse; font-size:0.84rem; min-width:600px; }
-    .corp-table th { padding:8px 14px; text-align:right; font-size:0.75rem; font-weight:700;
+    .corp-table { width:100%; border-collapse:collapse; font-size:0.84rem; min-width:520px; }
+    .corp-table th { padding:9px 14px; text-align:right; font-size:0.75rem; font-weight:700;
                      text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted);
                      background:var(--gray-50); border-bottom:2px solid var(--border);
                      white-space:nowrap; }
-    .corp-table th:first-child { text-align:left; min-width:200px; }
+    .corp-table th:first-child { text-align:left; width:220px; }
+    .corp-table th.unit-col { font-size:0.68rem; color:var(--blue);
+                               font-style:italic; text-transform:none; letter-spacing:0; }
     .corp-table td { padding:8px 14px; border-bottom:1px solid var(--border); white-space:nowrap; }
-    .corp-table td:not(:first-child) { text-align:right; }
-    .corp-table .r-section td { background:var(--gray-50); font-size:0.75rem; font-weight:700;
-                                 text-transform:uppercase; letter-spacing:.06em;
+    .corp-table td:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
+    .corp-table .r-section td { background:var(--gray-50); font-size:0.73rem; font-weight:700;
+                                 text-transform:uppercase; letter-spacing:.07em;
                                  color:var(--text-muted); padding:10px 14px; }
-    .corp-table .r-sub td:first-child { padding-left:28px; color:var(--gray-700); }
-    .corp-table .r-total td { font-weight:700; border-top:2px solid var(--border);
-                               border-bottom:2px solid var(--border); }
-    .corp-table .r-net   td { font-weight:700; font-size:0.95rem;
-                               border-top:3px double var(--border); background:var(--gray-50); }
+    .corp-table .r-sub  td:first-child { padding-left:28px; }
+    .corp-table .r-total td { font-weight:700; background:var(--gray-50);
+                               border-top:1.5px solid var(--border);
+                               border-bottom:1.5px solid var(--border); }
+    .corp-table .r-net   td { font-weight:700; font-size:0.92rem;
+                               border-top:3px double var(--border);
+                               border-bottom:3px double var(--border);
+                               background:var(--off-white); }
+    .corp-table .r-foot  td { font-size:0.78rem; color:var(--text-muted);
+                               border-top:2px solid var(--border); }
     .pos { color:var(--green); }
     .neg { color:#DC2626; }
+    .chart-box { height:300px; position:relative; padding:16px 16px 8px; }
   </style>
 </head>
 <body>
@@ -60,36 +73,63 @@
         <p>Fund financial statements by financial year (1 Dec — 30 Nov).</p>
       </div>
 
-      <!-- Chart -->
-      <div class="card" style="margin-bottom:20px">
-        <div class="card-header"><h3 class="card-title">Revenue & Net Profit by Financial Year</h3></div>
-        <div style="height:240px;position:relative;padding:16px">
-          <canvas id="corp-chart"></canvas>
-        </div>
-      </div>
-
-      <!-- Tabs + Table -->
       <div class="card">
-        <div style="display:flex;gap:0;border-bottom:2px solid var(--border);padding:0 20px;overflow-x:auto">
-          <button class="corp-tab active" id="tab-is"  onclick="switchTab('is')">Income Statement</button>
-          <button class="corp-tab"        id="tab-bs"  onclick="switchTab('bs')">Balance Sheet</button>
-          <button class="corp-tab"        id="tab-cf"  onclick="switchTab('cf')">Cash Flow</button>
-          <button class="corp-tab"        id="tab-rat" onclick="switchTab('rat')">Ratios</button>
+        <!-- Tab bar -->
+        <div class="corp-tabs">
+          <button class="corp-tab active" id="tab-is"  onclick="switchTab('is')">📊 Income Statement</button>
+          <button class="corp-tab"        id="tab-bs"  onclick="switchTab('bs')">🏦 Balance Sheet</button>
+          <button class="corp-tab"        id="tab-cf"  onclick="switchTab('cf')">💸 Cash Flow</button>
+          <button class="corp-tab"        id="tab-rat" onclick="switchTab('rat')">📐 Ratios</button>
         </div>
-        <div style="padding:20px;overflow-x:auto">
-          <table class="corp-table">
-            <thead id="corp-thead"></thead>
-            <tbody id="corp-tbody">
-              <tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">
-                Loading...</td></tr>
-            </tbody>
-          </table>
+
+        <!-- IS panel -->
+        <div class="tab-panel active" id="panel-is">
+          <div class="chart-box"><canvas id="chart-is"></canvas></div>
+          <div style="overflow-x:auto;padding:0 0 16px">
+            <table class="corp-table" id="table-is">
+              <thead id="thead-is"></thead>
+              <tbody id="tbody-is"><tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</td></tr></tbody>
+            </table>
+          </div>
         </div>
-        <div class="panel-footer" id="corp-footer">
-          Financial year: 1 December — 30 November. Current FY shows year-to-date figures.
+
+        <!-- BS panel -->
+        <div class="tab-panel" id="panel-bs">
+          <div class="chart-box"><canvas id="chart-bs"></canvas></div>
+          <div style="overflow-x:auto;padding:0 0 16px">
+            <table class="corp-table" id="table-bs">
+              <thead id="thead-bs"></thead>
+              <tbody id="tbody-bs"><tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- CF panel -->
+        <div class="tab-panel" id="panel-cf">
+          <div class="chart-box"><canvas id="chart-cf"></canvas></div>
+          <div style="overflow-x:auto;padding:0 0 16px">
+            <table class="corp-table" id="table-cf">
+              <thead id="thead-cf"></thead>
+              <tbody id="tbody-cf"><tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Ratio panel -->
+        <div class="tab-panel" id="panel-rat">
+          <div style="overflow-x:auto;padding:16px 0 16px">
+            <table class="corp-table" id="table-rat">
+              <thead id="thead-rat"></thead>
+              <tbody id="tbody-rat"><tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div style="padding:10px 20px;font-size:0.75rem;color:var(--text-muted);border-top:1px solid var(--border)">
+          Financial year: 1 December — 30 November &nbsp;|&nbsp; * Current FY (year-to-date)
+          &nbsp;|&nbsp; Amounts in RM unless stated
         </div>
       </div>
-
     </div>
   </div>
 </div>
@@ -97,198 +137,245 @@
 <script src="../assets/js/api.js"></script>
 <script src="../assets/js/dashboard.js"></script>
 <script>
-let corpData  = [];
-let corpChart = null;
-let activeTab = 'is';
+let corpData = [];
+const charts = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
   initDashboard('statement', 'Corporate Results');
-  await loadCorpData();
+  await loadData();
 });
 
-async function loadCorpData() {
+async function loadData() {
   try {
     corpData = await api.get('/api/admin/financials/income-statement') || [];
-    renderChart();
-    renderTable('is');
-  } catch(e) {
-    showToast('Failed to load corporate results: ' + e.message, 'error');
-  }
+    buildAll();
+  } catch(e) { showToast('Failed to load: ' + e.message, 'error'); }
 }
 
 function switchTab(tab) {
-  activeTab = tab;
   document.querySelectorAll('.corp-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
-  renderTable(tab);
+  document.getElementById('panel-' + tab).classList.add('active');
 }
 
 // ── Formatting ────────────────────────────────────────────────
-function fmtAmt(v) {
-  if (v === null || v === undefined) return '—';
+function fmt(v, dp=2) {
+  if (v === null || v === undefined || v === 0) return '—';
   const abs = Math.abs(v);
-  const s   = 'RM ' + abs.toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const s   = abs.toLocaleString('en-MY', {minimumFractionDigits:dp, maximumFractionDigits:dp});
   return v < 0 ? '(' + s + ')' : s;
-}
-function amtTD(v) {
-  if (v === null || v === undefined) return '<td>—</td>';
-  const cls = v < 0 ? 'neg' : v > 0 ? 'pos' : '';
-  return `<td class="${cls}">${fmtAmt(v)}</td>`;
 }
 function fmtPct(v) {
   if (v === null || v === undefined) return '—';
-  return (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+  const s = Math.abs(v).toFixed(2) + '%';
+  return v < 0 ? '(' + s + ')' : (v > 0 ? '+' + s : s);
+}
+function numTD(v, dp=2) {
+  if (v === null || v === undefined || v === 0) return '<td>—</td>';
+  const cls = v < 0 ? 'neg' : v > 0 ? 'pos' : '';
+  return `<td class="${cls}">${fmt(v, dp)}</td>`;
 }
 function pctTD(v) {
   if (v === null || v === undefined) return '<td>—</td>';
-  const s   = fmtPct(v);
   const cls = v < 0 ? 'neg' : v > 0 ? 'pos' : '';
-  return `<td class="${cls}">${s}</td>`;
+  return `<td class="${cls}">${fmtPct(v)}</td>`;
 }
 function getCol(key) { return corpData.map(d => d[key] ?? null); }
 
-// ── Chart ─────────────────────────────────────────────────────
-function renderChart() {
-  if (!corpData.length) return;
-  const labels = corpData.map(d => d.fy);
-  const rev    = corpData.map(d => d.revenue   || 0);
-  const net    = corpData.map(d => d.net_profit || 0);
-
-  if (corpChart) corpChart.destroy();
-  const ctx = document.getElementById('corp-chart').getContext('2d');
-  corpChart = new Chart(ctx, {
-    data: {
-      labels,
-      datasets: [
-        { type:'bar', label:'Revenue',
-          data: rev,
-          backgroundColor: 'rgba(21,101,192,0.75)',
-          borderRadius: 4, order: 2 },
-        { type:'bar', label:'Net Profit',
-          data: net,
-          backgroundColor: net.map(v => v >= 0 ? 'rgba(46,125,50,0.8)' : 'rgba(220,38,38,0.8)'),
-          borderRadius: 4, order: 1 },
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode:'index', intersect:false },
-      plugins: {
-        legend: { position:'bottom', labels:{boxWidth:12, font:{size:11}} },
-        tooltip: { callbacks: { label: c => c.dataset.label + ': ' + fmtAmt(c.parsed.y) } }
-      },
-      scales: {
-        y: { ticks: { callback: v =>
-          'RM ' + (Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'K' : v.toFixed(0)) } }
-      }
-    }
-  });
+// ── Build header row ──────────────────────────────────────────
+function buildHeader(unitLabel) {
+  const cols = corpData.map(d =>
+    `<th>${d.fy}${d.is_current ? ' *' : ''}</th>`).join('');
+  return `<tr>
+    <th>Item <span class="unit-col">(${unitLabel})</span></th>
+    ${cols}
+  </tr>`;
 }
 
-// ── Table ─────────────────────────────────────────────────────
-function renderTable(tab) {
-  if (!corpData.length) return;
-  const fys   = corpData.map(d => d.fy);
-  const thead = document.getElementById('corp-thead');
-  const tbody = document.getElementById('corp-tbody');
-
-  thead.innerHTML = '<tr><th>Item</th>' + fys.map(f => {
-    const d = corpData.find(x => x.fy === f);
-    return `<th>${f}${d && d.is_current ? ' *' : ''}</th>`;
-  }).join('') + '</tr>';
-
-  if      (tab === 'is')  renderIS(fys, tbody);
-  else if (tab === 'bs')  renderBS(fys, tbody);
-  else if (tab === 'cf')  renderCF(fys, tbody);
-  else if (tab === 'rat') renderRat(fys, tbody);
-}
-
-function buildRows(rows, fys) {
+// ── Build table rows ──────────────────────────────────────────
+function buildRows(rows) {
+  const n = corpData.length;
   return rows.map(r => {
     if (r.type === 'section')
-      return `<tr class="r-section"><td colspan="${fys.length+1}">${r.label}</td></tr>`;
-    const cl  = r.type==='net'?'r-net': r.type==='total'?'r-total': r.type==='sub'?'r-sub':'';
-    const tds = (r.vals||[]).map(v =>
-      r.isPct ? pctTD(v) : (typeof v === 'string' ? `<td>${v}</td>` : amtTD(v))
+      return `<tr class="r-section"><td colspan="${n+1}">${r.label}</td></tr>`;
+    const cl = r.type==='net'?'r-net': r.type==='total'?'r-total':
+               r.type==='foot'?'r-foot': r.type==='sub'?'r-sub':'';
+    const tds = (r.vals||[]).map((v,i) =>
+      r.isPct   ? pctTD(v) :
+      r.isSen   ? numTD(v, 4) :
+      r.isSix   ? numTD(v, 6) :
+                  numTD(v, 2)
     ).join('');
     return `<tr class="${cl}"><td>${r.label}</td>${tds}</tr>`;
   }).join('');
 }
 
-function renderIS(fys, tbody) {
-  tbody.innerHTML = buildRows([
+// ── Chart helper ──────────────────────────────────────────────
+function makeChart(id, datasets, yLabel) {
+  if (charts[id]) charts[id].destroy();
+  const ctx = document.getElementById(id).getContext('2d');
+  charts[id] = new Chart(ctx, {
+    data: { labels: corpData.map(d => d.fy), datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { position:'bottom', labels:{ boxWidth:12, font:{ size:11 } } },
+        tooltip: { callbacks: { label: c =>
+          c.dataset.label + ': ' + fmt(c.parsed.y) } }
+      },
+      scales: { y: { ticks: { callback: v =>
+        Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'K' : v.toFixed(0) } } }
+    }
+  });
+}
+
+// ── Build all tabs ────────────────────────────────────────────
+function buildAll() {
+  if (!corpData.length) return;
+  buildIS(); buildBS(); buildCF(); buildRat();
+}
+
+// ── Income Statement ──────────────────────────────────────────
+function buildIS() {
+  document.getElementById('thead-is').innerHTML = buildHeader('RM');
+
+  const rev = getCol('revenue');
+  const net = getCol('net_profit');
+  makeChart('chart-is', [
+    { type:'bar',  label:'Revenue',
+      data: rev,
+      backgroundColor:'rgba(21,101,192,0.75)', borderRadius:4, order:2 },
+    { type:'bar',  label:'Net Profit',
+      data: net,
+      backgroundColor: net.map(v => v >= 0 ? 'rgba(46,125,50,0.8)' : 'rgba(220,38,38,0.8)'),
+      borderRadius:4, order:1 },
+  ]);
+
+  document.getElementById('tbody-is').innerHTML = buildRows([
     { type:'section', label:'Revenue' },
-    { type:'sub',   label:'Dividend Income',          vals: getCol('dividend_income') },
-    { type:'sub',   label:'Interest & Fixed Income',   vals: getCol('interest_income') },
-    { type:'total', label:'Total Revenue',              vals: getCol('revenue') },
+    { type:'sub',   label:'Dividend Income',           vals: getCol('dividend_income') },
+    { type:'sub',   label:'Interest & Fixed Income',    vals: getCol('interest_income') },
+    { type:'total', label:'Total Revenue',               vals: getCol('revenue') },
     { type:'section', label:'Operating Costs' },
-    { type:'sub',   label:'Management Fees',           vals: getCol('mng_cost').map(v=>v?-v:v) },
-    { type:'sub',   label:'Performance Fees',          vals: getCol('perf_cost').map(v=>v?-v:v) },
-    { type:'total', label:'Total Costs',                vals: getCol('total_costs').map(v=>v?-v:v) },
-    { type:'total', label:'Gross Profit',               vals: getCol('gross_profit') },
+    { type:'sub',   label:'Management Fees',            vals: getCol('mng_cost').map(v=>v?-v:null) },
+    { type:'sub',   label:'Performance Fees',           vals: getCol('perf_cost').map(v=>v?-v:null) },
+    { type:'total', label:'Total Costs',                 vals: getCol('total_costs').map(v=>v?-v:null) },
+    { type:'total', label:'Gross Profit',                vals: getCol('gross_profit') },
     { type:'section', label:'Other Income / (Loss)' },
-    { type:'sub',   label:'Realised P&L',              vals: getCol('realised') },
-    { type:'sub',   label:'Unrealised Gains / (Loss)', vals: getCol('unrealised') },
-    { type:'sub',   label:'Other Income',              vals: getCol('other_misc') },
-    { type:'total', label:'Total Other Income',         vals: getCol('other_total') },
-    { type:'net',   label:'Net Profit / (Loss)',        vals: getCol('net_profit') },
-  ], fys);
+    { type:'sub',   label:'Realised P&L',               vals: getCol('realised') },
+    { type:'sub',   label:'Unrealised Gains / (Loss)',  vals: getCol('unrealised') },
+    { type:'sub',   label:'Other Income',               vals: getCol('other_misc') },
+    { type:'total', label:'Total Other Income',          vals: getCol('other_total') },
+    { type:'net',   label:'Net Profit / (Loss)',         vals: getCol('net_profit') },
+    { type:'section', label:'Per Share' },
+    { type:'foot',  label:'Outstanding Shares (units)', vals: getCol('outstanding_shares'), isSix:true },
+    { type:'foot',  label:'GPS (sen)',                  vals: getCol('gps'), isSen:true },
+    { type:'foot',  label:'EPS (sen)',                  vals: getCol('eps'), isSen:true },
+  ]);
 }
 
-function renderBS(fys, tbody) {
-  tbody.innerHTML = buildRows([
+// ── Balance Sheet ─────────────────────────────────────────────
+function buildBS() {
+  document.getElementById('thead-bs').innerHTML = buildHeader('RM');
+
+  const assets = getCol('total_assets');
+  const liab   = getCol('total_liab').map(v => v ? -v : null);
+  const nav    = getCol('nav');
+  makeChart('chart-bs', [
+    { type:'bar', label:'Total Assets',
+      data: assets,
+      backgroundColor:'rgba(21,101,192,0.75)', borderRadius:4 },
+    { type:'bar', label:'Total Liabilities',
+      data: getCol('total_liab').map(v => v || 0),
+      backgroundColor:'rgba(220,38,38,0.6)', borderRadius:4 },
+    { type:'line', label:'NAV',
+      data: nav,
+      borderColor:'#2E7D32', backgroundColor:'rgba(46,125,50,0.1)',
+      pointBackgroundColor:'#2E7D32', pointRadius:4,
+      borderWidth:2, tension:0.3, fill:true },
+  ]);
+
+  document.getElementById('tbody-bs').innerHTML = buildRows([
     { type:'section', label:'Assets' },
-    { type:'sub',   label:'Securities',                vals: getCol('securities') },
-    { type:'sub',   label:'Derivatives / Warrants',   vals: getCol('derivatives') },
-    { type:'sub',   label:'REITs',                    vals: getCol('reits') },
-    { type:'sub',   label:'Bonds',                    vals: getCol('bonds') },
-    { type:'sub',   label:'Money Market',             vals: getCol('money_market') },
-    { type:'sub',   label:'Receivables',              vals: getCol('receivables') },
-    { type:'sub',   label:'Cash',                     vals: getCol('cash_bal') },
-    { type:'total', label:'Total Assets',              vals: getCol('total_assets') },
+    { type:'sub',   label:'Securities',                 vals: getCol('securities') },
+    { type:'sub',   label:'Derivatives / Warrants',     vals: getCol('derivatives') },
+    { type:'sub',   label:'REITs',                      vals: getCol('reits') },
+    { type:'sub',   label:'Bonds',                      vals: getCol('bonds') },
+    { type:'sub',   label:'Money Market',               vals: getCol('money_market') },
+    { type:'sub',   label:'Receivables',                vals: getCol('receivables') },
+    { type:'sub',   label:'Cash',                       vals: getCol('cash_bal') },
+    { type:'total', label:'Total Assets',                vals: getCol('total_assets') },
     { type:'section', label:'Liabilities' },
-    { type:'sub',   label:'Management Fee Accrual',   vals: getCol('mng_fees_liab').map(v=>v?-v:v) },
-    { type:'sub',   label:'Performance Fee Accrual',  vals: getCol('perf_fees_liab').map(v=>v?-v:v) },
-    { type:'total', label:'Total Liabilities',         vals: getCol('total_liab').map(v=>v?-v:v) },
+    { type:'sub',   label:'Management Fee Accrual',     vals: getCol('mng_fees_liab').map(v=>v?-v:null) },
+    { type:'sub',   label:'Performance Fee Accrual',    vals: getCol('perf_fees_liab').map(v=>v?-v:null) },
+    { type:'sub',   label:'Other Liabilities',          vals: getCol('other_liab').map(v=>v?-v:null) },
+    { type:'total', label:'Total Liabilities',           vals: getCol('total_liab').map(v=>v?-v:null) },
     { type:'section', label:'Equity' },
-    { type:'sub',   label:'Capital (Paid-in)',         vals: getCol('capital') },
-    { type:'sub',   label:'Retained Earnings',         vals: getCol('earnings') },
-    { type:'net',   label:'Total Equity (NAV)',         vals: getCol('nav') },
-    { type:'net',   label:'NTA per Unit',              vals: getCol('nta') },
-  ], fys);
+    { type:'sub',   label:'Capital (Paid-in)',           vals: getCol('capital') },
+    { type:'sub',   label:'Retained Earnings',           vals: getCol('earnings') },
+    { type:'net',   label:'Total Equity (NAV)',           vals: getCol('nav') },
+    { type:'section', label:'Per Unit' },
+    { type:'foot',  label:'Outstanding Shares (units)', vals: getCol('outstanding_shares'), isSix:true },
+    { type:'foot',  label:'NTA per Unit (RM)',           vals: getCol('nta'), isSix:true },
+  ]);
 }
 
-function renderCF(fys, tbody) {
-  tbody.innerHTML = buildRows([
+// ── Cash Flow ─────────────────────────────────────────────────
+function buildCF() {
+  document.getElementById('thead-cf').innerHTML = buildHeader('RM');
+
+  makeChart('chart-cf', [
+    { type:'bar', label:'Subscriptions',
+      data: getCol('subscriptions'),
+      backgroundColor:'rgba(46,125,50,0.75)', borderRadius:4 },
+    { type:'bar', label:'Redemptions',
+      data: getCol('redemptions').map(v => v ? -v : null),
+      backgroundColor:'rgba(220,38,38,0.6)', borderRadius:4 },
+    { type:'bar', label:'Net Cash Change',
+      data: getCol('net_cash_change'),
+      backgroundColor: getCol('net_cash_change').map(v =>
+        v >= 0 ? 'rgba(21,101,192,0.7)' : 'rgba(180,0,0,0.5)'),
+      borderRadius:4 },
+  ]);
+
+  document.getElementById('tbody-cf').innerHTML = buildRows([
     { type:'section', label:'Operating Activities' },
-    { type:'sub',   label:'Dividend Received',         vals: getCol('dividend_income') },
-    { type:'sub',   label:'Interest Received',         vals: getCol('interest_income') },
-    { type:'sub',   label:'Management Fee Paid',       vals: getCol('fw_mng').map(v=>v?-v:v) },
-    { type:'sub',   label:'Performance Fee Paid',      vals: getCol('fw_perf').map(v=>v?-v:v) },
+    { type:'sub',   label:'Dividend Received',           vals: getCol('dividend_income') },
+    { type:'sub',   label:'Interest Received',           vals: getCol('interest_income') },
+    { type:'sub',   label:'Management Fee Paid',         vals: getCol('fw_mng').map(v=>v?-v:null) },
+    { type:'sub',   label:'Performance Fee Paid',        vals: getCol('fw_perf').map(v=>v?-v:null) },
     { type:'section', label:'Investing Activities' },
-    { type:'sub',   label:'Securities Purchased',      vals: getCol('buys_total').map(v=>v?-v:v) },
-    { type:'sub',   label:'Securities Sold (Proceeds)',vals: getCol('sells_total') },
+    { type:'sub',   label:'Securities Purchased',        vals: getCol('buys_total').map(v=>v?-v:null) },
+    { type:'sub',   label:'Securities Sold (Proceeds)',  vals: getCol('sells_total') },
     { type:'section', label:'Financing Activities' },
-    { type:'sub',   label:'Subscriptions Received',    vals: getCol('subscriptions') },
-    { type:'sub',   label:'Redemptions Paid',          vals: getCol('redemptions').map(v=>v?-v:v) },
-    { type:'sub',   label:'Distributions Paid',        vals: getCol('distributions_paid').map(v=>v?-v:v) },
-    { type:'net',   label:'Net Change in Cash',         vals: getCol('net_cash_change') },
-  ], fys);
+    { type:'sub',   label:'Subscriptions Received',      vals: getCol('subscriptions') },
+    { type:'sub',   label:'Redemptions Paid',            vals: getCol('redemptions').map(v=>v?-v:null) },
+    { type:'sub',   label:'Distributions Paid',          vals: getCol('distributions_paid').map(v=>v?-v:null) },
+    { type:'net',   label:'Net Change in Cash',           vals: getCol('net_cash_change') },
+  ]);
 }
 
-function renderRat(fys, tbody) {
-  tbody.innerHTML = buildRows([
+// ── Ratios ────────────────────────────────────────────────────
+function buildRat() {
+  document.getElementById('thead-rat').innerHTML = buildHeader('%');
+
+  document.getElementById('tbody-rat').innerHTML = buildRows([
     { type:'section', label:'Performance' },
-    { type:'sub',   label:'NTA at FYE',               vals: getCol('nta') },
-    { type:'sub',   label:'Total Return',             vals: getCol('total_return_pct'), isPct:true },
-    { type:'sub',   label:'AUM at FYE',               vals: getCol('nav') },
+    { type:'sub',   label:'NTA (RM)',             vals: getCol('nta'), isSix:true },
+    { type:'sub',   label:'Total Return',         vals: getCol('total_return_pct'), isPct:true },
     { type:'section', label:'Income' },
-    { type:'sub',   label:'Net Profit Margin',        vals: getCol('net_margin_pct'), isPct:true },
-    { type:'sub',   label:'Dividend Yield',           vals: getCol('div_yield_pct'), isPct:true },
-    { type:'sub',   label:'Total DPS (sen)',          vals: getCol('total_dps') },
-    { type:'section', label:'Costs' },
-    { type:'sub',   label:'Expense Ratio',            vals: getCol('expense_ratio_pct'), isPct:true },
-  ], fys);
+    { type:'sub',   label:'Income Yield',         vals: getCol('income_yield_pct'),  isPct:true },
+    { type:'sub',   label:'Gross Yield',          vals: getCol('gross_yield_pct'),   isPct:true },
+    { type:'sub',   label:'Dividend Yield',       vals: getCol('div_yield_pct'),     isPct:true },
+    { type:'sub',   label:'Total DPS (sen)',      vals: getCol('total_dps'), isSen:true },
+    { type:'section', label:'Growth' },
+    { type:'sub',   label:'Revenue YoY',          vals: getCol('revenue_yoy'),  isPct:true },
+    { type:'sub',   label:'Gross Profit YoY',     vals: getCol('gross_yoy'),    isPct:true },
+    { type:'section', label:'Margin' },
+    { type:'sub',   label:'Gross Margin',         vals: getCol('gross_margin_pct'), isPct:true },
+  ]);
 }
 </script>
 </body>
