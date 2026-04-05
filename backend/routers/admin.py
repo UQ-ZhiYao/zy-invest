@@ -507,14 +507,18 @@ async def compute_holdings_and_settlement(
                    units, price, net_amount
             FROM transactions
             WHERE date <= $1
-            ORDER BY date ASC, created_at ASC
+            ORDER BY date ASC,
+                     CASE WHEN units > 0 THEN 0 ELSE 1 END ASC,
+                     created_at ASC
         """, as_of)
     else:
         rows = await db.fetch("""
             SELECT date, instrument, asset_class, sector, region,
                    units, price, net_amount
             FROM transactions
-            ORDER BY date ASC, created_at ASC
+            ORDER BY date ASC,
+                     CASE WHEN units > 0 THEN 0 ELSE 1 END ASC,
+                     created_at ASC
         """)
 
     # positions[instr] = {units, total_cost, avg_cost, ac, sector, region, last_date}
