@@ -49,16 +49,16 @@ async def run_daily_price_fetch(db) -> dict:
     today = date.today()
 
     instruments = await db.fetch("""
-        SELECT tm.instrument, tm.yahoo_ticker, tm.is_manual
-        FROM ticker_map tm
-        JOIN holdings h ON h.instrument = tm.instrument
-        WHERE h.units > 0
+        SELECT instrument, yahoo_ticker, is_manual
+        FROM ticker_map
+        WHERE yahoo_ticker IS NOT NULL OR is_manual = TRUE
+        ORDER BY instrument
     """)
 
     if not instruments:
         return {"date": str(today), "succeeded": [], "failed": [],
                 "manual_needed": [], "total_fetched": 0, "needs_attention": 0,
-                "error": "No active holdings in ticker_map"}
+                "error": "No instruments in ticker_map"}
 
     auto_tickers    = []
     manual_needed   = []
@@ -98,11 +98,11 @@ async def run_daily_price_fetch(db) -> dict:
                 UPDATE holdings
                 SET last_price    = $1,
                     market_value  = units * $1,
-                    unrealized_pl = (units * $1) - total_costs,
-                    return_pct    = CASE WHEN total_costs > 0
-                                    THEN ((units * $1) - total_costs) / total_costs
+                    unrealized_pl = (units * $1) - total_cost,
+                    return_pct    = CASE WHEN total_cost > 0
+                                    THEN ((units * $1) - total_cost) / total_cost
                                     ELSE 0 END,
-                    updated_at    = NOW()
+                    last_updated  = NOW()
                 WHERE instrument  = $2
             """, price, instrument)
 
@@ -147,11 +147,11 @@ async def update_manual_price(db, instrument: str, price: float, admin_user_id: 
         UPDATE holdings
         SET last_price    = $1,
             market_value  = units * $1,
-            unrealized_pl = (units * $1) - total_costs,
-            return_pct    = CASE WHEN total_costs > 0
-                            THEN ((units * $1) - total_costs) / total_costs
+            unrealized_pl = (units * $1) - total_cost,
+            return_pct    = CASE WHEN total_cost > 0
+                            THEN ((units * $1) - total_cost) / total_cost
                             ELSE 0 END,
-            updated_at    = NOW()
+            last_updated  = NOW()
         WHERE instrument = $2
     """, price, instrument)
 
