@@ -8,14 +8,19 @@
   <link rel="stylesheet" href="../assets/css/dashboard.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
-    .corp-tabs { display:flex; gap:0; border-bottom:2px solid var(--border);
-                 padding:0 0; overflow-x:auto; }
-    .corp-tab  { background:none; border:none; padding:14px 24px; font-size:0.88rem;
-                 font-weight:600; color:var(--text-muted); cursor:pointer;
-                 border-bottom:3px solid transparent; margin-bottom:-2px;
-                 white-space:nowrap; transition:.15s; }
-    .corp-tab:hover  { color:var(--blue); }
-    .corp-tab.active { color:var(--blue); border-bottom-color:var(--blue); }
+    .corp-tabs { display:flex; gap:8px; padding:16px 20px 0;
+                 flex-wrap:wrap; background:var(--off-white);
+                 border-bottom:1px solid var(--border); }
+    .corp-tab  { display:flex; align-items:center; gap:7px;
+                 background:var(--white); border:1.5px solid var(--border);
+                 border-radius:8px 8px 0 0; padding:9px 18px;
+                 font-size:0.84rem; font-weight:600; color:var(--text-muted);
+                 cursor:pointer; white-space:nowrap; transition:.15s;
+                 margin-bottom:-1px; }
+    .corp-tab .tab-icon { font-size:1rem; }
+    .corp-tab:hover  { color:var(--blue); border-color:var(--blue); background:var(--blue-bg); }
+    .corp-tab.active { color:var(--blue); border-color:var(--blue);
+                       border-bottom-color:var(--white); background:var(--white); }
     .tab-panel { display:none; }
     .tab-panel.active { display:block; }
 
@@ -44,7 +49,7 @@
                                border-top:2px solid var(--border); }
     .pos { color:var(--green); }
     .neg { color:#DC2626; }
-    .chart-box { height:300px; position:relative; padding:16px 16px 8px; }
+    .chart-box { height:380px; position:relative; padding:16px 16px 8px; }
   </style>
 </head>
 <body>
@@ -76,10 +81,18 @@
       <div class="card">
         <!-- Tab bar -->
         <div class="corp-tabs">
-          <button class="corp-tab active" id="tab-is"  onclick="switchTab('is')">📊 Income Statement</button>
-          <button class="corp-tab"        id="tab-bs"  onclick="switchTab('bs')">🏦 Balance Sheet</button>
-          <button class="corp-tab"        id="tab-cf"  onclick="switchTab('cf')">💸 Cash Flow</button>
-          <button class="corp-tab"        id="tab-rat" onclick="switchTab('rat')">📐 Ratios</button>
+          <button class="corp-tab active" id="tab-is"  onclick="switchTab('is')">
+            <span class="tab-icon">≡</span> Income Statement
+          </button>
+          <button class="corp-tab" id="tab-bs" onclick="switchTab('bs')">
+            <span class="tab-icon">◫</span> Balance Sheet
+          </button>
+          <button class="corp-tab" id="tab-cf" onclick="switchTab('cf')">
+            <span class="tab-icon">↕</span> Cash Flow
+          </button>
+          <button class="corp-tab" id="tab-rat" onclick="switchTab('rat')">
+            <span class="tab-icon">◎</span> Ratios
+          </button>
         </div>
 
         <!-- IS panel -->
@@ -244,13 +257,13 @@ function buildIS() {
   const rev = getCol('revenue');
   const net = getCol('net_profit');
   makeChart('chart-is', [
-    { type:'bar',  label:'Revenue',
+    { type:'bar', label:'Revenue',
       data: rev,
-      backgroundColor:'rgba(21,101,192,0.75)', borderRadius:4, order:2 },
-    { type:'bar',  label:'Net Profit',
+      backgroundColor:'rgba(21,101,192,0.75)', borderRadius:4 },
+    { type:'bar', label:'Net Profit',
       data: net,
       backgroundColor: net.map(v => v >= 0 ? 'rgba(46,125,50,0.8)' : 'rgba(220,38,38,0.8)'),
-      borderRadius:4, order:1 },
+      borderRadius:4 },
   ]);
 
   document.getElementById('tbody-is').innerHTML = buildRows([
