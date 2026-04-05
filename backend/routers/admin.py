@@ -1954,23 +1954,37 @@ async def get_distribution_list(
 # ── Document Management ───────────────────────────────────────
 @router.get("/documents")
 async def list_documents(
-    page:       int = 1,
-    limit:      int = 20,
-    doc_type:   str = None,
-    investor_id: str = None,
+    page:           int = 1,
+    limit:          int = 20,
+    doc_type:       str = None,
+    investor_id:    str = None,
+    financial_year: str = None,
+    visibility:     str = None,
+    search:         str = None,
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
     offset = (page - 1) * limit
     where, params, i = ["1=1"], [], 1
     if doc_type:
-        where.append(f"doc_type=${i}"); params.append(doc_type); i += 1
+        where.append(f"d.doc_type=${i}"); params.append(doc_type); i += 1
     if investor_id:
-        where.append(f"investor_id=${i}::uuid"); params.append(investor_id); i += 1
+        where.append(f"d.investor_id=${i}::uuid"); params.append(investor_id); i += 1
+    if financial_year:
+        where.append(f"d.financial_year=${i}"); params.append(financial_year); i += 1
+    if visibility:
+        where.append(f"d.visibility=${i}"); params.append(visibility); i += 1
+    if search:
+        where.append(f"(d.title ILIKE ${i} OR d.file_name ILIKE ${i})")
+        params.append(f"%{search}%"); i += 1
     w = " AND ".join(where)
 
-    total = await db.fetchval(f"SELECT COUNT(*) FROM documents WHERE {w}", *params)
-    rows  = await db.fetch(f"""
+    total = await db.fetchval(f"""
+        SELECT COUNT(*) FROM documents d
+        LEFT JOIN investors i ON i.id = d.investor_id
+        WHERE {w}
+    """, *params)
+    rows = await db.fetch(f"""
         SELECT d.id, d.title, d.doc_type, d.file_name, d.file_size_kb,
                d.visibility, d.investor_id, d.financial_year,
                d.created_at, i.name AS investor_name

@@ -361,7 +361,8 @@ async function generateStatement() {
           financial_year:        finYear,
           period:                period,
           manager_comment:       managerComment,
-          selected_date:         selectedDate,
+          // For factsheet: period dropdown IS the as-of date
+          selected_date:         selectedType === 'factsheet' ? period : selectedDate,
           selected_distribution: selectedDist,
         };
         const res = await api.post('/api/admin/statements/generate', body);

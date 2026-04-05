@@ -408,7 +408,7 @@ async function loadDocs(page) {
 
   try {
     const res  = await api.get(url);
-    let docs   = res.data || [];
+    let docs   = res.items || res.data || [];
     totDocs    = res.total || 0;
     totPages   = Math.max(1, Math.ceil(totDocs / lim));
 
