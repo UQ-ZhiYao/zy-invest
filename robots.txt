@@ -1,0 +1,16 @@
+User-agent: *
+
+# Allow all public pages
+Allow: /
+Allow: /index.html
+Allow: /team.html
+Allow: /about.html
+Allow: /login.html
+
+# Block all internal dashboard pages
+Disallow: /dashboard/
+Disallow: /assets/js/
+Disallow: /assets/css/
+
+# Sitemap location
+Sitemap: https://zy-invest.com/sitemap.xml
