@@ -49,6 +49,12 @@
                                border-top:2px solid var(--border); }
     .pos { color:var(--green); }
     .neg { color:#DC2626; }
+    .refresh-bar { display:none; align-items:center; justify-content:space-between;
+                   padding:10px 20px; background:var(--blue-bg);
+                   border-bottom:1px solid var(--border); font-size:0.83rem; }
+    .refresh-bar.show { display:flex; }
+    .refresh-info { color:var(--text-muted); }
+    .refresh-info span { color:var(--blue); font-weight:600; }
     .chart-box { height:380px; position:relative; padding:16px 16px 8px; }
   </style>
 </head>
@@ -93,6 +99,16 @@
           <button class="corp-tab" id="tab-rat" onclick="switchTab('rat')">
             <span class="tab-icon">◎</span> Ratios
           </button>
+        </div>
+
+        <!-- Admin refresh bar -->
+        <div class="refresh-bar" id="refresh-bar">
+          <div class="refresh-info">
+            Last computed: <span id="refresh-time">—</span>
+          </div>
+          <button class="btn btn-outline" id="refresh-btn"
+            style="padding:6px 14px;font-size:0.8rem"
+            onclick="recompute()">↻ Recompute All</button>
         </div>
 
         <!-- IS panel -->

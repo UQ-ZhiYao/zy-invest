@@ -726,32 +726,33 @@ async def compute_holdings_and_settlement(
 
 
 # ── Financial Statements ──────────────────────────────────────
-@router.get("/financials/income-statement")
-async def get_income_statement(
-    admin: dict = Depends(require_admin),
-    db: Database = Depends(get_db)
-):
+# ── Financial Statements ─────────────────────────────────────
+async def _compute_financial_statements(db) -> list:
+    """
+    Core computation for all financial statements.
+    Called by the GET endpoint (cache miss) and POST recompute.
+    Returns list of FY dicts with IS, BS, CF, Ratio data.
+    """
     from datetime import date as date_t, timedelta as td
+    import json
 
     today = date_t.today()
 
-    # FY bounds: Dec 1 (fy_year-1) → Nov 30 (fy_year)
     def fy_bounds(fy_year: int):
         return date_t(fy_year - 1, 12, 1), date_t(fy_year, 11, 30)
 
-    # Always start from FY22, end at current FY
     start_fy = 2022
     end_fy   = today.year if today.month == 12 else today.year
 
     results       = []
-    cumulative_np = 0.0   # sum of all prior FY net profits
+    cumulative_np = 0.0
 
     for fy in range(start_fy, end_fy + 1):
         fyb, fye = fy_bounds(fy)
         if fyb > today: continue
-        fye_cap = min(fye, today)
+        fye_cap  = min(fye, today)
         fy_label = f"FY{str(fy)[2:]}"
-        fyb1 = fyb - td(days=1)
+        fyb1     = fyb - td(days=1)
 
         # ── Revenue ──────────────────────────────────────────
         r = await db.fetchrow(
@@ -775,7 +776,8 @@ async def get_income_statement(
             "SELECT mng_fees, perf_fees FROM historical "
             "WHERE date<=$1 ORDER BY date DESC LIMIT 1", fyb1)
         h_close = await db.fetchrow(
-            "SELECT * FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1", fye_cap)
+            "SELECT * FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1",
+            fye_cap)
         mng_open  = float(h_open['mng_fees'])  if h_open  else 0.0
         mng_close = float(h_close['mng_fees']) if h_close else 0.0
         prf_open  = float(h_open['perf_fees'])  if h_open  else 0.0
@@ -808,23 +810,18 @@ async def get_income_statement(
         other_misc = float(r['n'])
 
         # ── Net Profit (adjusted) ─────────────────────────────
-        # Cumulative distributions up to FYE
         r = await db.fetchrow(
             "SELECT COALESCE(SUM(total_dividend),0) n FROM distributions "
             "WHERE pmt_date<=$1", fye_cap)
-        cum_dist = float(r['n'])
+        cum_dist   = float(r['n'])
+        re_fye     = float(h_close['earnings']) if h_close else 0.0
+        net_profit = re_fye + cum_dist - cumulative_np
+        unrealised = net_profit - gross_profit - realised - other_misc
+        other_total = realised + unrealised + other_misc
+        cumulative_np += net_profit
 
-        # Retained earnings at FYE
-        re_fye = float(h_close['earnings']) if h_close else 0.0
-
-        # Net Profit = RE(FYE) + CumDist(FYE) - sum_of_prior_NPs
-        net_profit     = re_fye + cum_dist - cumulative_np
-        unrealised     = net_profit - gross_profit - realised - other_misc
-        other_total    = realised + unrealised + other_misc
-        cumulative_np += net_profit   # carry forward
-
-        # ── Balance Sheet (FYE) ───────────────────────────────
-        bs = h_close
+        # ── Balance Sheet ─────────────────────────────────────
+        bs    = h_close
         sec   = float(bs['securities']   or 0) if bs else 0.0
         deriv = float(bs['derivatives']  or 0) if bs else 0.0
         reit  = float(bs['reits']        or 0) if bs else 0.0
@@ -843,43 +840,35 @@ async def get_income_statement(
         nta   = float(bs['nta']          or 0) if bs else 0.0
         total_assets = sec + deriv + reit + bond + mm + recv + cash_b
         total_liab   = mng_l + prf_l + iof_l + lns_l + iln_l
-        nav          = total_assets - total_liab
+        nav   = total_assets - total_liab
 
         # ── Cash Flow ─────────────────────────────────────────
         r = await db.fetchrow(
             "SELECT COALESCE(SUM(ABS(net_amount)),0) n FROM transactions "
             "WHERE date>=$1 AND date<=$2 AND units>0", fyb, fye_cap)
         buys_total = float(r['n'])
-
         r = await db.fetchrow(
             "SELECT COALESCE(SUM(net_amount),0) n FROM transactions "
             "WHERE date>=$1 AND date<=$2 AND units<0", fyb, fye_cap)
         sells_total = float(r['n'])
-
         r = await db.fetchrow(
             "SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount ELSE 0 END),0) n "
             "FROM principal_cashflows WHERE date>=$1 AND date<=$2", fyb, fye_cap)
         subscriptions = float(r['n'])
-
         r = await db.fetchrow(
             "SELECT COALESCE(SUM(ABS(CASE WHEN amount<0 THEN amount ELSE 0 END)),0) n "
             "FROM principal_cashflows WHERE date>=$1 AND date<=$2", fyb, fye_cap)
         redemptions = float(r['n'])
-
         r = await db.fetchrow(
             "SELECT COALESCE(SUM(total_dividend),0) n FROM distributions "
             "WHERE pmt_date>=$1 AND pmt_date<=$2", fyb, fye_cap)
         distributions_paid = float(r['n'])
-
         h_open_cash = await db.fetchrow(
             "SELECT cash FROM historical WHERE date<=$1 ORDER BY date DESC LIMIT 1", fyb1)
         cash_open       = float(h_open_cash['cash']) if h_open_cash else 0.0
         net_cash_change = cash_b - cash_open
 
-        # ── Per-Share figures ─────────────────────────────────
-        # Outstanding shares = total_units (in units)
-        # GPS = Gross Profit / total_units × 100  (in sen)
-        # EPS = Net Profit   / total_units × 100  (in sen)
+        # ── Per-share ─────────────────────────────────────────
         gps = (gross_profit / total_units * 100) if total_units > 0 else 0.0
         eps = (net_profit   / total_units * 100) if total_units > 0 else 0.0
 
@@ -895,10 +884,10 @@ async def get_income_statement(
         r = await db.fetchrow(
             "SELECT COALESCE(SUM(dps_sen),0) n FROM distributions "
             "WHERE pmt_date>=$1 AND pmt_date<=$2", fyb, fye_cap)
-        total_dps   = float(r['n'])
-        div_yield   = (total_dps / 100 / nta * 100) if nta > 0 else 0.0  # DPS(RM)/NTA
+        total_dps = float(r['n'])
+        div_yield = (total_dps / 100 / nta * 100) if nta > 0 else 0.0
 
-        results.append({
+        row = {
             "fy": fy_label, "fy_year": fy,
             "fyb": str(fyb), "fye": str(fye_cap),
             "is_current": fye > today,
@@ -951,13 +940,14 @@ async def get_income_statement(
             "div_yield_pct":      round(div_yield,     4),
             "gross_margin_pct":   round(gross_margin,  4),
             "total_dps":          round(total_dps,     4),
-        })
+        }
+        results.append(row)
 
-    # ── YoY growth (post-loop) ────────────────────────────────
+    # YoY growth
     for i, d in enumerate(results):
         if i == 0:
-            d['revenue_yoy']      = None
-            d['gross_yoy']        = None
+            d['revenue_yoy'] = None
+            d['gross_yoy']   = None
         else:
             prev = results[i-1]
             d['revenue_yoy'] = round(
@@ -969,6 +959,112 @@ async def get_income_statement(
 
     return results
 
+
+async def _store_statements(db, results: list):
+    """Upsert computed results into financial_statements table."""
+    import json
+    for row in results:
+        await db.execute("""
+            INSERT INTO financial_statements (fy, fy_year, is_current, data, computed_at)
+            VALUES ($1, $2, $3, $4::jsonb, NOW())
+            ON CONFLICT (fy) DO UPDATE SET
+                data        = EXCLUDED.data,
+                is_current  = EXCLUDED.is_current,
+                computed_at = NOW()
+        """, row['fy'], row['fy_year'], row['is_current'], json.dumps(row))
+
+
+@router.get("/financials/income-statement")
+async def get_income_statement(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """
+    Returns pre-computed financial statements from DB.
+    Falls back to live computation + stores if DB is empty.
+    Current FY (is_current=True) always recomputed fresh.
+    """
+    import json
+    from datetime import date as date_t
+
+    today = date_t.today()
+
+    # Load cached rows — skip current FY (always recompute)
+    cached = await db.fetch("""
+        SELECT fy, fy_year, is_current, data, computed_at
+        FROM financial_statements
+        WHERE is_current = FALSE
+        ORDER BY fy_year ASC
+    """)
+
+    # Load current FY fresh
+    current_fy_year = today.year if today.month == 12 else today.year
+    current_fy_label = f"FY{str(current_fy_year)[2:]}"
+
+    if cached:
+        # Deserialise cached past FYs
+        results = []
+        for row in cached:
+            d = row['data'] if isinstance(row['data'], dict) else json.loads(row['data'])
+            results.append(d)
+
+        # Compute only the current FY
+        all_computed = await _compute_financial_statements(db)
+        current_rows = [r for r in all_computed if r['fy'] == current_fy_label]
+        results.extend(current_rows)
+
+        # Upsert current FY into DB
+        if current_rows:
+            await _store_statements(db, current_rows)
+
+        return results
+    else:
+        # No cache at all — compute everything and store
+        results = await _compute_financial_statements(db)
+        await _store_statements(db, results)
+        return results
+
+
+@router.post("/financials/recompute")
+async def recompute_statements(
+    body: dict = {},
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """
+    Admin triggers full recomputation of all financial statements.
+    Pass {"fy": "FY25"} to recompute a single FY, or {} for all.
+    Stores results in financial_statements table.
+    """
+    results = await _compute_financial_statements(db)
+
+    target_fy = body.get('fy') if body else None
+    if target_fy:
+        to_store = [r for r in results if r['fy'] == target_fy]
+    else:
+        to_store = results
+
+    await _store_statements(db, to_store)
+
+    return {
+        "message":   f"Recomputed {len(to_store)} FY records",
+        "fys":       [r['fy'] for r in to_store],
+        "computed_at": str(__import__('datetime').datetime.now()),
+    }
+
+
+@router.get("/financials/cache-status")
+async def get_cache_status(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """Returns metadata about what's cached and when it was last computed."""
+    rows = await db.fetch("""
+        SELECT fy, fy_year, is_current, computed_at
+        FROM financial_statements
+        ORDER BY fy_year ASC
+    """)
+    return [serialise(r) for r in rows]
 
 # ── Principal cashflow ────────────────────────────────────────
 @router.get("/principal")

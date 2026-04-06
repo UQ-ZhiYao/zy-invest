@@ -24,6 +24,18 @@
   <div class="m-page-title">Corporate Results</div>
   <div class="m-page-sub">Financial statements by year</div>
 
+  <!-- Admin refresh (hidden for members) -->
+  <div id="m-refresh-bar" style="display:none;align-items:center;
+    justify-content:space-between;background:#EFF6FF;border:1px solid #BFDBFE;
+    border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:0.8rem">
+    <div style="color:#1D4ED8">Last: <span id="m-refresh-time" style="font-weight:600">—</span></div>
+    <button id="m-refresh-btn" onclick="mRecompute()"
+      style="background:#1565C0;color:#fff;border:none;border-radius:8px;
+             padding:7px 14px;font-size:0.8rem;font-weight:600;cursor:pointer">
+      ↻ Recompute
+    </button>
+  </div>
+
   <div class="m-card">
     <!-- Swipeable tabs -->
     <div class="m-tabs" id="stmt-tabs">
@@ -103,8 +115,37 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     corpData = await mApi.get('/api/admin/financials/income-statement') || [];
     buildAll();
+    // Show refresh controls for admin
+    const u = mUser();
+    if (u.role === 'admin') {
+      const bar = document.getElementById('m-refresh-bar');
+      bar.style.display = 'flex';
+      try {
+        const rows = await mApi.get('/api/admin/financials/cache-status') || [];
+        if (rows.length) {
+          const latest = rows.reduce((a,b) =>
+            new Date(a.computed_at) > new Date(b.computed_at) ? a : b);
+          const dt = new Date(latest.computed_at);
+          document.getElementById('m-refresh-time').textContent =
+            dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}) + ' ' +
+            dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+        }
+      } catch(e) {}
+    }
   } catch(e) { console.error(e); }
 });
+
+async function mRecompute() {
+  const btn = document.getElementById('m-refresh-btn');
+  btn.disabled = true; btn.textContent = '↻ Working...';
+  try {
+    const res = await mApi.post('/api/admin/financials/recompute', {});
+    corpData = await mApi.get('/api/admin/financials/income-statement') || [];
+    buildAll();
+    alert(res.message);
+  } catch(e) { alert('Failed: '+e.message); }
+  btn.disabled = false; btn.textContent = '↻ Recompute';
+}
 
 function fmt(v, dp=2) {
   if (!v && v!==0) return '—';

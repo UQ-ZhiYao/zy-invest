@@ -499,6 +499,25 @@ async def compute_portfolio_and_nta(db, force_from: date = None) -> dict:
                f"Done — {computed} days ({start} → {today})")
     logger.info(f"NTA compute done: {computed} OK, {errors} errors")
 
+    # ── Auto-refresh current FY financial statements ──────────
+    # Past FYs are frozen; only current FY needs refreshing after NTA run.
+    try:
+        from datetime import date as _d
+        import json as _json
+        _today = _d.today()
+        _cur_fy_year  = _today.year if _today.month == 12 else _today.year
+        _cur_fy_label = f"FY{str(_cur_fy_year)[2:]}"
+
+        # Import the compute function from admin router
+        from routers.admin import _compute_financial_statements, _store_statements
+        _all = await _compute_financial_statements(db)
+        _cur = [r for r in _all if r['fy'] == _cur_fy_label]
+        if _cur:
+            await _store_statements(db, _cur)
+            logger.info(f"Financial statements refreshed for {_cur_fy_label}")
+    except Exception as _e:
+        logger.warning(f"Financial stmt refresh skipped: {_e}")
+
     return {
         "computed": computed,
         "errors":   errors,
