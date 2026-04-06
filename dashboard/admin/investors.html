@@ -296,16 +296,21 @@ async function loadUsers() {
     allInvestors.forEach(i => invMap[i.id] = i.name);
 
     document.getElementById('users-table').innerHTML = allUsers.map(u => {
-      const inv = u.investor_id
-        ? (invMap[u.investor_id] || u.investor_id.slice(0,8))
-        : '<span style="color:#DC2626">Not linked</span>';
+      const invName = u.investor_name
+        || (u.investor_id ? (invMap[u.investor_id] || u.investor_id.slice(0,8)) : null);
+      const inv = invName
+        ? `<span style="font-size:0.83rem">${esc(invName)}</span>`
+        : '<span style="color:#DC2626;font-size:0.83rem">Not linked</span>';
+      const rolePill = u.holder_role
+        ? `<span class="role-pill ${u.holder_role==='primary'?'rp-primary':'rp-secondary'}">${u.holder_role}</span>`
+        : '<span style="font-size:0.75rem;color:var(--text-muted)">—</span>';
       return `<tr>
         <td style="font-weight:600">${esc(u.name)}</td>
-        <td style="color:var(--text-muted);font-size:0.84rem">${esc(u.email)}</td>
+        <td style="color:var(--text-muted);font-size:0.84rem">${esc(u.email||'—')}</td>
         <td><span class="pill ${u.role==='admin'?'pill-blue':'pill-gray'}">${u.role}</span></td>
         <td><span class="pill ${u.is_active?'pill-green':'pill-red'}">${u.is_active?'Active':'Suspended'}</span></td>
-        <td style="font-size:0.83rem">${inv}</td>
-        <td><span style="font-size:0.75rem;color:var(--text-muted)">—</span></td>
+        <td>${inv}</td>
+        <td>${rolePill}</td>
         <td><button class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem"
           onclick='editUser(${JSON.stringify(u)})'>Edit</button></td>
       </tr>`;

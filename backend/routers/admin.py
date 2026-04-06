@@ -73,45 +73,29 @@ async def list_users(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    rows = await db.fetch(
-        "SELECT id, name, email, phone, role, is_active, investor_id, created_at FROM users ORDER BY name"
-    )
-    return [dict(r) for r in rows]
+    rows = await db.fetch("""
+        SELECT u.id, u.name, u.email, u.phone, u.role, u.is_active,
+               u.investor_id, u.bank_name, u.bank_account_no,
+               u.address_line1, u.address_line2, u.city, u.postcode,
+               u.state, u.country, u.created_at,
+               ih.role  AS holder_role,
+               i.name   AS investor_name
+        FROM users u
+        LEFT JOIN investor_holders ih ON ih.user_id = u.id
+        LEFT JOIN investors i         ON i.id = ih.investor_id
+        ORDER BY u.name
+    """)
+    return [serialise(r) for r in rows]
 
 
+# UserUpdate kept minimal for backward compat — full update handled below
 class UserUpdate(BaseModel):
-    name: Optional[str]
-    email: Optional[str]
-    phone: Optional[str]
-    role: Optional[str]
-    is_active: Optional[bool]
-    investor_id: Optional[str]
-
-
-@router.put("/users/{user_id}")
-async def update_user(
-    user_id: str,
-    body: UserUpdate,
-    admin: dict = Depends(require_admin),
-    db: Database = Depends(get_db)
-):
-    fields, vals, idx = [], [], 1
-    for field, val in body.model_dump(exclude_none=True).items():
-        fields.append(f"{field} = ${idx}")
-        vals.append(val)
-        idx += 1
-    if not fields:
-        return {"message": "Nothing to update"}
-    vals.append(user_id)
-    await db.execute(
-        f"UPDATE users SET {', '.join(fields)}, updated_at = NOW() WHERE id = ${idx}",
-        *vals
-    )
-    await db.execute(
-        "INSERT INTO audit_log (user_id, action, table_name, record_id) VALUES ($1,$2,$3,$4)",
-        str(admin["id"]), "UPDATE", "users", user_id
-    )
-    return {"message": "User updated"}
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    investor_id: Optional[str] = None
 
 
 # ── Fee Schedules ─────────────────────────────────────────────
@@ -1329,23 +1313,33 @@ async def update_user(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    import bcrypt
-    await db.execute("""
-        UPDATE users SET name=$1, email=$2, phone=$3, role=$4,
-               is_active=$5, investor_id=$6, updated_at=NOW()
-        WHERE id=$7
-    """,
-        body['name'], body['email'], body.get('phone'),
-        body.get('role','member'), body.get('is_active', True),
-        body.get('investor_id'), user_id,
-    )
-    # Reset password if provided
-    if body.get('new_password'):
-        pw_hash = bcrypt.hashpw(body['new_password'].encode(), bcrypt.gensalt()).decode()
+    import bcrypt as _bcrypt
+    # All updatable fields
+    allowed = {
+        "name", "email", "phone", "role", "is_active", "investor_id",
+        "bank_name", "bank_account_no",
+        "address_line1", "address_line2", "city", "postcode", "state", "country",
+    }
+    fields, vals, idx = [], [], 1
+    for k, v in body.items():
+        if k in allowed:
+            fields.append(f"{k}=${idx}")
+            vals.append(v)
+            idx += 1
+    if fields:
+        vals.append(user_id)
         await db.execute(
-            "UPDATE users SET password_hash=$1 WHERE id=$2",
-            pw_hash, user_id
+            f"UPDATE users SET {','.join(fields)}, updated_at=NOW() WHERE id=${idx}",
+            *vals
         )
+    if body.get("new_password"):
+        pw_hash = _bcrypt.hashpw(
+            body["new_password"].encode(), _bcrypt.gensalt()).decode()
+        await db.execute(
+            "UPDATE users SET password_hash=$1 WHERE id=$2", pw_hash, user_id)
+    await db.execute(
+        "INSERT INTO audit_log (user_id,action,table_name,record_id) VALUES ($1,$2,$3,$4)",
+        str(admin["id"]), "UPDATE", "users", user_id)
     return {"message": "User updated"}
 
 @router.post("/statements/generate")
