@@ -405,20 +405,20 @@ async def create_transaction(
     from datetime import date as date_type
     await db.execute(
         """INSERT INTO transactions
-           (date, investor_id, region, asset_class, sector, instrument,
-            units, price, amount, total_fees, net_amount, theme, notes)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)""",
+           (date, region, asset_class, sector, instrument,
+            units, price, amount, total_fees, net_amount,
+            theme, notes, is_computed)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,FALSE)""",
         date_type.fromisoformat(body['date']),
-        body.get('investor_id') or None,
         body.get('region', 'MY'),
         body.get('asset_class', 'Securities [H]'),
         body.get('sector'),
         body['instrument'],
-        body['units'],
-        body['price'],
-        body['amount'],
-        body.get('total_fees', 0),
-        body['net_amount'],
+        float(body['units']),
+        float(body['price']),
+        float(body['amount']),
+        float(body.get('total_fees', 0)),
+        float(body['net_amount']),
         body.get('theme'),
         body.get('notes'),
     )
