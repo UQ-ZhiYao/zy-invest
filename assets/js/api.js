@@ -92,7 +92,7 @@ async function loadFundOverview() {
       const key = el.dataset.fund;
       if (data[key] !== undefined) {
         let val = data[key];
-        if (key === 'aum') val = 'RM ' + Number(val).toLocaleString('en-MY', {maximumFractionDigits:0});
+        if (key === 'aum') val = Number(val).toLocaleString('en-MY', {maximumFractionDigits:0});
         if (key === 'current_nta') val = Number(val).toFixed(4);
         if (key === 'total_return_pct') val = '+' + Number(val).toFixed(2) + '%';
         if (key === 'trading_days') val = Number(val).toLocaleString() + '+';
