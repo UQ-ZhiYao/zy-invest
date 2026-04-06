@@ -176,8 +176,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadData() {
   try {
-    corpData = await api.get('/api/admin/financials/income-statement') || [];
+    // Members: pure cache read (zero computation).
+    // Admins: cache + always refreshes current FY.
+    const u   = authUser();
+    const url = u.role === 'admin'
+      ? '/api/admin/financials/income-statement'
+      : '/api/member/fund/statement';
+    corpData  = await api.get(url) || [];
+
+    if (!corpData.length) {
+      ['is','bs','cf','rat'].forEach(t => {
+        const el = document.getElementById('corp-tbody');
+        if (el) el.innerHTML =
+          '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--text-muted)">' +
+          'No data yet — Admin must run Recompute first.</td></tr>';
+      });
+      return;
+    }
+
     buildAll();
+    if (u.role === 'admin') await loadCacheStatus();
   } catch(e) { showToast('Failed to load: ' + e.message, 'error'); }
 }
 

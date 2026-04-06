@@ -980,16 +980,17 @@ async def get_income_statement(
     db: Database = Depends(get_db)
 ):
     """
-    Returns pre-computed financial statements from DB.
-    Falls back to live computation + stores if DB is empty.
-    Current FY (is_current=True) always recomputed fresh.
+    Admin endpoint: reads cached past FYs + always recomputes current FY fresh.
+    Falls back to full compute + store if cache is completely empty.
     """
     import json
     from datetime import date as date_t
 
-    today = date_t.today()
+    today        = date_t.today()
+    cur_fy_year  = today.year if today.month == 12 else today.year
+    cur_fy_label = f"FY{str(cur_fy_year)[2:]}"
 
-    # Load cached rows — skip current FY (always recompute)
+    # Read all cached past FYs (is_current = FALSE)
     cached = await db.fetch("""
         SELECT fy, fy_year, is_current, data, computed_at
         FROM financial_statements
@@ -997,29 +998,25 @@ async def get_income_statement(
         ORDER BY fy_year ASC
     """)
 
-    # Load current FY fresh
-    current_fy_year = today.year if today.month == 12 else today.year
-    current_fy_label = f"FY{str(current_fy_year)[2:]}"
-
     if cached:
-        # Deserialise cached past FYs
+        # Deserialise past FYs from cache
         results = []
         for row in cached:
-            d = row['data'] if isinstance(row['data'], dict) else json.loads(row['data'])
+            d = row['data'] if isinstance(row['data'], dict)                 else json.loads(row['data'])
             results.append(d)
 
-        # Compute only the current FY
-        all_computed = await _compute_financial_statements(db)
-        current_rows = [r for r in all_computed if r['fy'] == current_fy_label]
+        # Always recompute current FY fresh (data changes daily)
+        all_computed  = await _compute_financial_statements(db)
+        current_rows  = [r for r in all_computed if r['fy'] == cur_fy_label]
         results.extend(current_rows)
 
-        # Upsert current FY into DB
+        # Upsert current FY back to cache so members can read it
         if current_rows:
             await _store_statements(db, current_rows)
 
         return results
     else:
-        # No cache at all — compute everything and store
+        # Cold start — no cache at all. Compute everything + store.
         results = await _compute_financial_statements(db)
         await _store_statements(db, results)
         return results

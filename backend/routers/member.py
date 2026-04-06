@@ -266,9 +266,26 @@ async def fund_performance(db: Database = Depends(get_db),
 @router.get("/fund/statement")
 async def fund_statement(db: Database = Depends(get_db),
                          _: dict = Depends(get_current_user)):
-    rows = await db.fetch(
-        "SELECT * FROM v_fund_statement ORDER BY financial_year")
-    return [serialise(r) for r in rows]
+    """
+    Returns ALL financial statement FYs from the pre-computed cache.
+    Zero computation — pure DB read.
+    Members see all FYs including current (as last computed by admin).
+    If cache is empty, returns empty list — admin must run Recompute first.
+    """
+    import json
+    rows = await db.fetch("""
+        SELECT fy, fy_year, is_current, data, computed_at
+        FROM financial_statements
+        ORDER BY fy_year ASC
+    """)
+    if not rows:
+        return []
+    results = []
+    for row in rows:
+        d = row['data'] if isinstance(row['data'], dict) else json.loads(row['data'])
+        d['computed_at'] = str(row['computed_at'])
+        results.append(d)
+    return results
 
 
 @router.get("/fund/analysis")

@@ -113,10 +113,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
   try {
-    corpData = await mApi.get('/api/admin/financials/income-statement') || [];
+    // Members: pure cache read. Admins: cache + refresh current FY.
+    const u   = mUser();
+    const url = u.role === 'admin'
+      ? '/api/admin/financials/income-statement'
+      : '/api/member/fund/statement';
+    corpData = await mApi.get(url) || [];
     buildAll();
-    // Show refresh controls for admin
-    const u = mUser();
     if (u.role === 'admin') {
       const bar = document.getElementById('m-refresh-bar');
       bar.style.display = 'flex';
@@ -140,7 +143,7 @@ async function mRecompute() {
   btn.disabled = true; btn.textContent = '↻ Working...';
   try {
     const res = await mApi.post('/api/admin/financials/recompute', {});
-    corpData = await mApi.get('/api/admin/financials/income-statement') || [];
+    corpData = await mApi.get('/api/admin/financials/income-statement') || []; // admin only
     buildAll();
     alert(res.message);
   } catch(e) { alert('Failed: '+e.message); }
