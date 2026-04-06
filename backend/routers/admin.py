@@ -35,8 +35,24 @@ async def list_investors(
     admin: dict = Depends(require_admin),
     db: Database = Depends(get_db)
 ):
-    rows = await db.fetch("SELECT * FROM v_investor_profile ORDER BY name")
-    return [dict(r) for r in rows]
+    # Direct query — includes ALL investors (active + inactive),
+    # plus account_type and holder_count from investor_holders
+    rows = await db.fetch("""
+        SELECT i.id, i.name, i.units, i.vwap, i.total_costs,
+               i.current_nta, i.market_value, i.unrealized_pl,
+               i.realized_pl, i.irr, i.joined_date, i.is_active,
+               i.notes, i.account_type,
+               COALESCE(COUNT(ih.id), 0) AS holder_count,
+               fs.current_nta AS fund_nta,
+               ROUND((i.market_value - i.total_costs) /
+                     NULLIF(i.total_costs, 0) * 100, 4) AS simple_return_pct
+        FROM investors i
+        CROSS JOIN fund_settings fs
+        LEFT JOIN investor_holders ih ON ih.investor_id = i.id
+        GROUP BY i.id, fs.current_nta
+        ORDER BY i.name
+    """)
+    return [serialise(r) for r in rows]
 
 
 @router.get("/investors/{investor_id}")

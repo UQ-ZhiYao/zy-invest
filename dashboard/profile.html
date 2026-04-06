@@ -19,6 +19,14 @@
     .alert-success{background:#F0FDF4;border:1px solid #BBF7D0;color:#166534}
     .alert-error{background:#FEF2F2;border:1px solid #FECACA;color:#B91C1C}
     @media(max-width:640px){.form-row{grid-template-columns:1fr}}
+    .nominee-card { border:1px solid var(--border); border-radius:var(--radius-md);
+                    padding:14px 16px; margin-bottom:10px; background:var(--off-white);
+                    display:flex; gap:12px; align-items:flex-start; }
+    .nominee-card .nominee-info { flex:1 }
+    .nominee-card .nom-name { font-weight:600; font-size:0.9rem; }
+    .nominee-card .nom-rel  { font-size:0.75rem; font-weight:700; text-transform:uppercase;
+                               color:var(--blue); letter-spacing:.04em; }
+    .nominee-card .nom-detail { font-size:0.82rem; color:var(--text-muted); margin-top:2px; }
   </style>
 </head>
 <body>
@@ -139,6 +147,91 @@
           </div>
         </div>
       </div>
+
+      <!-- Nominees section -->
+      <div style="max-width:680px;margin-top:24px">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>My Nominees</h3>
+            <button class="btn btn-primary" style="padding:6px 14px;font-size:0.82rem"
+              onclick="showNomineeForm()">+ Add Nominee</button>
+          </div>
+          <div class="panel-body">
+            <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:16px">
+              Nominees are the persons designated to receive your investment in the event of your passing.
+              This is informational only and does not confer any legal rights.
+            </p>
+            <div id="nominees-list">
+              <div style="text-align:center;padding:24px;color:var(--text-muted)">Loading...</div>
+            </div>
+
+            <!-- Add form (hidden by default) -->
+            <div id="nom-form" style="display:none;border-top:1px solid var(--border);padding-top:20px;margin-top:16px">
+              <div class="sec-title">Add New Nominee</div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Full Name *</label>
+                  <input type="text" id="nom-name" class="form-input" placeholder="Nominee's full name">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Relationship *</label>
+                  <select id="nom-rel" class="form-input">
+                    <option value="">Select relationship</option>
+                    <option>Spouse</option><option>Child</option><option>Parent</option>
+                    <option>Sibling</option><option>Grandchild</option><option>Other</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Phone Number</label>
+                  <input type="text" id="nom-phone" class="form-input" placeholder="+60 12-345 6789">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Email Address</label>
+                  <input type="email" id="nom-email" class="form-input" placeholder="nominee@email.com">
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Address</label>
+                <input type="text" id="nom-addr1" class="form-input" placeholder="Street address">
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">City</label>
+                  <input type="text" id="nom-city" class="form-input">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Postcode</label>
+                  <input type="text" id="nom-postcode" class="form-input">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">State</label>
+                  <select id="nom-state" class="form-input">
+                    <option value="">Select</option>
+                    <option>Johor</option><option>Kedah</option><option>Kelantan</option>
+                    <option>Kuala Lumpur</option><option>Melaka</option><option>Negeri Sembilan</option>
+                    <option>Pahang</option><option>Penang</option><option>Perak</option>
+                    <option>Perlis</option><option>Sabah</option><option>Sarawak</option>
+                    <option>Selangor</option><option>Terengganu</option><option>Other</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Country</label>
+                  <input type="text" id="nom-country" class="form-input" value="Malaysia">
+                </div>
+              </div>
+              <div style="display:flex;gap:10px">
+                <button class="btn btn-primary" onclick="saveNominee()">Save Nominee</button>
+                <button class="btn btn-outline" onclick="hideNomineeForm()">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -163,6 +256,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('f-state').value     = d.state || '';
     document.getElementById('f-country').value   = d.country || 'Malaysia';
   } catch(e) { showToast('Failed to load profile', 'error'); }
+  await loadNominees();
 });
 
 async function saveProfile(e) {
@@ -193,6 +287,79 @@ async function saveProfile(e) {
     err.style.display = 'block';
   }
   btn.disabled = false; btn.textContent = 'Save Changes';
+}
+
+/* ── Nominees ─────────────────────────────────────────────── */
+async function loadNominees() {
+  try {
+    const rows = await api.get('/api/member/account/nominees') || [];
+    const list = document.getElementById('nominees-list');
+    if (!rows.length) {
+      list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.88rem">No nominees added yet.</div>';
+      return;
+    }
+    list.innerHTML = rows.map(n => `
+      <div class="nominee-card">
+        <div class="nominee-info">
+          <div class="nom-name">${esc(n.name)}</div>
+          ${n.relationship ? `<div class="nom-rel">${esc(n.relationship)}</div>` : ''}
+          <div class="nom-detail">
+            ${[n.phone, n.email].filter(Boolean).join(' · ')}
+          </div>
+          ${n.address_line1 ? `<div class="nom-detail">${esc(n.address_line1)}${n.city ? ', ' + esc(n.city) : ''}</div>` : ''}
+        </div>
+        <button class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem;color:#DC2626;white-space:nowrap"
+          onclick="deleteNominee('${n.id}','${esc(n.name)}')">✕ Remove</button>
+      </div>`).join('');
+  } catch(e) { console.warn('nominees:', e.message); }
+}
+
+function showNomineeForm() {
+  document.getElementById('nom-form').style.display = 'block';
+  document.getElementById('nom-form').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+function hideNomineeForm() {
+  document.getElementById('nom-form').style.display = 'none';
+  ['nom-name','nom-phone','nom-email','nom-addr1','nom-city','nom-postcode','nom-country']
+    .forEach(id => { const el = document.getElementById(id); if(el) el.value = id==='nom-country'?'Malaysia':''; });
+  document.getElementById('nom-rel').value   = '';
+  document.getElementById('nom-state').value = '';
+}
+
+async function saveNominee() {
+  const name = document.getElementById('nom-name').value.trim();
+  const rel  = document.getElementById('nom-rel').value;
+  if (!name) { showToast('Name is required', 'error'); return; }
+  if (!rel)  { showToast('Relationship is required', 'error'); return; }
+  try {
+    await api.post('/api/member/account/nominees', {
+      name,
+      relationship:  rel,
+      phone:         document.getElementById('nom-phone').value.trim()   || null,
+      email:         document.getElementById('nom-email').value.trim()   || null,
+      address_line1: document.getElementById('nom-addr1').value.trim()   || null,
+      city:          document.getElementById('nom-city').value.trim()    || null,
+      postcode:      document.getElementById('nom-postcode').value.trim()|| null,
+      state:         document.getElementById('nom-state').value          || null,
+      country:       document.getElementById('nom-country').value.trim() || 'Malaysia',
+    });
+    showToast('Nominee added', 'success');
+    hideNomineeForm();
+    await loadNominees();
+  } catch(e) { showToast('Failed: ' + e.message, 'error'); }
+}
+
+async function deleteNominee(id, name) {
+  if (!confirm(`Remove "${name}" as a nominee?\n\nThis cannot be undone.`)) return;
+  try {
+    await api.delete(`/api/member/account/nominees/${id}`);
+    showToast('Nominee removed', 'success');
+    await loadNominees();
+  } catch(e) { showToast('Failed: ' + e.message, 'error'); }
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 </body>

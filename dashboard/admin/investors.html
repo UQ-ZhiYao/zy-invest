@@ -91,7 +91,7 @@
         <div class="table-wrap"><table>
           <thead><tr><th>Name</th><th>Type</th><th>Holders</th>
             <th class="td-right">Units</th><th class="td-right">Market Value</th>
-            <th class="td-right">Unrealised P&L</th><th>Status</th><th>Actions</th></tr></thead>
+            <th class="td-right">Unrealised P&L</th><th>Actions</th></tr></thead>
           <tbody id="investors-table">
             <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">Loading...</td></tr>
           </tbody>
@@ -326,7 +326,6 @@ function renderInvestors() {
       <td class="td-right">${fmtUnits(r.units)}</td>
       <td class="td-right">${fmtRM(r.market_value)}</td>
       <td class="td-right">${plPill(r.unrealized_pl)}</td>
-      <td><span class="pill ${r.is_active?'pill-green':'pill-red'}">${r.is_active?'Active':'Inactive'}</span></td>
       <td>
         <button class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem"
           onclick="openHolders('${r.id}','${esc(r.name)}','${type}')">
@@ -498,7 +497,9 @@ async function saveAccountType() {
   const type  = document.getElementById('hm-type').value;
   try {
     await api.put(`/api/admin/investors/${invId}`, { account_type: type });
+    showToast('Account type saved', 'success');
     allInvestors = await api.get('/api/admin/investors') || [];
+    document.getElementById('inv-count').textContent = allInvestors.length;
     renderInvestors();
   } catch(e) { showToast('Failed: ' + e.message, 'error'); }
 }
