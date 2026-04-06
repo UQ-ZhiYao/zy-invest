@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>Fund Performance — ZY-Invest</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="mobile.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="m-header">
+  <a href="index.html" class="m-logo"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></a>
+  <button class="m-hamburger" onclick="mOpenMenu()"><span></span><span></span><span></span></button>
+</header>
+<div id="m-menu" class="m-menu">
+  <div class="m-menu-header"><div class="m-menu-brand"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></div><button class="m-menu-close" onclick="mCloseMenu()">✕</button></div>
+  <div class="m-menu-user"><div class="m-menu-user-name"></div><div class="m-menu-user-inv"></div></div>
+  <nav class="m-menu-nav"></nav>
+  <div class="m-menu-footer"><button class="m-logout-btn">Sign Out</button></div>
+</div>
+
+<div class="m-page">
+  <div class="m-page-title">Fund Performance</div>
+  <div class="m-page-sub">NTA history and period returns</div>
+
+  <!-- Period returns -->
+  <div class="m-card">
+    <div class="m-card-header"><div class="m-card-title">Period Returns</div></div>
+    <div class="m-card-body">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px" id="perf-periods">
+        <div class="m-loading" style="grid-column:1/-1">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Swipeable chart tabs -->
+  <div class="m-card" id="perf-tabs-card">
+    <div class="m-tabs" id="perf-tabs">
+      <button class="m-tab active" data-tab="nta">NTA History</button>
+      <button class="m-tab" data-tab="cum">Cumulative Return</button>
+    </div>
+    <div class="m-card-body" style="padding:12px">
+      <div id="tab-nta" class="m-tab-panel active">
+        <div class="m-chart"><canvas id="chart-nta"></canvas></div>
+      </div>
+      <div id="tab-cum" class="m-tab-panel">
+        <div class="m-chart"><canvas id="chart-cum"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="mobile.js"></script>
+<script>
+let charts = {};
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!mAuthCheck()) return;
+  mInitMenu('performance.html');
+
+  // Tab switching
+  document.querySelectorAll('.m-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.m-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.m-tab-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  try {
+    const d = await mApi.get('/api/member/fund/performance');
+    // Period badges
+    const pr = d.period_returns || {};
+    const periods = [
+      {l:'1W',k:'1W'},{l:'1M',k:'1M'},{l:'3M',k:'3M'},
+      {l:'6M',k:'6M'},{l:'1Y',k:'1Y'},{l:'All',k:'all'}
+    ];
+    document.getElementById('perf-periods').innerHTML = periods.map(p => {
+      const v = p.k === 'all' ? d.total_return_pct : pr[p.k];
+      const cls = v == null ? '' : Number(v) >= 0 ? 'pos' : 'neg';
+      return `<div style="text-align:center;padding:10px 6px;background:var(--bg);border-radius:10px">
+        <div style="font-size:0.72rem;color:var(--muted);margin-bottom:4px">${p.l}</div>
+        <div style="font-weight:700;font-size:0.9rem" class="${cls}">${v!=null?mFmtPct(v):'—'}</div>
+      </div>`;
+    }).join('');
+
+    // Charts
+    const hist  = d.nta_history || [];
+    const dates = hist.map(r => r.date);
+    const ntas  = hist.map(r => Number(r.nta));
+    const cums  = hist.map(r => Number(r.cumulative_return_pct||0));
+
+    charts.nta = new Chart(document.getElementById('chart-nta').getContext('2d'), {
+      type:'line',
+      data:{ labels:dates, datasets:[{
+        data:ntas, borderColor:'#1565C0', borderWidth:2,
+        pointRadius:0, fill:true, backgroundColor:'rgba(21,101,192,.08)' }] },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false} },
+        scales:{ x:{display:false}, y:{ ticks:{callback:v=>v.toFixed(3)} } } }
+    });
+    charts.cum = new Chart(document.getElementById('chart-cum').getContext('2d'), {
+      type:'line',
+      data:{ labels:dates, datasets:[{
+        data:cums,
+        borderColor: cums[cums.length-1] >= 0 ? '#2E7D32' : '#C62828',
+        borderWidth:2, pointRadius:0, fill:true,
+        backgroundColor: cums[cums.length-1] >= 0
+          ? 'rgba(46,125,50,.08)' : 'rgba(198,40,40,.08)' }] },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false} },
+        scales:{ x:{display:false},
+          y:{ ticks:{callback:v=>(v>=0?'+':'')+v.toFixed(1)+'%'} } } }
+    });
+  } catch(e) { console.error(e); }
+});
+</script>
+</body>
+</html>

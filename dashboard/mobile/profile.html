@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>Personal Profile — ZY-Invest</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="mobile.css">
+</head>
+<body>
+<header class="m-header">
+  <a href="index.html" class="m-logo"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></a>
+  <button class="m-hamburger" onclick="mOpenMenu()"><span></span><span></span><span></span></button>
+</header>
+<div id="m-menu" class="m-menu">
+  <div class="m-menu-header"><div class="m-menu-brand"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></div><button class="m-menu-close" onclick="mCloseMenu()">✕</button></div>
+  <div class="m-menu-user"><div class="m-menu-user-name"></div><div class="m-menu-user-inv"></div></div>
+  <nav class="m-menu-nav"></nav>
+  <div class="m-menu-footer"><button class="m-logout-btn">Sign Out</button></div>
+</div>
+
+<div class="m-page">
+  <div class="m-page-title">Personal Profile</div>
+  <div class="m-page-sub">Update your contact and banking details</div>
+
+  <div id="msg" style="display:none" class="m-alert m-alert-success">Profile saved successfully.</div>
+  <div id="err" style="display:none" class="m-alert m-alert-error"></div>
+
+  <div class="m-card">
+    <div class="m-card-header"><div class="m-card-title">Personal Details</div></div>
+    <div class="m-card-body">
+      <div class="m-form-group"><label class="m-form-label">Full Name</label>
+        <input type="text" id="f-name" class="m-form-input" required></div>
+      <div class="m-form-group"><label class="m-form-label">Email</label>
+        <input type="email" id="f-email" class="m-form-input"></div>
+      <div class="m-form-group"><label class="m-form-label">Phone</label>
+        <input type="tel" id="f-phone" class="m-form-input"></div>
+    </div>
+  </div>
+
+  <div class="m-card">
+    <div class="m-card-header"><div class="m-card-title">Banking</div></div>
+    <div class="m-card-body">
+      <div class="m-form-group"><label class="m-form-label">Bank Name</label>
+        <select id="f-bank" class="m-form-input">
+          <option value="">Select bank</option>
+          <option>Maybank</option><option>CIMB Bank</option><option>Public Bank</option>
+          <option>RHB Bank</option><option>Hong Leong Bank</option><option>AmBank</option>
+          <option>Affin Bank</option><option>Alliance Bank</option><option>Bank Islam</option>
+          <option>Bank Rakyat</option><option>BSN</option><option>OCBC Bank</option>
+          <option>Standard Chartered</option><option>HSBC Bank</option><option>UOB Bank</option>
+          <option>Other</option>
+        </select></div>
+      <div class="m-form-group"><label class="m-form-label">Account Number</label>
+        <input type="text" id="f-bank-acc" class="m-form-input"></div>
+    </div>
+  </div>
+
+  <div class="m-card">
+    <div class="m-card-header"><div class="m-card-title">Address</div></div>
+    <div class="m-card-body">
+      <div class="m-form-group"><label class="m-form-label">Address Line 1</label>
+        <input type="text" id="f-addr1" class="m-form-input"></div>
+      <div class="m-form-group"><label class="m-form-label">Address Line 2</label>
+        <input type="text" id="f-addr2" class="m-form-input"></div>
+      <div class="m-form-group"><label class="m-form-label">City</label>
+        <input type="text" id="f-city" class="m-form-input"></div>
+      <div class="m-form-group"><label class="m-form-label">Postcode</label>
+        <input type="text" id="f-postcode" class="m-form-input"></div>
+      <div class="m-form-group"><label class="m-form-label">State</label>
+        <select id="f-state" class="m-form-input">
+          <option value="">Select</option>
+          <option>Johor</option><option>Kedah</option><option>Kelantan</option>
+          <option>Kuala Lumpur</option><option>Melaka</option><option>Negeri Sembilan</option>
+          <option>Pahang</option><option>Penang</option><option>Perak</option>
+          <option>Perlis</option><option>Sabah</option><option>Sarawak</option>
+          <option>Selangor</option><option>Terengganu</option><option>Other</option>
+        </select></div>
+    </div>
+  </div>
+
+  <button class="m-btn m-btn-primary m-btn-full" id="save-btn" onclick="saveProfile()"
+    style="margin-bottom:20px">Save Changes</button>
+
+  <!-- Nominees -->
+  <div class="m-page-title" style="font-size:1.1rem;margin-bottom:4px">My Nominees</div>
+  <div class="m-page-sub" style="margin-bottom:12px">Persons designated to receive your investment</div>
+  <div id="nom-list"><div class="m-loading">Loading...</div></div>
+  <button class="m-btn m-btn-outline m-btn-full" onclick="showNomForm()"
+    style="margin-bottom:20px">+ Add Nominee</button>
+
+  <div id="nom-form" style="display:none">
+    <div class="m-card">
+      <div class="m-card-header"><div class="m-card-title">New Nominee</div></div>
+      <div class="m-card-body">
+        <div class="m-form-group"><label class="m-form-label">Full Name *</label>
+          <input type="text" id="n-name" class="m-form-input"></div>
+        <div class="m-form-group"><label class="m-form-label">Relationship *</label>
+          <select id="n-rel" class="m-form-input">
+            <option value="">Select</option>
+            <option>Spouse</option><option>Child</option><option>Parent</option>
+            <option>Sibling</option><option>Grandchild</option><option>Other</option>
+          </select></div>
+        <div class="m-form-group"><label class="m-form-label">Phone</label>
+          <input type="tel" id="n-phone" class="m-form-input"></div>
+        <div class="m-form-group"><label class="m-form-label">Email</label>
+          <input type="email" id="n-email" class="m-form-input"></div>
+        <div class="m-form-group"><label class="m-form-label">Address</label>
+          <input type="text" id="n-addr" class="m-form-input"></div>
+        <div style="display:flex;gap:10px">
+          <button class="m-btn m-btn-primary" style="flex:1" onclick="saveNominee()">Add</button>
+          <button class="m-btn m-btn-outline" style="flex:1" onclick="hideNomForm()">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="mobile.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!mAuthCheck()) return;
+  mInitMenu('profile.html');
+  try {
+    const d = await mApi.get('/api/member/account/profile');
+    document.getElementById('f-name').value     = d.name||'';
+    document.getElementById('f-email').value    = d.email||'';
+    document.getElementById('f-phone').value    = d.phone||'';
+    document.getElementById('f-bank').value     = d.bank_name||'';
+    document.getElementById('f-bank-acc').value = d.bank_account_no||'';
+    document.getElementById('f-addr1').value    = d.address_line1||'';
+    document.getElementById('f-addr2').value    = d.address_line2||'';
+    document.getElementById('f-city').value     = d.city||'';
+    document.getElementById('f-postcode').value = d.postcode||'';
+    document.getElementById('f-state').value    = d.state||'';
+  } catch(e) {}
+  await loadNominees();
+});
+
+async function saveProfile() {
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  document.getElementById('msg').style.display = 'none';
+  document.getElementById('err').style.display = 'none';
+  try {
+    await mApi.put('/api/member/account/profile', {
+      name:            document.getElementById('f-name').value.trim(),
+      email:           document.getElementById('f-email').value.trim(),
+      phone:           document.getElementById('f-phone').value.trim()||null,
+      bank_name:       document.getElementById('f-bank').value||null,
+      bank_account_no: document.getElementById('f-bank-acc').value.trim()||null,
+      address_line1:   document.getElementById('f-addr1').value.trim()||null,
+      address_line2:   document.getElementById('f-addr2').value.trim()||null,
+      city:            document.getElementById('f-city').value.trim()||null,
+      postcode:        document.getElementById('f-postcode').value.trim()||null,
+      state:           document.getElementById('f-state').value||null,
+    });
+    document.getElementById('msg').style.display = 'block';
+    window.scrollTo({top:0,behavior:'smooth'});
+  } catch(e) {
+    const el = document.getElementById('err');
+    el.textContent = e.message; el.style.display = 'block';
+  }
+  btn.disabled = false; btn.textContent = 'Save Changes';
+}
+
+async function loadNominees() {
+  try {
+    const rows = await mApi.get('/api/member/account/nominees') || [];
+    const list = document.getElementById('nom-list');
+    if (!rows.length) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;margin-bottom:12px">No nominees added yet.</div>';
+      return;
+    }
+    list.innerHTML = rows.map(n => `
+      <div class="m-nom-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div class="m-nom-name">${mEsc(n.name)}</div>
+            ${n.relationship?`<div class="m-nom-rel">${mEsc(n.relationship)}</div>`:''}
+            <div class="m-nom-detail">${[n.phone,n.email].filter(Boolean).join(' · ')}</div>
+          </div>
+          <button onclick="delNominee('${n.id}','${mEsc(n.name)}')"
+            style="background:none;border:none;color:#DC2626;font-size:1.1rem;padding:4px">✕</button>
+        </div>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+function showNomForm()  { document.getElementById('nom-form').style.display='block'; }
+function hideNomForm()  {
+  document.getElementById('nom-form').style.display='none';
+  ['n-name','n-phone','n-email','n-addr'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('n-rel').value='';
+}
+async function saveNominee() {
+  const name = document.getElementById('n-name').value.trim();
+  const rel  = document.getElementById('n-rel').value;
+  if (!name) { alert('Name required'); return; }
+  if (!rel)  { alert('Relationship required'); return; }
+  try {
+    await mApi.post('/api/member/account/nominees', {
+      name, relationship:rel,
+      phone:   document.getElementById('n-phone').value.trim()||null,
+      email:   document.getElementById('n-email').value.trim()||null,
+      address_line1: document.getElementById('n-addr').value.trim()||null,
+      country: 'Malaysia',
+    });
+    hideNomForm(); await loadNominees();
+  } catch(e) { alert('Failed: '+e.message); }
+}
+async function delNominee(id, name) {
+  if (!confirm(`Remove "${name}" as nominee?`)) return;
+  try { await mApi.delete(`/api/member/account/nominees/${id}`); await loadNominees(); }
+  catch(e) { alert('Failed: '+e.message); }
+}
+</script>
+</body>
+</html>

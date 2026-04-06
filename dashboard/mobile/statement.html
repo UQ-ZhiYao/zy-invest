@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>Corporate Results — ZY-Invest</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="mobile.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="m-header">
+  <a href="index.html" class="m-logo"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></a>
+  <button class="m-hamburger" onclick="mOpenMenu()"><span></span><span></span><span></span></button>
+</header>
+<div id="m-menu" class="m-menu">
+  <div class="m-menu-header"><div class="m-menu-brand"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></div><button class="m-menu-close" onclick="mCloseMenu()">✕</button></div>
+  <div class="m-menu-user"><div class="m-menu-user-name"></div><div class="m-menu-user-inv"></div></div>
+  <nav class="m-menu-nav"></nav>
+  <div class="m-menu-footer"><button class="m-logout-btn">Sign Out</button></div>
+</div>
+
+<div class="m-page">
+  <div class="m-page-title">Corporate Results</div>
+  <div class="m-page-sub">Financial statements by year</div>
+
+  <div class="m-card">
+    <!-- Swipeable tabs -->
+    <div class="m-tabs" id="stmt-tabs">
+      <button class="m-tab active" data-tab="is">Income Stmt</button>
+      <button class="m-tab" data-tab="bs">Balance Sheet</button>
+      <button class="m-tab" data-tab="cf">Cash Flow</button>
+      <button class="m-tab" data-tab="rat">Ratios</button>
+    </div>
+
+    <!-- IS panel -->
+    <div id="tab-is" class="m-tab-panel active">
+      <div class="m-card-body" style="padding-bottom:8px">
+        <div class="m-chart"><canvas id="chart-is"></canvas></div>
+      </div>
+      <div class="m-table-wrap">
+        <table class="m-table" id="tbl-is">
+          <thead id="thead-is"></thead>
+          <tbody id="tbody-is"><tr><td colspan="10" class="m-loading">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- BS panel -->
+    <div id="tab-bs" class="m-tab-panel">
+      <div class="m-card-body" style="padding-bottom:8px">
+        <div class="m-chart"><canvas id="chart-bs"></canvas></div>
+      </div>
+      <div class="m-table-wrap">
+        <table class="m-table" id="tbl-bs">
+          <thead id="thead-bs"></thead>
+          <tbody id="tbody-bs"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CF panel -->
+    <div id="tab-cf" class="m-tab-panel">
+      <div class="m-card-body" style="padding-bottom:8px">
+        <div class="m-chart"><canvas id="chart-cf"></canvas></div>
+      </div>
+      <div class="m-table-wrap">
+        <table class="m-table" id="tbl-cf">
+          <thead id="thead-cf"></thead>
+          <tbody id="tbody-cf"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Ratios panel -->
+    <div id="tab-rat" class="m-tab-panel">
+      <div class="m-table-wrap" style="padding:0">
+        <table class="m-table" id="tbl-rat">
+          <thead id="thead-rat"></thead>
+          <tbody id="tbody-rat"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="mobile.js"></script>
+<script>
+let corpData = [], charts = {};
+
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!mAuthCheck()) return;
+  mInitMenu('statement.html');
+  // Tab switching
+  document.querySelectorAll('.m-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('#stmt-tabs .m-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.m-tab-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+  try {
+    corpData = await mApi.get('/api/admin/financials/income-statement') || [];
+    buildAll();
+  } catch(e) { console.error(e); }
+});
+
+function fmt(v, dp=2) {
+  if (!v && v!==0) return '—';
+  const abs = Math.abs(v);
+  if (abs === 0) return '—';
+  const s = abs.toLocaleString('en-MY',{minimumFractionDigits:dp,maximumFractionDigits:dp});
+  return v < 0 ? '('+s+')' : s;
+}
+function td(v, dp=2) {
+  const n = Number(v);
+  if (!v && v!==0) return '<td>—</td>';
+  if (n === 0) return '<td>—</td>';
+  const cls = n < 0 ? 'neg' : n > 0 ? 'pos' : '';
+  return `<td class="${cls}">${fmt(v,dp)}</td>`;
+}
+function pctTd(v) {
+  if (v==null) return '<td>—</td>';
+  const n = Number(v), cls = n<0?'neg':n>0?'pos':'';
+  return `<td class="${cls}">${(n>=0?'+':'')+n.toFixed(2)+'%'}</td>`;
+}
+function getCol(k) { return corpData.map(d => d[k]??null); }
+
+function buildHeader() {
+  return '<tr><th>Item (RM)</th>' + corpData.map(d=>`<th>${d.fy}${d.is_current?' *':''}</th>`).join('') + '</tr>';
+}
+function buildRows(rows) {
+  return rows.map(r => {
+    if (r.type==='section')
+      return `<tr class="r-section"><td colspan="${corpData.length+1}">${r.label}</td></tr>`;
+    const cl = r.type==='net'?'r-net':r.type==='total'?'r-total':r.type==='sub'?'r-sub':'';
+    const tds = (r.vals||[]).map(v =>
+      r.isPct ? pctTd(v) : td(v, r.dp||2)).join('');
+    return `<tr class="${cl}"><td>${r.label}</td>${tds}</tr>`;
+  }).join('');
+}
+
+function buildAll() {
+  if (!corpData.length) return;
+  const h = buildHeader();
+  ['is','bs','cf','rat'].forEach(t => {
+    const el = document.getElementById('thead-'+t);
+    if (el) el.innerHTML = h;
+  });
+  buildIS(); buildBS(); buildCF(); buildRat();
+}
+
+function buildIS() {
+  const rev = getCol('revenue'), net = getCol('net_profit');
+  if (charts.is) charts.is.destroy();
+  charts.is = new Chart(document.getElementById('chart-is').getContext('2d'), {
+    data:{ labels: corpData.map(d=>d.fy), datasets:[
+      {type:'bar',label:'Revenue',data:rev,backgroundColor:'rgba(21,101,192,.75)',borderRadius:4},
+      {type:'bar',label:'Net Profit',data:net,
+        backgroundColor:net.map(v=>v>=0?'rgba(46,125,50,.8)':'rgba(198,40,40,.8)'),borderRadius:4}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}},
+      scales:{y:{ticks:{callback:v=>Math.abs(v)>=1000?(v/1000).toFixed(0)+'K':v.toFixed(0)}}}}
+  });
+  document.getElementById('tbody-is').innerHTML = buildRows([
+    {type:'section',label:'Revenue'},
+    {type:'sub',label:'Dividend Income',vals:getCol('dividend_income')},
+    {type:'sub',label:'Interest/Fixed',vals:getCol('interest_income')},
+    {type:'total',label:'Total Revenue',vals:getCol('revenue')},
+    {type:'section',label:'Costs'},
+    {type:'sub',label:'Management Fees',vals:getCol('mng_cost').map(v=>v?-v:null)},
+    {type:'sub',label:'Performance Fees',vals:getCol('perf_cost').map(v=>v?-v:null)},
+    {type:'total',label:'Total Costs',vals:getCol('total_costs').map(v=>v?-v:null)},
+    {type:'total',label:'Gross Profit',vals:getCol('gross_profit')},
+    {type:'section',label:'Other Income'},
+    {type:'sub',label:'Realised P&L',vals:getCol('realised')},
+    {type:'sub',label:'Unrealised',vals:getCol('unrealised')},
+    {type:'sub',label:'Other',vals:getCol('other_misc')},
+    {type:'net',label:'Net Profit/(Loss)',vals:getCol('net_profit')},
+  ]);
+}
+function buildBS() {
+  const assets = getCol('total_assets'), liab = getCol('total_liab'), nav = getCol('nav');
+  if (charts.bs) charts.bs.destroy();
+  charts.bs = new Chart(document.getElementById('chart-bs').getContext('2d'), {
+    data:{labels:corpData.map(d=>d.fy),datasets:[
+      {type:'bar',label:'Assets',data:assets,backgroundColor:'rgba(21,101,192,.7)',borderRadius:4},
+      {type:'bar',label:'Liabilities',data:liab,backgroundColor:'rgba(198,40,40,.6)',borderRadius:4},
+      {type:'line',label:'NAV',data:nav,borderColor:'#2E7D32',borderWidth:2,pointRadius:3,fill:false}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}},
+      scales:{y:{ticks:{callback:v=>Math.abs(v)>=1000?(v/1000).toFixed(0)+'K':v.toFixed(0)}}}}
+  });
+  document.getElementById('tbody-bs').innerHTML = buildRows([
+    {type:'section',label:'Assets'},
+    {type:'sub',label:'Securities',vals:getCol('securities')},
+    {type:'sub',label:'Derivatives',vals:getCol('derivatives')},
+    {type:'sub',label:'REITs',vals:getCol('reits')},
+    {type:'sub',label:'Money Market',vals:getCol('money_market')},
+    {type:'sub',label:'Receivables',vals:getCol('receivables')},
+    {type:'sub',label:'Cash',vals:getCol('cash_bal')},
+    {type:'total',label:'Total Assets',vals:getCol('total_assets')},
+    {type:'section',label:'Liabilities'},
+    {type:'sub',label:'Mgmt Fee Accrual',vals:getCol('mng_fees_liab').map(v=>v?-v:null)},
+    {type:'sub',label:'Perf Fee Accrual',vals:getCol('perf_fees_liab').map(v=>v?-v:null)},
+    {type:'total',label:'Total Liabilities',vals:getCol('total_liab').map(v=>v?-v:null)},
+    {type:'section',label:'Equity'},
+    {type:'sub',label:'Capital',vals:getCol('capital')},
+    {type:'sub',label:'Retained Earnings',vals:getCol('earnings')},
+    {type:'net',label:'NAV',vals:getCol('nav')},
+    {type:'net',label:'NTA/Unit',vals:getCol('nta'),dp:6},
+  ]);
+}
+function buildCF() {
+  if (charts.cf) charts.cf.destroy();
+  charts.cf = new Chart(document.getElementById('chart-cf').getContext('2d'), {
+    data:{labels:corpData.map(d=>d.fy),datasets:[
+      {type:'bar',label:'Subscriptions',data:getCol('subscriptions'),backgroundColor:'rgba(46,125,50,.75)',borderRadius:4},
+      {type:'bar',label:'Redemptions',data:getCol('redemptions').map(v=>v?-v:null),backgroundColor:'rgba(198,40,40,.6)',borderRadius:4},
+      {type:'bar',label:'Net Change',data:getCol('net_cash_change'),
+        backgroundColor:getCol('net_cash_change').map(v=>v>=0?'rgba(21,101,192,.7)':'rgba(180,0,0,.5)'),borderRadius:4}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}},
+      scales:{y:{ticks:{callback:v=>Math.abs(v)>=1000?(v/1000).toFixed(0)+'K':v.toFixed(0)}}}}
+  });
+  document.getElementById('tbody-cf').innerHTML = buildRows([
+    {type:'section',label:'Operating'},
+    {type:'sub',label:'Dividend Received',vals:getCol('dividend_income')},
+    {type:'sub',label:'Interest Received',vals:getCol('interest_income')},
+    {type:'sub',label:'Mgmt Fee Paid',vals:getCol('fw_mng').map(v=>v?-v:null)},
+    {type:'sub',label:'Perf Fee Paid',vals:getCol('fw_perf').map(v=>v?-v:null)},
+    {type:'section',label:'Investing'},
+    {type:'sub',label:'Securities Bought',vals:getCol('buys_total').map(v=>v?-v:null)},
+    {type:'sub',label:'Securities Sold',vals:getCol('sells_total')},
+    {type:'section',label:'Financing'},
+    {type:'sub',label:'Subscriptions',vals:getCol('subscriptions')},
+    {type:'sub',label:'Redemptions',vals:getCol('redemptions').map(v=>v?-v:null)},
+    {type:'sub',label:'Distributions Paid',vals:getCol('distributions_paid').map(v=>v?-v:null)},
+    {type:'net',label:'Net Cash Change',vals:getCol('net_cash_change')},
+  ]);
+}
+function buildRat() {
+  document.getElementById('tbody-rat').innerHTML = buildRows([
+    {type:'section',label:'Performance'},
+    {type:'sub',label:'NTA (RM)',vals:getCol('nta'),dp:6},
+    {type:'sub',label:'Total Return',vals:getCol('total_return_pct'),isPct:true},
+    {type:'sub',label:'AUM',vals:getCol('nav')},
+    {type:'section',label:'Income'},
+    {type:'sub',label:'Income Yield',vals:getCol('income_yield_pct'),isPct:true},
+    {type:'sub',label:'Gross Yield',vals:getCol('gross_yield_pct'),isPct:true},
+    {type:'sub',label:'Dividend Yield',vals:getCol('div_yield_pct'),isPct:true},
+    {type:'sub',label:'DPS (sen)',vals:getCol('total_dps')},
+    {type:'section',label:'Growth'},
+    {type:'sub',label:'Revenue YoY',vals:getCol('revenue_yoy'),isPct:true},
+    {type:'sub',label:'Gross YoY',vals:getCol('gross_yoy'),isPct:true},
+    {type:'section',label:'Margin'},
+    {type:'sub',label:'Gross Margin',vals:getCol('gross_margin_pct'),isPct:true},
+  ]);
+}
+</script>
+</body>
+</html>

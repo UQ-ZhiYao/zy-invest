@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>Security — ZY-Invest</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="mobile.css">
+</head>
+<body>
+<header class="m-header">
+  <a href="index.html" class="m-logo"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></a>
+  <button class="m-hamburger" onclick="mOpenMenu()"><span></span><span></span><span></span></button>
+</header>
+<div id="m-menu" class="m-menu">
+  <div class="m-menu-header"><div class="m-menu-brand"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></div><button class="m-menu-close" onclick="mCloseMenu()">✕</button></div>
+  <div class="m-menu-user"><div class="m-menu-user-name"></div><div class="m-menu-user-inv"></div></div>
+  <nav class="m-menu-nav"></nav>
+  <div class="m-menu-footer"><button class="m-logout-btn">Sign Out</button></div>
+</div>
+
+<div class="m-page">
+  <div class="m-page-title">Security & Password</div>
+  <div class="m-page-sub">Change your account password</div>
+
+  <div id="msg" style="display:none" class="m-alert m-alert-success">Password changed successfully.</div>
+  <div id="err" style="display:none" class="m-alert m-alert-error"></div>
+
+  <div class="m-card">
+    <div class="m-card-body">
+      <div class="m-form-group">
+        <label class="m-form-label">Current Password</label>
+        <input type="password" id="pw-cur" class="m-form-input" placeholder="Enter current password">
+      </div>
+      <div class="m-form-group">
+        <label class="m-form-label">New Password</label>
+        <input type="password" id="pw-new" class="m-form-input" placeholder="Min 8 characters">
+      </div>
+      <div class="m-form-group">
+        <label class="m-form-label">Confirm New Password</label>
+        <input type="password" id="pw-new2" class="m-form-input" placeholder="Repeat new password">
+      </div>
+      <button class="m-btn m-btn-primary m-btn-full" id="pw-btn" onclick="changePassword()">
+        Change Password
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="mobile.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  if (!mAuthCheck()) return;
+  mInitMenu('security.html');
+});
+async function changePassword() {
+  const cur  = document.getElementById('pw-cur').value;
+  const nw   = document.getElementById('pw-new').value;
+  const nw2  = document.getElementById('pw-new2').value;
+  const msg  = document.getElementById('msg');
+  const err  = document.getElementById('err');
+  msg.style.display = err.style.display = 'none';
+  if (!cur)          { err.textContent='Enter current password'; err.style.display='block'; return; }
+  if (nw.length < 8) { err.textContent='Min 8 characters'; err.style.display='block'; return; }
+  if (nw !== nw2)    { err.textContent='Passwords do not match'; err.style.display='block'; return; }
+  const btn = document.getElementById('pw-btn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    await mApi.post('/api/auth/change-password',
+      { current_password: cur, new_password: nw });
+    msg.style.display = 'block';
+    document.getElementById('pw-cur').value = '';
+    document.getElementById('pw-new').value = '';
+    document.getElementById('pw-new2').value = '';
+    window.scrollTo({top:0,behavior:'smooth'});
+  } catch(e) { err.textContent = e.message; err.style.display='block'; }
+  btn.disabled = false; btn.textContent = 'Change Password';
+}
+</script>
+</body>
+</html>

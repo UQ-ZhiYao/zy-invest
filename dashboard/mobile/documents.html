@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>Documents — ZY-Invest</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="mobile.css">
+</head>
+<body>
+<header class="m-header">
+  <a href="index.html" class="m-logo"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></a>
+  <button class="m-hamburger" onclick="mOpenMenu()"><span></span><span></span><span></span></button>
+</header>
+<div id="m-menu" class="m-menu">
+  <div class="m-menu-header"><div class="m-menu-brand"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></div><button class="m-menu-close" onclick="mCloseMenu()">✕</button></div>
+  <div class="m-menu-user"><div class="m-menu-user-name"></div><div class="m-menu-user-inv"></div></div>
+  <nav class="m-menu-nav"></nav>
+  <div class="m-menu-footer"><button class="m-logout-btn">Sign Out</button></div>
+</div>
+
+<div class="m-page">
+  <div class="m-page-title">Documents</div>
+  <div class="m-page-sub">Statements and fund documents</div>
+  <div id="doc-list"><div class="m-loading">Loading...</div></div>
+</div>
+
+<script src="mobile.js"></script>
+<script>
+const DOC_ICONS = {
+  annual_report:'📊', member_statement:'📋',
+  distribution_notice:'💰', fund_rules:'📜', other:'📄'
+};
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!mAuthCheck()) return;
+  mInitMenu('documents.html');
+  try {
+    const rows = await mApi.get('/api/member/fund/documents') || [];
+    if (!rows.length) {
+      document.getElementById('doc-list').innerHTML =
+        '<div class="m-empty"><div class="m-empty-icon">📁</div><div class="m-empty-text">No documents yet</div></div>';
+      return;
+    }
+    document.getElementById('doc-list').innerHTML = rows.map(d => `
+      <div class="m-doc-item">
+        <div class="m-doc-icon">${DOC_ICONS[d.doc_type]||'📄'}</div>
+        <div class="m-doc-info">
+          <div class="m-doc-name">${mEsc(d.title)}</div>
+          <div class="m-doc-meta">
+            ${d.file_size_kb ? d.file_size_kb+' KB · ' : ''}${mFmtDate(d.created_at)}
+          </div>
+        </div>
+        <span class="m-doc-dl" onclick="dlDoc('${d.id}','${mEsc(d.file_name)}')">↓</span>
+      </div>`).join('');
+  } catch(e) { console.error(e); }
+});
+async function dlDoc(id, filename) {
+  try {
+    const data = await mApi.get(`/api/member/fund/documents/${id}/download`);
+    const url  = data.url || '';
+    if (!url) { alert('No file available'); return; }
+    const b64  = url.includes(',') ? url.split(',')[1] : url;
+    const bin  = atob(b64);
+    const buf  = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
+    const blob = new Blob([buf],{type:'application/pdf'});
+    const a = Object.assign(document.createElement('a'),
+      {href:URL.createObjectURL(blob), download:filename||'document.pdf'});
+    a.click(); URL.revokeObjectURL(a.href);
+  } catch(e) { alert('Download failed: '+e.message); }
+}
+</script>
+</body>
+</html>

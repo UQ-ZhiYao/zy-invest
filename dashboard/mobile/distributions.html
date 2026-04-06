@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>My Distributions — ZY-Invest</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="mobile.css">
+</head>
+<body>
+<header class="m-header">
+  <a href="index.html" class="m-logo"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></a>
+  <button class="m-hamburger" onclick="mOpenMenu()"><span></span><span></span><span></span></button>
+</header>
+<div id="m-menu" class="m-menu">
+  <div class="m-menu-header"><div class="m-menu-brand"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></div><button class="m-menu-close" onclick="mCloseMenu()">✕</button></div>
+  <div class="m-menu-user"><div class="m-menu-user-name"></div><div class="m-menu-user-inv"></div></div>
+  <nav class="m-menu-nav"></nav>
+  <div class="m-menu-footer"><button class="m-logout-btn">Sign Out</button></div>
+</div>
+
+<div class="m-page">
+  <div class="m-page-title">My Distributions</div>
+  <div class="m-page-sub">Dividend & distribution history</div>
+
+  <div class="m-metrics" style="grid-template-columns:1fr 1fr 1fr">
+    <div class="m-metric">
+      <div class="m-metric-label">Total Received</div>
+      <div class="m-metric-value blue" id="dist-total">—</div>
+    </div>
+    <div class="m-metric">
+      <div class="m-metric-label">Records</div>
+      <div class="m-metric-value" id="dist-count">—</div>
+    </div>
+    <div class="m-metric">
+      <div class="m-metric-label">Last Payout</div>
+      <div class="m-metric-value" id="dist-last">—</div>
+    </div>
+  </div>
+
+  <div id="dist-list">
+    <div class="m-loading">Loading...</div>
+  </div>
+</div>
+
+<script src="mobile.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!mAuthCheck()) return;
+  mInitMenu('distributions.html');
+  try {
+    const rows = await mApi.get('/api/member/account/distributions') || [];
+    document.getElementById('dist-count').textContent = rows.length;
+    const total = rows.reduce((s,r) => s + Number(r.amount||0), 0);
+    document.getElementById('dist-total').textContent = mFmtRM(total);
+    const last = rows[0];
+    document.getElementById('dist-last').textContent = last ? mFmtDate(last.pmt_date) : '—';
+    if (!rows.length) {
+      document.getElementById('dist-list').innerHTML =
+        '<div class="m-empty"><div class="m-empty-icon">💰</div><div class="m-empty-text">No distributions yet</div></div>';
+      return;
+    }
+    document.getElementById('dist-list').innerHTML = rows.map(r => `
+      <div class="m-dist-item">
+        <div class="m-dist-head">
+          <div class="m-dist-title">${mEsc(r.title||r.financial_year)}</div>
+          <div class="m-dist-amount">${mFmtRM(r.amount)}</div>
+        </div>
+        <div class="m-dist-meta">
+          <span>${mEsc(r.financial_year)}</span>
+          <span>·</span>
+          <span>${r.dps_sen ? Number(r.dps_sen).toFixed(2)+' sen/unit' : ''}</span>
+          <span>·</span>
+          <span>${mFmtDate(r.pmt_date)}</span>
+        </div>
+      </div>`).join('');
+  } catch(e) { console.error(e); }
+});
+</script>
+</body>
+</html>

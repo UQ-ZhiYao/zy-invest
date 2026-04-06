@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>Account Summary — ZY-Invest</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="mobile.css">
+</head>
+<body>
+<header class="m-header">
+  <a href="index.html" class="m-logo"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></a>
+  <button class="m-hamburger" onclick="mOpenMenu()"><span></span><span></span><span></span></button>
+</header>
+<div id="m-menu" class="m-menu">
+  <div class="m-menu-header"><div class="m-menu-brand"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></div><button class="m-menu-close" onclick="mCloseMenu()">✕</button></div>
+  <div class="m-menu-user"><div class="m-menu-user-name"></div><div class="m-menu-user-inv"></div></div>
+  <nav class="m-menu-nav"></nav>
+  <div class="m-menu-footer"><button class="m-logout-btn">Sign Out</button></div>
+</div>
+
+<div class="m-page">
+  <div class="m-page-title">Account Summary</div>
+  <div class="m-page-sub">Your complete investment overview</div>
+
+  <div class="m-metrics">
+    <div class="m-metric">
+      <div class="m-metric-label">Units Held</div>
+      <div class="m-metric-value blue" id="a-units">—</div>
+    </div>
+    <div class="m-metric">
+      <div class="m-metric-label">Market Value</div>
+      <div class="m-metric-value" id="a-mv">—</div>
+    </div>
+    <div class="m-metric">
+      <div class="m-metric-label">Avg Cost/Unit</div>
+      <div class="m-metric-value" id="a-vwap">—</div>
+    </div>
+    <div class="m-metric">
+      <div class="m-metric-label">Fund Ownership</div>
+      <div class="m-metric-value" id="a-own">—</div>
+    </div>
+  </div>
+
+  <div class="m-card">
+    <div class="m-card-header"><div class="m-card-title">Performance</div></div>
+    <div class="m-card-body">
+      <div class="m-list-row"><span class="m-list-label">Total Cost</span><span class="m-list-value" id="a-cost">—</span></div>
+      <div class="m-list-row"><span class="m-list-label">Unrealised P&L</span><span class="m-list-value" id="a-upl">—</span></div>
+      <div class="m-list-row"><span class="m-list-label">Realised P&L</span><span class="m-list-value" id="a-rpl">—</span></div>
+      <div class="m-list-row"><span class="m-list-label">Dividends Received</span><span class="m-list-value" id="a-div">—</span></div>
+      <div class="m-list-row"><span class="m-list-label">Return %</span><span class="m-list-value" id="a-ret">—</span></div>
+      <div class="m-list-row" style="border-bottom:none">
+        <span class="m-list-label" style="font-weight:700">IRR (Annualised)</span>
+        <span class="m-list-value" id="a-irr" style="font-size:1rem">—</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="m-card" id="a-holders-card" style="display:none">
+    <div class="m-card-header"><div class="m-card-title">Joint Holders</div></div>
+    <div class="m-card-body" id="a-holders"></div>
+  </div>
+
+  <div class="m-card">
+    <div class="m-card-header"><div class="m-card-title">Fund Details</div></div>
+    <div class="m-card-body">
+      <div class="m-list-row"><span class="m-list-label">Current NTA</span><span class="m-list-value" id="a-nta">—</span></div>
+      <div class="m-list-row"><span class="m-list-label">Days Held</span><span class="m-list-value" id="a-days">—</span></div>
+      <div class="m-list-row" style="border-bottom:none"><span class="m-list-label">Joined Date</span><span class="m-list-value" id="a-joined">—</span></div>
+    </div>
+  </div>
+</div>
+
+<script src="mobile.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!mAuthCheck()) return;
+  mInitMenu('account.html');
+  try {
+    const d = await mApi.get('/api/member/account/summary');
+    document.getElementById('a-units').textContent  = mFmtUnits(d.units);
+    document.getElementById('a-mv').textContent     = mFmtRM(d.market_value);
+    document.getElementById('a-vwap').textContent   = d.vwap ? Number(d.vwap).toFixed(4) : '—';
+    document.getElementById('a-own').textContent    = d.fund_ownership_pct ? Number(d.fund_ownership_pct).toFixed(2)+'%' : '—';
+    document.getElementById('a-cost').textContent   = mFmtRM(d.total_costs);
+    document.getElementById('a-upl').textContent    = mFmtRM(d.unrealized_pl);
+    document.getElementById('a-upl').className      = 'm-list-value '+mPlClass(d.unrealized_pl);
+    document.getElementById('a-rpl').textContent    = mFmtRM(d.realized_pl);
+    document.getElementById('a-rpl').className      = 'm-list-value '+mPlClass(d.realized_pl);
+    document.getElementById('a-div').textContent    = mFmtRM(d.dividends_received||0);
+    document.getElementById('a-ret').textContent    = mFmtPct(d.simple_return_pct);
+    document.getElementById('a-ret').className      = 'm-list-value '+mPlClass(d.simple_return_pct);
+    document.getElementById('a-irr').textContent    = d.irr ? mFmtPct(d.irr) : '—';
+    document.getElementById('a-irr').className      = 'm-list-value '+mPlClass(d.irr);
+    document.getElementById('a-nta').textContent    = d.fund_nta ? Number(d.fund_nta).toFixed(4) : '—';
+    document.getElementById('a-days').textContent   = d.days_held ? d.days_held+' days' : '—';
+    document.getElementById('a-joined').textContent = mFmtDate(d.joined_date);
+    // Joint holders
+    if (d.holders && d.holders.length > 1) {
+      document.getElementById('a-holders-card').style.display = '';
+      document.getElementById('a-holders').innerHTML = d.holders.map(h => `
+        <div class="m-list-row">
+          <span class="m-list-label">${mEsc(h.name)}</span>
+          <span class="m-list-value">
+            <span class="m-pill m-pill-blue">${h.role}</span>
+            &nbsp;${h.share_ratio||100}%
+          </span>
+        </div>`).join('');
+    }
+  } catch(e) { console.error(e); }
+});
+</script>
+</body>
+</html>

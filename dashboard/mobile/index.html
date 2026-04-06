@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>Dashboard — ZY-Invest</title>
+  <link rel="icon" href="../../assets/img/logo.png">
+  <link rel="stylesheet" href="mobile.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="m-header">
+  <a href="index.html" class="m-logo">
+    <img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span>
+  </a>
+  <button class="m-hamburger" onclick="mOpenMenu()">
+    <span></span><span></span><span></span>
+  </button>
+</header>
+<div id="m-menu" class="m-menu">
+  <div class="m-menu-header">
+    <div class="m-menu-brand"><img src="../../assets/img/logo.png" alt="ZY"><span>ZY-Invest</span></div>
+    <button class="m-menu-close" onclick="mCloseMenu()">✕</button>
+  </div>
+  <div class="m-menu-user">
+    <div class="m-menu-user-name"></div><div class="m-menu-user-inv"></div>
+  </div>
+  <nav class="m-menu-nav"></nav>
+  <div class="m-menu-footer"><button class="m-logout-btn">Sign Out</button></div>
+</div>
+
+<div class="m-page">
+  <p class="m-page-sub" id="m-date"></p>
+
+  <!-- Welcome -->
+  <div class="m-card" style="background:var(--blue);border:none;margin-bottom:12px">
+    <div class="m-card-body">
+      <div style="color:rgba(255,255,255,.7);font-size:0.8rem;margin-bottom:4px">Welcome back</div>
+      <div style="color:#fff;font-size:1.2rem;font-weight:700" id="d-name">—</div>
+      <div style="color:rgba(255,255,255,.7);font-size:0.82rem;margin-top:2px" id="d-date">—</div>
+    </div>
+  </div>
+
+  <!-- Fund snapshot -->
+  <div class="m-metrics">
+    <div class="m-metric">
+      <div class="m-metric-label">Current NTA</div>
+      <div class="m-metric-value blue" id="d-nta">—</div>
+    </div>
+    <div class="m-metric">
+      <div class="m-metric-label">Total Return</div>
+      <div class="m-metric-value" id="d-return">—</div>
+    </div>
+    <div class="m-metric">
+      <div class="m-metric-label">Your Units</div>
+      <div class="m-metric-value" id="d-units">—</div>
+    </div>
+    <div class="m-metric">
+      <div class="m-metric-label">Market Value</div>
+      <div class="m-metric-value" id="d-mv">—</div>
+    </div>
+  </div>
+
+  <!-- P&L -->
+  <div class="m-card">
+    <div class="m-card-header"><div class="m-card-title">Profit & Loss</div></div>
+    <div class="m-card-body">
+      <div class="m-list-row">
+        <span class="m-list-label">Unrealised P&L</span>
+        <span class="m-list-value" id="d-upl">—</span>
+      </div>
+      <div class="m-list-row">
+        <span class="m-list-label">Realised P&L</span>
+        <span class="m-list-value" id="d-rpl">—</span>
+      </div>
+      <div class="m-list-row">
+        <span class="m-list-label">Dividends Received</span>
+        <span class="m-list-value" id="d-div">—</span>
+      </div>
+      <div class="m-list-row" style="border-bottom:none">
+        <span class="m-list-label" style="font-weight:700">Total P&L</span>
+        <span class="m-list-value" id="d-tpl" style="font-size:1rem">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- NTA mini-chart -->
+  <div class="m-card">
+    <div class="m-card-header"><div class="m-card-title">NTA Performance</div></div>
+    <div class="m-card-body" style="padding-bottom:8px">
+      <div class="m-chart"><canvas id="d-chart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Quick links -->
+  <div class="m-section-title">Quick Access</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+    <a href="account.html" style="text-decoration:none">
+      <div class="m-card" style="margin-bottom:0;padding:14px 16px;text-align:center">
+        <div style="font-size:1.6rem">💼</div>
+        <div style="font-size:0.82rem;font-weight:600;margin-top:6px">Account</div>
+      </div>
+    </a>
+    <a href="distributions.html" style="text-decoration:none">
+      <div class="m-card" style="margin-bottom:0;padding:14px 16px;text-align:center">
+        <div style="font-size:1.6rem">💰</div>
+        <div style="font-size:0.82rem;font-weight:600;margin-top:6px">Distributions</div>
+      </div>
+    </a>
+    <a href="performance.html" style="text-decoration:none">
+      <div class="m-card" style="margin-bottom:0;padding:14px 16px;text-align:center">
+        <div style="font-size:1.6rem">📈</div>
+        <div style="font-size:0.82rem;font-weight:600;margin-top:6px">Performance</div>
+      </div>
+    </a>
+    <a href="documents.html" style="text-decoration:none">
+      <div class="m-card" style="margin-bottom:0;padding:14px 16px;text-align:center">
+        <div style="font-size:1.6rem">📁</div>
+        <div style="font-size:0.82rem;font-weight:600;margin-top:6px">Documents</div>
+      </div>
+    </a>
+  </div>
+</div>
+
+<script src="mobile.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!mAuthCheck()) return;
+  const u = mUser();
+  mInitMenu('index.html');
+  document.getElementById('m-date').textContent =
+    new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  document.getElementById('d-name').textContent = u.name || '—';
+  document.getElementById('d-date').textContent =
+    new Date().toLocaleDateString('en-MY',{day:'2-digit',month:'short',year:'numeric'});
+
+  try {
+    const [inv, perf] = await Promise.all([
+      mApi.get('/api/member/account/summary'),
+      mApi.get('/api/member/fund/performance'),
+    ]);
+    document.getElementById('d-nta').textContent     = Number(inv.fund_nta||0).toFixed(4);
+    document.getElementById('d-return').textContent  = mFmtPct(perf.total_return_pct);
+    document.getElementById('d-return').className    = 'm-metric-value ' + mPlClass(perf.total_return_pct);
+    document.getElementById('d-units').textContent   = mFmtUnits(inv.units);
+    document.getElementById('d-mv').textContent      = mFmtRM(inv.market_value);
+    document.getElementById('d-upl').textContent     = mFmtRM(inv.unrealized_pl);
+    document.getElementById('d-upl').className       = 'm-list-value ' + mPlClass(inv.unrealized_pl);
+    document.getElementById('d-rpl').textContent     = mFmtRM(inv.realized_pl);
+    document.getElementById('d-rpl').className       = 'm-list-value ' + mPlClass(inv.realized_pl);
+    document.getElementById('d-div').textContent     = mFmtRM(inv.dividends_received||0);
+    document.getElementById('d-tpl').textContent     = mFmtRM(inv.total_pl);
+    document.getElementById('d-tpl').className       = 'm-list-value ' + mPlClass(inv.total_pl);
+
+    // Mini NTA chart
+    const hist = (perf.nta_history || []).slice(-90);
+    const ctx  = document.getElementById('d-chart').getContext('2d');
+    new Chart(ctx, {
+      type:'line',
+      data:{ labels: hist.map(r=>r.date),
+             datasets:[{ data: hist.map(r=>r.nta),
+               borderColor:'#1565C0', borderWidth:2,
+               pointRadius:0, fill:true,
+               backgroundColor:'rgba(21,101,192,.08)' }] },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ display:false } },
+        scales:{ x:{ display:false }, y:{ ticks:{ callback:v=>v.toFixed(2) } } } }
+    });
+  } catch(e) { console.error(e); }
+});
+</script>
+</body>
+</html>
