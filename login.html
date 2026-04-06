@@ -251,7 +251,9 @@
   // Redirect if already logged in
   const existing = authUser();
   if (existing.token) {
-    window.location.href = 'dashboard/index.html';
+    window.location.href = window.innerWidth < 768
+      ? 'dashboard/mobile/index.html'
+      : 'dashboard/index.html';
   }
 
   function togglePassword() {
@@ -295,9 +297,11 @@
 
       authSave(data);
 
-      // Redirect based on role
+      // Redirect: admin always to desktop, members to mobile if on phone
       if (data.role === 'admin') {
         window.location.href = 'dashboard/index.html';
+      } else if (window.innerWidth < 768) {
+        window.location.href = 'dashboard/mobile/index.html';
       } else {
         window.location.href = 'dashboard/index.html';
       }
