@@ -48,7 +48,11 @@
       <div class="m-list-row"><span class="m-list-label">Total Cost</span><span class="m-list-value" id="a-cost">—</span></div>
       <div class="m-list-row"><span class="m-list-label">Unrealised P&L</span><span class="m-list-value" id="a-upl">—</span></div>
       <div class="m-list-row"><span class="m-list-label">Realised P&L</span><span class="m-list-value" id="a-rpl">—</span></div>
-      <div class="m-list-row"><span class="m-list-label">Dividends Received</span><span class="m-list-value" id="a-div">—</span></div>
+      <div class="m-list-row"><span class="m-list-label">Dividend Received</span><span class="m-list-value" id="a-div">—</span></div>
+      <div class="m-list-row" style="border-top:2px solid var(--border);margin-top:4px">
+        <span class="m-list-label" style="font-weight:700;color:var(--text)">Total P&L</span>
+        <span class="m-list-value" id="a-tpl" style="font-size:1rem;font-weight:700">—</span>
+      </div>
       <div class="m-list-row"><span class="m-list-label">Return %</span><span class="m-list-value" id="a-ret">—</span></div>
       <div class="m-list-row" style="border-bottom:none">
         <span class="m-list-label" style="font-weight:700">IRR (Annualised)</span>
@@ -90,6 +94,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('a-rpl').className      = 'm-list-value '+mPlClass(d.realized_pl);
     document.getElementById('a-div').textContent    = mFmtRM(d.dividends_received||0);
     document.getElementById('a-div').className      = 'm-list-value pos';
+    document.getElementById('a-tpl').textContent    = mFmtRM(d.total_pl);
+    document.getElementById('a-tpl').className      = 'm-list-value '+mPlClass(d.total_pl);
     document.getElementById('a-ret').textContent    = mFmtPct(d.simple_return_pct);
     document.getElementById('a-ret').className      = 'm-list-value '+mPlClass(d.simple_return_pct);
     document.getElementById('a-irr').textContent    = d.irr ? mFmtPct(d.irr) : '—';

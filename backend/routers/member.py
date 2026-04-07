@@ -35,31 +35,49 @@ async def account_summary(
     if not investor:
         raise HTTPException(404, "Investor profile not found")
 
-    # ── Issue 1: Market value = units × latest NTA (always fresh) ──
+    # ── Market value = units × latest NTA (always fresh) ──────────
     latest_nta_row = await db.fetchrow(
         "SELECT nta FROM historical ORDER BY date DESC LIMIT 1")
-    latest_nta = float(latest_nta_row["nta"]) if latest_nta_row else 0.0
-    units_held = float(investor["units"] or 0)
+    latest_nta        = float(latest_nta_row["nta"]) if latest_nta_row else 0.0
+    units_held        = float(investor["units"] or 0)
+    total_costs       = float(investor["total_costs"] or 0)
     live_market_value = round(units_held * latest_nta, 2)
-    live_unrealized_pl = round(live_market_value - float(investor["total_costs"] or 0), 2)
+    live_unrealized_pl = round(live_market_value - total_costs, 2)
 
-    # ── Issue 2: Distributions received = payout TO member ──────
-    # This is what members call "Dividend Received" (not equity dividends)
-    dist_received = await db.fetch(
-        "SELECT dl.paid_date AS date, dl.amount FROM distribution_ledger dl "
-        "WHERE dl.investor_id=$1 AND dl.paid=TRUE ORDER BY dl.paid_date", inv_id)
+    # ── Realised P&L from redemption_ledger ─────────────────────
+    rl_row = await db.fetchrow(
+        "SELECT COALESCE(SUM(realized_pl), 0) AS total "
+        "FROM redemption_ledger WHERE investor_id=$1", inv_id)
+    realised_pl = round(float(rl_row["total"] or 0), 2)
+
+    # ── Dividends Received = distributions paid TO this member ──
+    # Join distributions to get pmt_date as fallback when paid_date is NULL
+    dist_received = await db.fetch("""
+        SELECT
+            COALESCE(dl.paid_date, d.pmt_date) AS date,
+            dl.amount
+        FROM distribution_ledger dl
+        JOIN distributions d ON d.id = dl.distribution_id
+        WHERE dl.investor_id = $1
+        ORDER BY COALESCE(dl.paid_date, d.pmt_date)
+    """, inv_id)
     dividends_received = round(
         sum(float(r["amount"] or 0) for r in dist_received), 2)
 
-    # Total P&L includes unrealised + realised + distributions received
-    realised_pl   = float(investor["realized_pl"] or 0)
-    total_pl      = round(live_unrealized_pl + realised_pl + dividends_received, 2)
-    simple_return = round(
-        (live_market_value - float(investor["total_costs"] or 0)) /
-        float(investor["total_costs"]) * 100
-        if float(investor["total_costs"] or 0) > 0 else 0.0, 4)
+    # ── Total P&L: unrealised + realised + dividends received ───
+    total_pl = round(live_unrealized_pl + realised_pl + dividends_received, 2)
 
-    # IRR: subscriptions negative, redemptions positive, distributions positive
+    # ── Simple return = (MV + Realised + Dividends) / Cost - 1 ──
+    if total_costs > 0:
+        simple_return = round(
+            (live_market_value + realised_pl + dividends_received)
+            / total_costs * 100 - 100, 4)
+    else:
+        simple_return = 0.0
+
+    # ── IRR via Newton-Raphson ───────────────────────────────────
+    # Subscriptions → negative, Redemptions → positive,
+    # Distributions → positive, Terminal MV → positive
     cashflows = await db.fetch(
         "SELECT date, amount, cashflow_type FROM principal_cashflows "
         "WHERE investor_id=$1 ORDER BY date", inv_id)
@@ -70,7 +88,7 @@ async def account_summary(
         current_market_value=live_market_value,
         today=date.today())
 
-    # Co-holders for joint accounts
+    # ── Co-holders for joint accounts ───────────────────────────
     holders = await db.fetch("""
         SELECT u.name, u.email, ih.role, ih.share_ratio
         FROM investor_holders ih
@@ -81,16 +99,15 @@ async def account_summary(
 
     return {
         **serialise(investor),
-        # Override stored values with live-computed ones
-        "market_value":      live_market_value,
-        "unrealized_pl":     live_unrealized_pl,
-        "realized_pl":       realised_pl,
-        "dividends_received": dividends_received,  # distributions TO member
-        "total_pl":          total_pl,
-        "simple_return_pct": simple_return,
-        "fund_nta":          latest_nta,
-        "irr":               round(irr * 100, 4) if irr is not None else None,
-        "holders":           [serialise(h) for h in holders],
+        "market_value":       live_market_value,
+        "unrealized_pl":      live_unrealized_pl,
+        "realized_pl":        realised_pl,
+        "dividends_received": dividends_received,
+        "total_pl":           total_pl,
+        "simple_return_pct":  simple_return,
+        "fund_nta":           latest_nta,
+        "irr":                round(irr * 100, 4) if irr is not None else None,
+        "holders":            [serialise(h) for h in holders],
     }
 
 

@@ -140,8 +140,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       mApi.get('/api/member/fund/performance'),
     ]);
     document.getElementById('d-nta').textContent     = Number(inv.fund_nta||0).toFixed(4);
-    document.getElementById('d-return').textContent  = mFmtPct(perf.total_return_pct);
-    document.getElementById('d-return').className    = 'm-metric-value ' + mPlClass(perf.total_return_pct);
+    // Total return = (MV + Realised P&L + Dividends Received) / Total Cost - 1
+    const totalReturn = inv.simple_return_pct;
+    document.getElementById('d-return').textContent  = mFmtPct(totalReturn);
+    document.getElementById('d-return').className    = 'm-metric-value ' + mPlClass(totalReturn);
     document.getElementById('d-units').textContent   = mFmtUnits(inv.units);
     document.getElementById('d-mv').textContent      = mFmtRM(inv.market_value);
     document.getElementById('d-upl').textContent     = mFmtRM(inv.unrealized_pl);
