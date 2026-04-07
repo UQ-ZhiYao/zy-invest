@@ -37,6 +37,21 @@
         <p>Record investor deposits and withdrawals. Units are auto-calculated as Cash ÷ NTA at the transaction date.</p>
       </div>
 
+      <!-- Redemption ledger recompute bar -->
+      <div style="display:flex;align-items:center;justify-content:space-between;
+                  padding:12px 16px;background:#FFF7ED;border:1px solid #FED7AA;
+                  border-radius:var(--radius-lg);margin-bottom:20px">
+        <div style="font-size:0.84rem;color:#92400E">
+          <strong>Redemption Ledger</strong> — Realized P&L is computed automatically
+          when a withdrawal is recorded. Run a full recompute if data was edited directly in the database.
+        </div>
+        <button class="btn btn-outline" id="recompute-btn" onclick="recomputeRedemptions()"
+          style="white-space:nowrap;padding:7px 16px;font-size:0.82rem;
+                 border-color:#F97316;color:#C2410C">
+          ↻ Recompute All
+        </button>
+      </div>
+
       <!-- Summary per investor -->
       <div class="panel" style="margin-bottom:20px">
         <div class="panel-header"><h3>Investor Unit Summary</h3></div>
@@ -245,6 +260,17 @@ async function addCashflow(e) {
     await Promise.all([loadSummary(), loadHistory()]);
   } catch(err) { showToast('Failed: ' + err.message, 'error'); }
   btn.disabled = false; btn.textContent = 'Record Transaction';
+}
+
+async function recomputeRedemptions() {
+  const btn = document.getElementById('recompute-btn');
+  btn.disabled = true; btn.textContent = '↻ Computing...';
+  try {
+    const res = await api.post('/api/admin/redemptions/recompute', {});
+    showToast(res.message, 'success');
+    await loadSummary();
+  } catch(e) { showToast('Recompute failed: ' + e.message, 'error'); }
+  btn.disabled = false; btn.textContent = '↻ Recompute All';
 }
 </script>
 </body>

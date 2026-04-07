@@ -25,6 +25,7 @@ from database import Database, get_db, serialise
 from routers.auth import require_admin
 from services.price_fetcher import run_daily_price_fetch, update_manual_price
 from services.nta_engine import compute_portfolio_and_nta, compute_nta_range, compute_daily_nta
+from services.redemption_engine import process_single_redemption, recompute_all_redemptions
 
 router = APIRouter()
 
@@ -1087,25 +1088,66 @@ async def add_principal(
     db: Database = Depends(get_db)
 ):
     from datetime import date as date_type
-    await db.execute("""
+    # Map flow_type (UI) → cashflow_type (DB)
+    flow       = body.get('flow_type', body.get('cashflow_type', 'subscription'))
+    cf_type    = 'subscription' if flow in ('deposit', 'subscription') else 'redemption'
+    inv_id     = body['investor_id']
+    units_val  = float(body['units'])
+    amount_val = float(body['amount'])
+    # Redemptions stored as negative amount
+    if cf_type == 'redemption':
+        amount_val = -abs(amount_val)
+        units_val  =  abs(units_val)
+
+    row = await db.fetchrow("""
         INSERT INTO principal_cashflows
-        (date, investor_id, flow_type, amount, nta_at_date, units, notes)
-        VALUES ($1,$2,$3,$4,$5,$6,$7)
+            (date, investor_id, cashflow_type, units, amount, nta_at_date, notes)
+        VALUES ($1, $2::uuid, $3, $4, $5, $6, $7)
+        RETURNING id
     """,
         date_type.fromisoformat(body['date']),
-        body.get('investor_id') or None,
-        body['flow_type'],
-        body['amount'],
-        body['nta_at_date'],
-        body['units'],
-        body.get('notes'),
+        inv_id, cf_type, units_val, amount_val,
+        body.get('nta_at_date'), body.get('notes'),
     )
-    sign = 1 if body['flow_type'] == 'deposit' else -1
+
+    # Update investor units
+    sign = 1 if cf_type == 'subscription' else -1
     await db.execute(
-        "UPDATE investors SET units = units + $1 WHERE id = $2",
-        sign * body['units'], body['investor_id']
+        "UPDATE investors SET units = units + $1 WHERE id = $2::uuid",
+        sign * units_val, inv_id
     )
-    return {"message": "Principal cashflow recorded"}
+
+    # Auto-compute redemption ledger if this is a redemption
+    if cf_type == 'redemption':
+        try:
+            await process_single_redemption(db, str(row["id"]), inv_id)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Redemption ledger compute failed: {e}")
+
+    return {"message": f"Principal cashflow recorded ({cf_type})"}
+
+
+@router.post("/redemptions/recompute")
+async def recompute_redemptions(
+    admin: dict = Depends(require_admin),
+    db: Database = Depends(get_db)
+):
+    """
+    Admin manual recompute of the full redemption ledger.
+    Uses AVCO method — replays all cashflows per investor in date order.
+    Safe to run multiple times — fully idempotent.
+    """
+    result = await recompute_all_redemptions(db)
+    return {
+        "message": (
+            f"Redemption ledger recomputed. "
+            f"{result['redemption_entries']} entries across "
+            f"{result['investors_processed']} investor(s)."
+        ),
+        **result,
+    }
 
 
 # ── NTA at date ───────────────────────────────────────────────
