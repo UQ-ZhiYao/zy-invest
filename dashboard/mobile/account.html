@@ -89,6 +89,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('a-rpl').textContent    = mFmtRM(d.realized_pl);
     document.getElementById('a-rpl').className      = 'm-list-value '+mPlClass(d.realized_pl);
     document.getElementById('a-div').textContent    = mFmtRM(d.dividends_received||0);
+    document.getElementById('a-div').className      = 'm-list-value pos';
     document.getElementById('a-ret').textContent    = mFmtPct(d.simple_return_pct);
     document.getElementById('a-ret').className      = 'm-list-value '+mPlClass(d.simple_return_pct);
     document.getElementById('a-irr').textContent    = d.irr ? mFmtPct(d.irr) : '—';

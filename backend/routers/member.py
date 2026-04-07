@@ -35,17 +35,39 @@ async def account_summary(
     if not investor:
         raise HTTPException(404, "Investor profile not found")
 
-    cashflows = await db.fetch(
-        "SELECT date, amount, cashflow_type FROM principal_cashflows "
-        "WHERE investor_id=$1 ORDER BY date", inv_id)
+    # ── Issue 1: Market value = units × latest NTA (always fresh) ──
+    latest_nta_row = await db.fetchrow(
+        "SELECT nta FROM historical ORDER BY date DESC LIMIT 1")
+    latest_nta = float(latest_nta_row["nta"]) if latest_nta_row else 0.0
+    units_held = float(investor["units"] or 0)
+    live_market_value = round(units_held * latest_nta, 2)
+    live_unrealized_pl = round(live_market_value - float(investor["total_costs"] or 0), 2)
+
+    # ── Issue 2: Distributions received = payout TO member ──────
+    # This is what members call "Dividend Received" (not equity dividends)
     dist_received = await db.fetch(
         "SELECT dl.paid_date AS date, dl.amount FROM distribution_ledger dl "
         "WHERE dl.investor_id=$1 AND dl.paid=TRUE ORDER BY dl.paid_date", inv_id)
+    dividends_received = round(
+        sum(float(r["amount"] or 0) for r in dist_received), 2)
+
+    # Total P&L includes unrealised + realised + distributions received
+    realised_pl   = float(investor["realized_pl"] or 0)
+    total_pl      = round(live_unrealized_pl + realised_pl + dividends_received, 2)
+    simple_return = round(
+        (live_market_value - float(investor["total_costs"] or 0)) /
+        float(investor["total_costs"]) * 100
+        if float(investor["total_costs"] or 0) > 0 else 0.0, 4)
+
+    # IRR: subscriptions negative, redemptions positive, distributions positive
+    cashflows = await db.fetch(
+        "SELECT date, amount, cashflow_type FROM principal_cashflows "
+        "WHERE investor_id=$1 ORDER BY date", inv_id)
 
     irr = compute_irr(
         principal_cashflows=list(cashflows),
         distributions=list(dist_received),
-        current_market_value=float(investor["market_value"] or 0),
+        current_market_value=live_market_value,
         today=date.today())
 
     # Co-holders for joint accounts
@@ -59,8 +81,16 @@ async def account_summary(
 
     return {
         **serialise(investor),
-        "irr":     round(irr * 100, 4) if irr is not None else None,
-        "holders": [serialise(h) for h in holders],
+        # Override stored values with live-computed ones
+        "market_value":      live_market_value,
+        "unrealized_pl":     live_unrealized_pl,
+        "realized_pl":       realised_pl,
+        "dividends_received": dividends_received,  # distributions TO member
+        "total_pl":          total_pl,
+        "simple_return_pct": simple_return,
+        "fund_nta":          latest_nta,
+        "irr":               round(irr * 100, 4) if irr is not None else None,
+        "holders":           [serialise(h) for h in holders],
     }
 
 
