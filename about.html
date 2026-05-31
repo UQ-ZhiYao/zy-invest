@@ -1,330 +1,265 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>About Us — ZY-Invest</title>
-  <link rel="icon" href="assets/img/logo.png">
-  <link rel="stylesheet" href="assets/css/main.css">
-  <style>
-    .page-hero {
-      padding-top: calc(var(--nav-h) + 80px);
-      padding-bottom: 80px;
-      background: linear-gradient(135deg, #F0F7FF, #EBF5FB);
-    }
-    .page-hero .badge { margin-bottom: 20px; }
-    .page-hero h1 { margin-bottom: 16px; max-width: 600px; }
-    .page-hero p { font-size: 1.05rem; max-width: 560px; }
-
-    /* Mission & Philosophy */
-    .mp-grid {
-      display: grid; grid-template-columns: 1fr 1fr;
-      gap: 48px; margin-top: 48px;
-    }
-    .mp-item h3 { margin-bottom: 12px; color: var(--gray-900); }
-    .mp-item p { font-size: 0.97rem; }
-
-    /* Fund overview card */
-    .fund-overview-card {
-      background: var(--white);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-xl);
-      padding: 40px;
-      margin-top: 56px;
-      box-shadow: var(--shadow-sm);
-    }
-    .fund-overview-card h3 { margin-bottom: 32px; font-size: 1.3rem; }
-    .fund-facts {
-      display: grid; grid-template-columns: repeat(4, 1fr);
-      gap: 0;
-    }
-    .fund-fact {
-      padding: 20px 24px;
-      border-right: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-    }
-    .fund-fact:nth-child(4n) { border-right: none; }
-    .fund-fact:nth-last-child(-n+4) { border-bottom: none; }
-    .fund-fact-label {
-      font-size: 0.72rem; font-weight: 700;
-      letter-spacing: 0.1em; text-transform: uppercase;
-      color: var(--text-muted); margin-bottom: 8px;
-    }
-    .fund-fact-value {
-      font-size: 1.05rem; font-weight: 600; color: var(--gray-900);
-    }
-    .fund-fact-value.highlight { color: var(--blue); font-size: 1.2rem; }
-    .fund-fact-value.green { color: var(--green); font-size: 1.2rem; }
-
-    /* Distribution policy */
-    .dist-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr);
-      gap: 20px; margin-top: 40px;
-    }
-    .dist-card {
-      padding: 28px;
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--border);
-    }
-    .dist-card h4 {
-      color: var(--blue); font-size: 1rem;
-      margin-bottom: 8px;
-    }
-    .dist-payout {
-      font-size: 1.4rem; font-weight: 700;
-      color: var(--orange); margin-bottom: 12px;
-    }
-    .dist-card p { font-size: 0.88rem; }
-
-    /* Timeline */
-    .timeline { margin-top: 48px; }
-    .timeline-item {
-      display: flex; gap: 24px;
-      padding-bottom: 32px;
-      border-left: 2px solid var(--border);
-      margin-left: 12px; padding-left: 28px;
-      position: relative;
-    }
-    .timeline-item::before {
-      content: '';
-      position: absolute; left: -7px; top: 4px;
-      width: 12px; height: 12px;
-      background: var(--blue);
-      border-radius: 50%;
-      border: 2px solid var(--white);
-      box-shadow: 0 0 0 2px var(--blue);
-    }
-    .timeline-item:last-child { border-left-color: transparent; }
-    .timeline-date {
-      font-size: 0.82rem; font-weight: 700;
-      color: var(--blue); white-space: nowrap;
-      min-width: 80px;
-    }
-    .timeline-content h4 { margin-bottom: 4px; font-size: 0.97rem; }
-    .timeline-content p { font-size: 0.88rem; }
-
-    @media (max-width: 900px) {
-      .mp-grid { grid-template-columns: 1fr; gap: 32px; }
-      .fund-facts { grid-template-columns: repeat(2, 1fr); }
-      .fund-fact:nth-child(2n) { border-right: none; }
-      .fund-fact:nth-last-child(-n+2) { border-bottom: none; }
-      .fund-fact:nth-child(n+3):nth-last-child(-n+2) { border-bottom: none; }
-      .dist-grid { grid-template-columns: 1fr; }
-    }
-    @media (max-width: 600px) {
-      .fund-facts { grid-template-columns: 1fr 1fr; }
-      .fund-overview-card { padding: 24px; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>About — ZY-Invest</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
 </head>
-<body>
+<body class="motion">
 
-<nav class="navbar">
-  <div class="container">
-    <a href="index.html" class="navbar-brand">
-      <img src="assets/img/logo.png" alt="ZY-Invest">
+<!-- ===================== NAV ===================== -->
+<nav class="nav" id="nav">
+  <div class="container nav-inner">
+    <a href="index.html" class="nav-logo">
+      <img src="assets/logo.png" alt="ZY-Invest">
+      <span class="lt"><b>ZY-Invest</b><span>Smart Investing, Simply Done</span></span>
     </a>
-    <ul class="navbar-nav">
-      <li><a href="index.html">Home</a></li>
-      <li><a href="team.html">Team</a></li>
-      <li><a href="about.html" class="active">About Us</a></li>
-      <li><a href="login.html" class="btn-nav-login">Member Login</a></li>
-    </ul>
-    <button class="navbar-toggle"><span></span><span></span><span></span></button>
+    <div class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="team.html">Team</a>
+      <a href="about.html" class="current">About</a>
+      <a href="login.html" class="nav-cta">Member Login</a>
+    </div>
   </div>
 </nav>
 
-<!-- Page hero -->
-<section class="page-hero" id="top">
-  <div class="container">
-    <span class="badge badge-blue">Our Story</span>
-    <h1>Built on Trust,<br>Driven by Performance</h1>
-    <p>ZY-Invest was founded in December 2021 as a private investment collective, pooling capital from a trusted network of family and close associates to access institutional-quality investment strategies.</p>
+<!-- ===================== PAGE HERO ===================== -->
+<header class="hero hero-page" id="top">
+  <canvas id="wp"></canvas>
+  <svg class="skyline" viewBox="0 0 1440 300" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <defs>
+      <linearGradient id="skyG" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0" stop-color="#1B3A6B" stop-opacity="0.26"/>
+        <stop offset="0.55" stop-color="#1565C0" stop-opacity="0.12"/>
+        <stop offset="1" stop-color="#1E88E5" stop-opacity="0.03"/>
+      </linearGradient>
+      <linearGradient id="skyG2" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0" stop-color="#13294D" stop-opacity="0.34"/>
+        <stop offset="1" stop-color="#1565C0" stop-opacity="0.10"/>
+      </linearGradient>
+      <style>
+        .lit{fill:#FFD79A;} .litc{fill:#BFE2FF;}
+        body.motion .tw{animation:tw 3.4s ease-in-out infinite;}
+        body.motion .tw2{animation:tw 4.6s ease-in-out infinite .8s;}
+        body.motion .tw3{animation:tw 2.8s ease-in-out infinite 1.4s;}
+        @keyframes tw{0%,100%{opacity:.25;}50%{opacity:.9;}}
+      </style>
+    </defs>
+    <g fill="url(#skyG)">
+      <rect x="20" y="180" width="70" height="120"/><rect x="96" y="150" width="48" height="150"/>
+      <rect x="150" y="200" width="60" height="100"/><path d="M218 300 V120 l24 -14 24 14 V300 Z"/>
+      <rect x="276" y="168" width="40" height="132"/><rect x="1120" y="160" width="52" height="140"/>
+      <rect x="1178" y="196" width="64" height="104"/><rect x="1248" y="146" width="46" height="154"/>
+      <rect x="1300" y="190" width="60" height="110"/><rect x="1366" y="166" width="74" height="134"/>
+    </g>
+    <g fill="url(#skyG2)">
+      <path d="M338 300 L344 96 L356 40 L362 18 L368 40 L380 96 L386 300 Z"/>
+      <rect x="404" y="150" width="46" height="150"/><rect x="456" y="186" width="40" height="114"/><rect x="506" y="120" width="40" height="180"/>
+      <path d="M584 300 L596 150 L606 78 L632 78 L642 150 L654 300 Z"/><path d="M615 78 L619 36 L623 78 Z"/>
+      <rect x="654" y="118" width="52" height="9"/>
+      <path d="M706 300 L718 150 L728 78 L754 78 L764 150 L776 300 Z"/><path d="M737 78 L741 36 L745 78 Z"/>
+      <rect x="800" y="170" width="44" height="130"/>
+      <rect x="876" y="120" width="12" height="180"/><ellipse cx="882" cy="116" rx="20" ry="13"/><rect x="880" y="58" width="4" height="48"/>
+      <rect x="924" y="156" width="42" height="144"/>
+      <rect x="982" y="86" width="52" height="214"/><rect x="996" y="66" width="24" height="22"/><rect x="1004" y="48" width="8" height="20"/>
+      <rect x="1052" y="172" width="46" height="128"/>
+    </g>
+    <g>
+      <rect class="lit tw" x="610" y="170" width="3" height="3"/><rect class="lit tw2" x="624" y="200" width="3" height="3"/>
+      <rect class="litc tw3" x="616" y="230" width="3" height="3"/><rect class="lit tw2" x="732" y="178" width="3" height="3"/>
+      <rect class="litc tw" x="746" y="212" width="3" height="3"/><rect class="lit tw3" x="724" y="250" width="3" height="3"/>
+      <rect class="litc tw" x="998" y="120" width="3" height="3"/><rect class="lit tw2" x="1014" y="150" width="3" height="3"/>
+    </g>
+  </svg>
+  <div class="hero-fade"></div>
+  <div class="page-hero-inner">
+    <div class="container">
+      <div class="reveal in">
+        <div class="crumb">ZY-Invest <span style="opacity:.5">›</span> <b>About</b></div>
+        <span class="badge">Our Story</span>
+        <h1>Built on trust, driven by <span class="serif">performance.</span></h1>
+        <p class="lead">Founded in December 2021 as a private investment collective — pooling capital from a trusted network of family and close associates to access institutional-quality investment strategies.</p>
+      </div>
+    </div>
   </div>
-</section>
+</header>
 
-<!-- Mission & Philosophy -->
+<!-- ===================== MISSION & PHILOSOPHY ===================== -->
 <section class="section" id="mission">
   <div class="container">
     <div class="mp-grid">
-      <div class="mp-item">
-        <h3>Our Mission</h3>
+      <div class="mp-item reveal">
+        <span class="eyebrow" style="display:block;margin-bottom:14px;">Our Mission</span>
+        <h3>Compounding wealth, systematically.</h3>
         <p>To compound wealth systematically over the long term through disciplined equity investing, transparent reporting, and a fair distribution framework that rewards all participants proportionally to their contribution.</p>
       </div>
-      <div class="mp-item" id="philosophy">
-        <h3>Our Philosophy</h3>
-        <p>We believe that patient capital, combined with rigorous analysis and risk controls, consistently outperforms speculative approaches over full market cycles. Every investment must have a clear thesis, defined risk parameters, and an exit plan.</p>
+      <div class="mp-item reveal d1" id="philosophy">
+        <span class="eyebrow" style="display:block;margin-bottom:14px;">Our Philosophy</span>
+        <h3>Patient capital, rigorous analysis.</h3>
+        <p>We believe patient capital, combined with rigorous analysis and risk controls, consistently outperforms speculative approaches over full market cycles. Every investment must have a clear thesis, defined risk parameters, and an exit plan.</p>
       </div>
     </div>
 
-    <!-- Fund overview -->
-    <div class="fund-overview-card" id="overview">
-      <h3>Fund Overview</h3>
+    <!-- Fund overview (non-sensitive facts only) -->
+    <div class="fund-card reveal" id="overview">
       <div class="fund-facts">
-        <div class="fund-fact">
-          <div class="fund-fact-label">Inception Date</div>
-          <div class="fund-fact-value">Dec 13, 2021</div>
-        </div>
-        <div class="fund-fact">
-          <div class="fund-fact-label">Base Currency</div>
-          <div class="fund-fact-value">MYR (RM)</div>
-        </div>
-        <div class="fund-fact">
-          <div class="fund-fact-label">Fund Type</div>
-          <div class="fund-fact-value">Private Equity Fund</div>
-        </div>
-        <div class="fund-fact">
-          <div class="fund-fact-label">Primary Market</div>
-          <div class="fund-fact-value">Bursa Malaysia</div>
-        </div>
-        <div class="fund-fact">
-          <div class="fund-fact-label">Current NTA</div>
-          <div class="fund-fact-value highlight">RM <span data-fund="current_nta">1.0245</span></div>
-        </div>
-        <div class="fund-fact">
-          <div class="fund-fact-label">AUM</div>
-          <div class="fund-fact-value green"><span data-fund="aum">RM 961,707</span></div>
-        </div>
-        <div class="fund-fact">
-          <div class="fund-fact-label">Trading Days</div>
-          <div class="fund-fact-value"><span data-fund="trading_days">1,557+</span></div>
-        </div>
-        <div class="fund-fact">
-          <div class="fund-fact-label">Last Update</div>
-          <div class="fund-fact-value"><span data-fund="last_nta_date">Mar 19, 2026</span></div>
-        </div>
+        <div class="fund-fact"><div class="fl">Inception Date</div><div class="fv"><span class="serif">Dec 2021</span></div></div>
+        <div class="fund-fact"><div class="fl">Base Currency</div><div class="fv">MYR (RM)</div></div>
+        <div class="fund-fact"><div class="fl">Fund Type</div><div class="fv">Private Equity Fund</div></div>
+        <div class="fund-fact"><div class="fl">Primary Market</div><div class="fv">Bursa Malaysia</div></div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- Distribution policy -->
-<section class="section-sm" style="background:var(--off-white)" id="distribution">
+<!-- ===================== DISTRIBUTION POLICY ===================== -->
+<section class="section" id="distribution" style="background:var(--off-white);border-top:1px solid var(--border);border-bottom:1px solid var(--border);">
   <div class="container">
-    <div class="section-header">
-      <span class="badge badge-blue">Investor Returns</span>
-      <h2>Distribution Policy</h2>
-      <p>ZY-Invest operates a structured three-tier distribution policy designed to reward investors consistently and fairly.</p>
+    <div class="sect-head reveal">
+      <span class="eyebrow">Investor Returns</span>
+      <h2>Distribution policy</h2>
+      <p>A structured three-tier policy designed to reward members consistently and fairly.</p>
     </div>
     <div class="dist-grid">
-      <div class="dist-card">
+      <div class="dist-card reveal">
         <h4>Interim Dividend</h4>
-        <div class="dist-payout">≥ 80% Payout</div>
+        <div class="dist-payout">≥ 80% payout</div>
         <p>Based on revenue income after deducting interest and management expenses. Paid at each financial year end (November 30).</p>
       </div>
-      <div class="dist-card">
+      <div class="dist-card reveal d1">
         <h4>Final Dividend</h4>
-        <div class="dist-payout">≥ 10% Payout</div>
-        <p>Based on net profit excluding gross profit. Distributed at end of calendar year (December 31).</p>
+        <div class="dist-payout">≥ 10% payout</div>
+        <p>Based on net profit excluding gross profit. Distributed at the end of the calendar year (December 31).</p>
       </div>
-      <div class="dist-card">
+      <div class="dist-card reveal d2">
         <h4>Special Dividend</h4>
-        <div class="dist-payout">≥ 10% Payout</div>
-        <p>Based on non-investment income on a discretionary basis. May be declared at any time at management's discretion.</p>
+        <div class="dist-payout">≥ 10% payout</div>
+        <p>Based on non-investment income, on a discretionary basis. May be declared at any time at management's discretion.</p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- Fund journey timeline -->
-<section class="section">
+<!-- ===================== TIMELINE ===================== -->
+<section class="section" id="milestones">
   <div class="container">
-    <div class="section-header">
-      <span class="badge badge-green">Milestones</span>
+    <div class="sect-head reveal">
+      <span class="eyebrow">Milestones</span>
       <h2>ZY-Invest Journey</h2>
       <p>Key milestones in ZY-Invest's growth and development since inception.</p>
     </div>
     <div class="timeline">
-      <div class="timeline-item">
-        <div class="timeline-date">Dec 2021</div>
-        <div class="timeline-content">
-          <h4>Fund Inception</h4>
-          <p>ZY-Invest was established with the support of founding investors. Initial capital was strategically deployed into Bursa Malaysia equities to capture long-term value.</p>
-        </div>
+      <div class="tl-item reveal">
+        <div class="tl-dot"></div>
+        <div class="tl-year">Dec 2021</div>
+        <h3>Fund Inception</h3>
+        <p>ZY-Invest was established with the support of founding investors. Initial capital was strategically deployed into Bursa Malaysia equities to capture long-term value.</p>
       </div>
-      <div class="timeline-item">
-        <div class="timeline-date">May 2022</div>
-        <div class="timeline-content">
-          <h4>Capital Structure Expansion</h4>
-          <p>Asset Under Management (AUM) surpassed the RM 100k threshold. Strengthened the capital structure through the onboarding of new investors to support broader market exposure.</p>
-        </div>
+      <div class="tl-item g reveal">
+        <div class="tl-dot"></div>
+        <div class="tl-year">May 2022</div>
+        <h3>Capital Structure Expansion</h3>
+        <p>Asset Under Management (AUM) surpassed the RM 100k threshold. Strengthened the capital structure through the onboarding of new investors to support broader market exposure.</p>
       </div>
-      <div class="timeline-item">
-        <div class="timeline-date">Nov 2022</div>
-        <div class="timeline-content">
-          <h4>Inaugural Financial Year (FY22)</h4>
-          <p>Successfully concluded the first financial year of operations, establishing a track record of rigorous financial reporting and transparency.</p>
-        </div>
+      <div class="tl-item o reveal">
+        <div class="tl-dot"></div>
+        <div class="tl-year">Nov 2022</div>
+        <h3>Inaugural Financial Year (FY22)</h3>
+        <p>Successfully concluded the first financial year of operations, establishing a track record of rigorous financial reporting and transparency.</p>
       </div>
-      <div class="timeline-item">
-        <div class="timeline-date">2024</div>
-        <div class="timeline-content">
-          <h4>Dividend Policy</h4>
-          <p>Formalized the Fund Distribution Policy and executted the first dividend distribution since inception, demonstarting a commitement to returning consistent value to stakeholders.</p>
-        </div>
+      <div class="tl-item reveal">
+        <div class="tl-dot"></div>
+        <div class="tl-year">2024</div>
+        <h3>Dividend Policy</h3>
+        <p>Formalized the Fund Distribution Policy and executed the first dividend distribution since inception, demonstrating a commitment to returning consistent value to stakeholders.</p>
       </div>
-      <div class="timeline-item">
-        <div class="timeline-date">Dec 2024</div>
-        <div class="timeline-content">
-          <h4>Operational Optimization</h4>
-          <p>Transitioned to an advanced Excel VBA-based portfolio dashboard. This platform Strengthened management oversight through enhanced data visualization and risk monitoring.</p>
-        </div>
+      <div class="tl-item g reveal">
+        <div class="tl-dot"></div>
+        <div class="tl-year">Dec 2024</div>
+        <h3>Operational Optimization</h3>
+        <p>Transitioned to an advanced Excel VBA-based portfolio dashboard. This platform strengthened management oversight through enhanced data visualization and risk monitoring.</p>
       </div>
-      <div class="timeline-item">
-        <div class="timeline-date">2025</div>
-        <div class="timeline-content">
-          <h4>Record Performance Milestone</h4>
-          <p>Achieved a significant profitability peak with net profit reachiing approximately RM 160k+, reflecting the success of the fund's concentrated investment strategies.</p>
-        </div>
+      <div class="tl-item o reveal">
+        <div class="tl-dot"></div>
+        <div class="tl-year">2025</div>
+        <h3>Record Performance Milestone</h3>
+        <p>Achieved a significant profitability peak with net profit reaching approximately RM 160k+, reflecting the success of the fund's concentrated investment strategies.</p>
       </div>
-	  <div class="timeline-item">
-        <div class="timeline-date">Apr 2026</div>
-        <div class="timeline-content">
-          <h4>Strategic AUM Milestone</h4>
-          <p>The fund officially crossed the RM 1 Million AUM mark, signaling a major scale-up in operations and continued investor confidence.</p>
-        </div>
+      <div class="tl-item reveal">
+        <div class="tl-dot"></div>
+        <div class="tl-year">Apr 2026</div>
+        <h3>Strategic AUM Milestone</h3>
+        <p>The fund officially crossed the RM 1 Million AUM mark, signaling a major scale-up in operations and continued investor confidence.</p>
       </div>
-	  <div class="timeline-item">
-        <div class="timeline-date">Present</div>
-        <div class="timeline-content">
-          <h4>Digital Infrastructure Evolution</h4>
-          <p>Currently developing an integrated digital ecosystem. This official web platform will provide real-time portfolio tracking, automated NTA monitoring, and centralized document management.</p>
-        </div>
+      <div class="tl-item g reveal">
+        <div class="tl-dot"></div>
+        <div class="tl-year">Present</div>
+        <h3>Digital Infrastructure Evolution</h3>
+        <p>Currently developing an integrated digital ecosystem. This official web platform will provide real-time portfolio tracking, automated NTA monitoring, and centralized document management.</p>
       </div>
     </div>
   </div>
 </section>
 
+<!-- ===================== FOUNDER NOTE (dark) ===================== -->
+<section class="section dark">
+  <span class="glow" style="width:420px;height:420px;background:radial-gradient(circle,rgba(21,101,192,.5),transparent 70%);top:-120px;right:-80px;"></span>
+  <span class="glow" style="width:340px;height:340px;background:radial-gradient(circle,rgba(46,125,50,.4),transparent 70%);bottom:-140px;left:-60px;"></span>
+  <div class="container" style="position:relative;z-index:2;text-align:center;max-width:880px;">
+    <span class="eyebrow reveal">From the Founder</span>
+    <p class="reveal d1" style="font-family:var(--font-display);font-style:italic;font-size:clamp(1.5rem,3vw,2.2rem);line-height:1.4;color:#fff;margin:22px 0 26px;">"We don't try to predict the market. We try to understand a handful of businesses better than anyone, buy them well, and hold them with patience. Done consistently, that is enough."</p>
+    <div class="reveal d2" style="font-size:1rem;color:#9CA3AF;">Ng Zhi Yao · Founder &amp; Fund Manager</div>
+    <div class="reveal d2" style="margin-top:28px;"><a href="team.html" class="btn btn-primary">Meet the Team →</a></div>
+  </div>
+</section>
+
+<!-- ===================== CTA ===================== -->
+<section class="section-sm">
+  <div class="container">
+    <div class="cta reveal">
+      <span class="badge" style="background:rgba(255,255,255,.15);color:#fff;">Access Dashboard</span>
+      <h2>Want to learn more about the fund?</h2>
+      <p>ZY-Invest accepts new members through its existing network. Reach out to start a conversation.</p>
+      <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;position:relative;z-index:1;">
+        <a href="mailto:zy.invest@zhiyao.my" class="btn btn-white">Request an Introduction →</a>
+        <a href="index.html" class="btn" style="background:rgba(255,255,255,.12);color:#fff;border:1.5px solid rgba(255,255,255,.4);">Back to Home</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== FOOTER ===================== -->
 <footer class="footer">
   <div class="container">
     <div class="footer-grid">
-      <div class="footer-brand">
-        <img src="assets/img/logo.png" alt="ZY-Invest">
-        <p>A founder-led private investment fund focused on long-term wealth compounding through disciplined equity investing.</p>
+      <div>
+        <div class="footer-logo"><img src="assets/logo.png" alt="ZY-Invest"></div>
+        <p>A private investment fund for long-term wealth creation through disciplined portfolio management.</p>
       </div>
-      <div class="footer-links">
-        <h4>Navigation</h4>
-        <a href="index.html">Home</a>
-        <a href="team.html">Team</a>
-        <a href="about.html">About Us</a>
-        <a href="login.html">Member Login</a>
+      <div>
+        <h4>Navigate</h4>
+        <ul><li><a href="index.html">Home</a></li><li><a href="team.html">Team</a></li><li><a href="about.html">About</a></li><li><a href="login.html">Login</a></li></ul>
       </div>
-      <div class="footer-links">
-        <h4>About</h4>
-        <a href="#mission">Our Mission</a>
-        <a href="#philosophy">Philosophy</a>
-        <a href="#distribution">Distribution Policy</a>
-        <a href="#overview">Fund Overview</a>
+      <div>
+        <h4>Fund</h4>
+        <ul><li><a href="index.html#approach">Approach</a></li><li><a href="about.html#philosophy">Philosophy</a></li><li><a href="about.html#distribution">Distribution Policy</a></li><li><a href="about.html#milestones">Milestones</a></li></ul>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <ul><li>zy.invest@zhiyao.my</li><li>Kuala Lumpur, Malaysia</li></ul>
       </div>
     </div>
     <div class="footer-bottom">
-      <span>© 2021–2026 ZY-Invest. All rights reserved.</span>
-      <span>Private Investment Fund · Bursa Malaysia</span>
+      <span>© 2026 ZY-Invest. All rights reserved.</span>
+      <span>A private fund — not offered to the general public.</span>
     </div>
   </div>
 </footer>
 
-<script src="assets/js/api.js"></script>
-<script>loadFundOverview();</script>
+<script src="assets/site.js"></script>
 </body>
 </html>

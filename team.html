@@ -1,256 +1,232 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Our Team — ZY-Invest</title>
-  <link rel="icon" href="assets/img/logo.png">
-  <link rel="stylesheet" href="assets/css/main.css">
-  <style>
-    .page-hero {
-      padding-top: calc(var(--nav-h) + 80px);
-      padding-bottom: 80px;
-      background: linear-gradient(135deg, #F0F7FF, #EBF5FB);
-      text-align: center;
-    }
-    .page-hero .badge { margin-bottom: 20px; }
-    .page-hero h1 { margin-bottom: 16px; }
-    .page-hero p { font-size: 1.1rem; max-width: 560px; margin: 0 auto; }
-
-    /* Leadership — single centred card */
-    .team-lead {
-      display: flex;
-      justify-content: center;
-      margin-top: 48px;
-      margin-bottom: 56px;
-    }
-    .team-lead .team-card { max-width: 340px; width: 100%; }
-
-    /* Tech team — 3 in a row */
-    .team-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 24px;
-    }
-
-    /* Card shared */
-    .team-card {
-      text-align: center;
-      padding: 36px 24px 28px;
-    }
-    .team-avatar {
-      width: 88px; height: 88px;
-      border-radius: 50%;
-      margin: 0 auto 18px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.6rem; font-weight: 700;
-      color: var(--white);
-      position: relative;
-    }
-    .team-avatar::after {
-      content: '';
-      position: absolute; inset: -3px;
-      border-radius: 50%;
-      border: 2px solid var(--border);
-    }
-    .avatar-blue   { background: linear-gradient(135deg, #1565C0, #42A5F5); }
-    .avatar-purple { background: linear-gradient(135deg, #7C3AED, #A78BFA); }
-    .avatar-orange { background: linear-gradient(135deg, #EA580C, #FB923C); }
-    .team-card h3  { margin-bottom: 4px; font-size: 1.1rem; }
-    .team-role {
-      font-size: 0.8rem; font-weight: 700;
-      color: var(--blue); letter-spacing: 0.06em;
-      text-transform: uppercase; margin-bottom: 14px;
-    }
-    .team-card p  { font-size: 0.88rem; line-height: 1.65; }
-    .team-divider { width: 36px; height: 2px; background: var(--border); margin: 14px auto; }
-    .team-detail  { font-size: 0.8rem; color: var(--text-muted); }
-
-    .team-section-label { text-align: center; margin-bottom: 28px; }
-    .team-section-label h2 { font-size: 1.3rem; margin-bottom: 6px; }
-    .team-section-label p  { font-size: 0.9rem; color: var(--text-muted);
-                              max-width: 480px; margin: 0 auto; }
-
-    /* Values */
-    .values-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
-    .value-item {
-      display: flex; gap: 16px; align-items: flex-start;
-      padding: 24px; background: var(--off-white);
-      border-radius: var(--radius-lg); border: 1px solid var(--border);
-    }
-    .value-icon {
-      font-size: 1.4rem; flex-shrink: 0;
-      width: 44px; height: 44px; background: var(--blue-bg);
-      border-radius: var(--radius-md);
-      display: flex; align-items: center; justify-content: center;
-    }
-    .value-item h4 { margin-bottom: 6px; }
-    .value-item p  { font-size: 0.88rem; }
-
-    @media (max-width: 600px) { .team-grid { grid-template-columns: 1fr; } }
-    @media (max-width: 560px) {
-      .team-grid   { grid-template-columns: 1fr; }
-      .values-grid { grid-template-columns: 1fr; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team — ZY-Invest</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
 </head>
-<body>
+<body class="motion">
 
-<nav class="navbar">
-  <div class="container">
-    <a href="index.html" class="navbar-brand">
-      <img src="assets/img/logo.png" alt="ZY-Invest">
+<!-- ===================== NAV ===================== -->
+<nav class="nav" id="nav">
+  <div class="container nav-inner">
+    <a href="index.html" class="nav-logo">
+      <img src="assets/logo.png" alt="ZY-Invest">
+      <span class="lt"><b>ZY-Invest</b><span>Smart Investing, Simply Done</span></span>
     </a>
-    <ul class="navbar-nav">
-      <li><a href="index.html">Home</a></li>
-      <li><a href="team.html" class="active">Team</a></li>
-      <li><a href="about.html">About Us</a></li>
-      <li><a href="login.html" class="btn-nav-login">Member Login</a></li>
-    </ul>
-    <button class="navbar-toggle"><span></span><span></span><span></span></button>
+    <div class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="team.html" class="current">Team</a>
+      <a href="about.html">About</a>
+      <a href="login.html" class="nav-cta">Member Login</a>
+    </div>
   </div>
 </nav>
 
-<section class="page-hero">
-  <div class="container">
-    <span class="badge badge-blue">Our People</span>
-    <h1>Meet the Team</h1>
-    <p>A dedicated team of professionals committed to growing and protecting your wealth through disciplined, long-term investing.</p>
+<!-- ===================== PAGE HERO ===================== -->
+<header class="hero hero-page" id="top">
+  <canvas id="wp"></canvas>
+  <svg class="skyline" viewBox="0 0 1440 300" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <defs>
+      <linearGradient id="skyG" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0" stop-color="#1B3A6B" stop-opacity="0.26"/>
+        <stop offset="0.55" stop-color="#1565C0" stop-opacity="0.12"/>
+        <stop offset="1" stop-color="#1E88E5" stop-opacity="0.03"/>
+      </linearGradient>
+      <linearGradient id="skyG2" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0" stop-color="#13294D" stop-opacity="0.34"/>
+        <stop offset="1" stop-color="#1565C0" stop-opacity="0.10"/>
+      </linearGradient>
+      <style>
+        .lit{fill:#FFD79A;} .litc{fill:#BFE2FF;}
+        body.motion .tw{animation:tw 3.4s ease-in-out infinite;}
+        body.motion .tw2{animation:tw 4.6s ease-in-out infinite .8s;}
+        body.motion .tw3{animation:tw 2.8s ease-in-out infinite 1.4s;}
+        @keyframes tw{0%,100%{opacity:.25;}50%{opacity:.9;}}
+      </style>
+    </defs>
+    <g fill="url(#skyG)">
+      <rect x="20" y="180" width="70" height="120"/><rect x="96" y="150" width="48" height="150"/>
+      <rect x="150" y="200" width="60" height="100"/><path d="M218 300 V120 l24 -14 24 14 V300 Z"/>
+      <rect x="276" y="168" width="40" height="132"/><rect x="1120" y="160" width="52" height="140"/>
+      <rect x="1178" y="196" width="64" height="104"/><rect x="1248" y="146" width="46" height="154"/>
+      <rect x="1300" y="190" width="60" height="110"/><rect x="1366" y="166" width="74" height="134"/>
+    </g>
+    <g fill="url(#skyG2)">
+      <path d="M338 300 L344 96 L356 40 L362 18 L368 40 L380 96 L386 300 Z"/>
+      <rect x="404" y="150" width="46" height="150"/><rect x="456" y="186" width="40" height="114"/><rect x="506" y="120" width="40" height="180"/>
+      <path d="M584 300 L596 150 L606 78 L632 78 L642 150 L654 300 Z"/><path d="M615 78 L619 36 L623 78 Z"/>
+      <rect x="654" y="118" width="52" height="9"/>
+      <path d="M706 300 L718 150 L728 78 L754 78 L764 150 L776 300 Z"/><path d="M737 78 L741 36 L745 78 Z"/>
+      <rect x="800" y="170" width="44" height="130"/>
+      <rect x="876" y="120" width="12" height="180"/><ellipse cx="882" cy="116" rx="20" ry="13"/><rect x="880" y="58" width="4" height="48"/>
+      <rect x="924" y="156" width="42" height="144"/>
+      <rect x="982" y="86" width="52" height="214"/><rect x="996" y="66" width="24" height="22"/><rect x="1004" y="48" width="8" height="20"/>
+      <rect x="1052" y="172" width="46" height="128"/>
+    </g>
+    <g>
+      <rect class="lit tw" x="610" y="170" width="3" height="3"/><rect class="lit tw2" x="624" y="200" width="3" height="3"/>
+      <rect class="litc tw3" x="616" y="230" width="3" height="3"/><rect class="lit tw2" x="732" y="178" width="3" height="3"/>
+      <rect class="litc tw" x="746" y="212" width="3" height="3"/><rect class="lit tw3" x="724" y="250" width="3" height="3"/>
+      <rect class="litc tw" x="998" y="120" width="3" height="3"/><rect class="lit tw2" x="1014" y="150" width="3" height="3"/>
+    </g>
+  </svg>
+  <div class="hero-fade"></div>
+  <div class="page-hero-inner">
+    <div class="container">
+      <div class="reveal in">
+        <div class="crumb">ZY-Invest <span style="opacity:.5">›</span> <b>Team</b></div>
+        <span class="badge">Our People</span>
+        <h1>Meet the <span class="serif">team.</span></h1>
+        <p class="lead">A dedicated team committed to growing and protecting your wealth through disciplined, long-term investing.</p>
+      </div>
+    </div>
   </div>
-</section>
+</header>
 
+<!-- ===================== FOUNDER FEATURE ===================== -->
 <section class="section">
   <div class="container">
-
-    <!-- Fund Management -->
-    <div class="team-section-label">
-      <span class="badge badge-blue" style="margin-bottom:10px">Fund Management</span>
+    <div class="sect-head reveal" style="margin-bottom:48px;">
+      <span class="eyebrow">Fund Management</span>
       <h2>Leadership</h2>
       <p>Strategy, portfolio construction, and day-to-day fund operations.</p>
     </div>
-
-    <div class="team-lead">
-      <div class="card team-card">
-        <div class="team-avatar" style="background:var(--gray-100)">
-          <img src="assets/img/Avatar.png" alt="Ng Zhi Yao"
-               style="width:100%;height:100%;border-radius:50%;object-fit:cover">
+    <div class="founder">
+      <div class="reveal">
+        <div class="founder-photo">
+          <img src="assets/img/Avatar.png" alt="Ng Zhi Yao">
         </div>
-        <h3>Ng Zhi Yao</h3>
-        <div class="team-role">Founder & Fund Manager</div>
-        <p>Leads investment strategy, portfolio construction, and day-to-day fund operations. Specialises in quantitative equity analysis and long-term value investing across Bursa Malaysia.</p>
-        <div class="team-divider"></div>
-        <div class="team-detail">MSc Finance · University of Queensland</div>
+      </div>
+      <div class="reveal d1">
+        <span class="eyebrow">Founder &amp; Fund Manager</span>
+        <h2>Ng Zhi Yao</h2>
+        <div class="role">Founder · Fund Manager</div>
+        <p>Leads investment strategy, portfolio construction, and the day-to-day operations of the fund. Specialises in quantitative equity analysis and long-term value investing across Bursa Malaysia.</p>
+        <p>His approach is built on a belief that transparency earns trust — members see exactly what he sees: daily NTA, full holdings, and a complete transaction history, with no exceptions.</p>
+        <div class="sig">Ng Zhi Yao</div>
       </div>
     </div>
+  </div>
+</section>
 
-    <!-- Technology & Infrastructure -->
-    <div class="team-section-label">
-      <span class="badge badge-blue" style="margin-bottom:10px">Technology & Infrastructure</span>
-      <h2>Tech Team</h2>
+<!-- ===================== TECH TEAM ===================== -->
+<section class="section" style="background:var(--off-white);border-top:1px solid var(--border);">
+  <div class="container">
+    <div class="sect-head reveal">
+      <span class="eyebrow">Technology &amp; Infrastructure</span>
+      <h2>The Tech Team</h2>
       <p>The systems, intelligence, and automation that power the fund's operations and reporting.</p>
     </div>
-
-    <div class="team-grid">
-
-      <!-- Claude -->
-      <div class="card team-card">
-        <div class="team-avatar" style="background:var(--gray-100)">
-          <img src="assets/img/Claude.png" alt="Claude"
-               style="width:100%;height:100%;border-radius:50%;object-fit:cover">
+    <div class="team-grid" style="grid-template-columns:repeat(2,1fr);max-width:760px;margin:0 auto;">
+      <div class="tcard reveal">
+        <div class="avatar av-img">
+          <svg viewBox="0 0 100 100" width="100%" height="100%" style="background:linear-gradient(145deg,#F5E6DC,#FBE3D3);" aria-hidden="true">
+            <g transform="translate(50,50)" fill="#D97757">
+              <g id="sp">
+                <rect x="-3.2" y="-30" width="6.4" height="60" rx="3.2"/>
+              </g>
+              <use href="#sp" transform="rotate(30)"/>
+              <use href="#sp" transform="rotate(60)"/>
+              <use href="#sp" transform="rotate(90)"/>
+              <use href="#sp" transform="rotate(120)"/>
+              <use href="#sp" transform="rotate(150)"/>
+            </g>
+          </svg>
         </div>
         <h3>Claude</h3>
-        <div class="team-role">AI Engineer</div>
+        <div class="tr">AI Engineer</div>
         <p>An AI software engineer developed by Anthropic. Designs and builds the fund's web platform, member portal, internal tooling, and automated financial reporting systems.</p>
-        <div class="team-divider"></div>
-        <div class="team-detail">Anthropic · Claude Sonnet</div>
+        <span class="tag-line">Anthropic · Claude Sonnet</span>
       </div>
-
-      <!-- Avatar -->
-      <div class="card team-card">
-        <div class="team-avatar" style="background:var(--gray-100)">
-          <img src="assets/img/ZTX_Avatar.png" alt="Avatar"
-               style="width:100%;height:100%;border-radius:50%;object-fit:cover">
+      <div class="tcard reveal d1">
+        <div class="avatar av-pad">
+          <img src="assets/img/ZTX_Avatar.png" alt="Avatar">
         </div>
         <h3>Avatar</h3>
-        <div class="team-role">AI Agent</div>
+        <div class="tr">AI Agent</div>
         <p>An autonomous AI agent built on Zetrix blockchain infrastructure. Handles intelligent task execution, stakeholder communication, and multi-agent workflow automation on behalf of the fund.</p>
-        <div class="team-divider"></div>
-        <div class="team-detail">Zetrix · Avatar</div>
+        <span class="tag-line">Zetrix · Avatar</span>
       </div>
-
-
     </div>
   </div>
 </section>
 
-<!-- Values -->
-<section class="section-sm" style="background:var(--off-white)">
+<!-- ===================== VALUES (Our Principles) ===================== -->
+<section class="section">
   <div class="container">
-    <div class="section-header">
-      <span class="badge badge-blue">Our Principles</span>
-      <h2>What Guides Every Decision</h2>
+    <div class="sect-head reveal">
+      <span class="eyebrow">Our Principles</span>
+      <h2>What guides every decision</h2>
     </div>
-    <div class="values-grid">
-      <div class="value-item">
-        <div class="value-icon">🎯</div>
-        <div>
-          <h4>Discipline Over Impulse</h4>
-          <p>Every investment must have a clear thesis, defined risk parameters, and an exit plan before capital is deployed.</p>
-        </div>
+    <div class="grid-3" style="grid-template-columns:repeat(2,1fr);max-width:900px;margin:0 auto;">
+      <div class="p-card reveal">
+        <div class="p-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="0.6" fill="currentColor"/></svg></div>
+        <h3>Discipline Over Impulse</h3><p>Every investment must have a clear thesis, defined risk parameters, and an exit plan before capital is deployed.</p>
       </div>
-      <div class="value-item">
-        <div class="value-icon">🔍</div>
-        <div>
-          <h4>Rigorous Analysis</h4>
-          <p>We combine fundamental research with quantitative screening to identify asymmetric risk-reward opportunities.</p>
-        </div>
+      <div class="p-card acc-g reveal d1">
+        <div class="p-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
+        <h3>Rigorous Analysis</h3><p>We combine fundamental research with quantitative screening to identify asymmetric risk-reward opportunities.</p>
       </div>
-      <div class="value-item">
-        <div class="value-icon">⏳</div>
-        <div>
-          <h4>Patient Capital</h4>
-          <p>Patient capital combined with rigorous analysis consistently outperforms speculative approaches across full market cycles.</p>
-        </div>
+      <div class="p-card acc-o reveal">
+        <div class="p-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <h3>Patient Capital</h3><p>Patient capital combined with rigorous analysis consistently outperforms speculative approaches across full market cycles.</p>
       </div>
-      <div class="value-item">
-        <div class="value-icon">🤝</div>
-        <div>
-          <h4>Aligned Interests</h4>
-          <p>Our fee structure is designed to align management interests with investors — we succeed only when our investors succeed.</p>
-        </div>
+      <div class="p-card reveal d1">
+        <div class="p-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87"/></svg></div>
+        <h3>Aligned Interests</h3><p>Our fee structure aligns management interests with investors — we succeed only when our investors succeed.</p>
       </div>
     </div>
   </div>
 </section>
 
+<!-- ===================== CTA ===================== -->
+<section class="section-sm">
+  <div class="container">
+    <div class="cta reveal">
+      <span class="badge" style="background:rgba(255,255,255,.15);color:#fff;">Access Dashboard</span>
+      <h2>Want to speak with the founder?</h2>
+      <p>ZY-Invest accepts new members through its existing network. Reach out and start a conversation directly.</p>
+      <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;position:relative;z-index:1;">
+        <a href="mailto:zy.invest@zhiyao.my" class="btn btn-white">Request an Introduction →</a>
+        <a href="about.html" class="btn" style="background:rgba(255,255,255,.12);color:#fff;border:1.5px solid rgba(255,255,255,.4);">About the Fund</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== FOOTER ===================== -->
 <footer class="footer">
   <div class="container">
     <div class="footer-grid">
-      <div class="footer-brand">
-        <img src="assets/img/logo.png" alt="ZY-Invest">
-        <p>A founder-led private investment fund focused on long-term wealth compounding through disciplined equity investing.</p>
+      <div>
+        <div class="footer-logo"><img src="assets/logo.png" alt="ZY-Invest"></div>
+        <p>A private investment fund for long-term wealth creation through disciplined portfolio management.</p>
       </div>
-      <div class="footer-links">
-        <h4>Navigation</h4>
-        <a href="index.html">Home</a>
-        <a href="team.html">Team</a>
-        <a href="about.html">About Us</a>
-        <a href="login.html">Member Login</a>
+      <div>
+        <h4>Navigate</h4>
+        <ul><li><a href="index.html">Home</a></li><li><a href="team.html">Team</a></li><li><a href="about.html">About</a></li><li><a href="login.html">Login</a></li></ul>
       </div>
-      <div class="footer-links">
+      <div>
         <h4>Fund</h4>
-        <a href="about.html#mission">Our Mission</a>
-        <a href="about.html#philosophy">Philosophy</a>
-        <a href="about.html#distribution">Distribution Policy</a>
+        <ul><li><a href="index.html#approach">Approach</a></li><li><a href="about.html#philosophy">Philosophy</a></li><li><a href="about.html#distribution">Distribution Policy</a></li><li><a href="about.html#milestones">Milestones</a></li></ul>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <ul><li>zy.invest@zhiyao.my</li><li>Kuala Lumpur, Malaysia</li></ul>
       </div>
     </div>
     <div class="footer-bottom">
-      <span>© 2021–2026 ZY-Invest. All rights reserved.</span>
-      <span>Private Investment Fund · Bursa Malaysia</span>
+      <span>© 2026 ZY-Invest. All rights reserved.</span>
+      <span>A private fund — not offered to the general public.</span>
     </div>
   </div>
 </footer>
 
-<script src="assets/js/api.js"></script>
+<script src="assets/site.js"></script>
 </body>
 </html>

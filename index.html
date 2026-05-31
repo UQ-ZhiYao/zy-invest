@@ -1,413 +1,289 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZY-Invest — Smart Investing, Simply Done</title>
-  <meta name="description" content="ZY-Invest is a founder-led private fund focused on equity markets across Bursa Malaysia and beyond.">
-  <link rel="icon" href="assets/img/logo.png">
-  <link rel="stylesheet" href="assets/css/main.css">
-  <style>
-    /* ── Hero ─────────────────────────────────────────────── */
-    .hero {
-      min-height: 100vh;
-      padding-top: var(--nav-h);
-      background: linear-gradient(135deg, #F0F7FF 0%, #EBF5FB 50%, #F0FFF4 100%);
-      display: flex; align-items: center;
-      position: relative; overflow: hidden;
-    }
-    .hero::before {
-      content: '';
-      position: absolute; top: -200px; right: -200px;
-      width: 700px; height: 700px;
-      background: radial-gradient(circle, rgba(21,101,192,0.06) 0%, transparent 70%);
-      border-radius: 50%;
-    }
-    .hero::after {
-      content: '';
-      position: absolute; bottom: -150px; left: -100px;
-      width: 500px; height: 500px;
-      background: radial-gradient(circle, rgba(46,125,50,0.05) 0%, transparent 70%);
-      border-radius: 50%;
-    }
-    .hero-grid {
-      display: grid; grid-template-columns: 1fr 1fr;
-      gap: 64px; align-items: center;
-      position: relative; z-index: 1;
-      padding: 80px 0;
-    }
-    .hero-badge { margin-bottom: 24px; }
-    .hero-title { margin-bottom: 24px; }
-    .hero-title .accent { color: var(--blue); font-family: var(--font-display); font-style: italic; }
-    .hero-desc { font-size: 1.1rem; margin-bottom: 36px; max-width: 480px; }
-    .hero-cta { display: flex; gap: 14px; flex-wrap: wrap; }
-    .hero-stats {
-      display: grid; grid-template-columns: repeat(2, 1fr);
-      gap: 2px; margin-top: 48px;
-      background: var(--border); border-radius: var(--radius-lg);
-      overflow: hidden; border: 1px solid var(--border);
-    }
-    .hero-stat {
-      background: var(--white); padding: 20px 24px;
-    }
-    .hero-stat:first-child { border-radius: var(--radius-lg) 0 0 0; }
-    .hero-stat:nth-child(2) { border-radius: 0 var(--radius-lg) 0 0; }
-    .hero-stat:nth-child(3) { border-radius: 0 0 0 var(--radius-lg); }
-    .hero-stat:last-child { border-radius: 0 0 var(--radius-lg) 0; }
-
-    /* Portfolio snapshot card */
-    .snapshot-card {
-      background: var(--white);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-xl);
-      padding: 28px;
-      box-shadow: var(--shadow-lg);
-      position: relative;
-    }
-    .snapshot-card::before {
-      content: '';
-      position: absolute; top: -1px; left: 32px; right: 32px; height: 3px;
-      background: linear-gradient(90deg, var(--blue), var(--green));
-      border-radius: 0 0 4px 4px;
-    }
-    .snapshot-title {
-      font-size: 0.75rem; font-weight: 700;
-      letter-spacing: 0.1em; text-transform: uppercase;
-      color: var(--text-muted); margin-bottom: 20px;
-    }
-    .snapshot-row { margin-bottom: 14px; }
-    .snapshot-label {
-      display: flex; justify-content: space-between;
-      font-size: 0.88rem; margin-bottom: 6px;
-    }
-    .snapshot-label span:first-child { color: var(--gray-700, #374151); font-weight: 500; }
-    .snapshot-pct { color: var(--blue); font-weight: 700; }
-    .snapshot-bar-bg {
-      height: 6px; background: var(--gray-100);
-      border-radius: 99px; overflow: hidden;
-    }
-    .snapshot-bar {
-      height: 100%; background: var(--blue);
-      border-radius: 99px;
-      transition: width 1s ease;
-    }
-    .snapshot-footer {
-      display: flex; justify-content: space-between;
-      padding-top: 20px; margin-top: 20px;
-      border-top: 1px solid var(--border);
-    }
-    .snapshot-metric {}
-    .snapshot-metric .label { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 4px; }
-    .snapshot-metric .value { font-size: 1.4rem; font-weight: 700; color: var(--gray-900); letter-spacing: -0.02em; }
-    .snapshot-metric .value.green { color: var(--green); }
-
-    /* ── Features section ─────────────────────────────────── */
-    .features-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr);
-      gap: 24px; margin-top: 56px;
-    }
-    .feature-card { padding: 32px; }
-    .feature-icon {
-      width: 48px; height: 48px;
-      background: var(--blue-bg);
-      border-radius: var(--radius-md);
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 20px; font-size: 1.4rem;
-    }
-    .feature-card h3 { margin-bottom: 10px; }
-
-    /* ── Why ZY section ───────────────────────────────────── */
-    .why-section { background: var(--gray-900); color: var(--white); }
-    .why-section .section-header h2 { color: var(--white); }
-    .why-section .section-header p { color: var(--gray-400); }
-    .why-grid {
-      display: grid; grid-template-columns: repeat(4, 1fr);
-      gap: 24px;
-    }
-    .why-card {
-      padding: 28px 24px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: var(--radius-lg);
-    }
-    .why-number {
-      font-size: 2.5rem; font-weight: 700;
-      color: var(--blue-light);
-      font-family: var(--font-display);
-      line-height: 1; margin-bottom: 12px;
-    }
-    .why-card h4 { color: var(--white); margin-bottom: 8px; font-size: 1rem; }
-    .why-card p { color: var(--gray-400); font-size: 0.9rem; }
-
-    /* ── CTA banner ───────────────────────────────────────── */
-    .cta-banner {
-      background: linear-gradient(135deg, var(--blue-dark), var(--blue));
-      border-radius: var(--radius-xl);
-      padding: 64px;
-      text-align: center;
-      color: var(--white);
-      position: relative; overflow: hidden;
-    }
-    .cta-banner::before {
-      content: '';
-      position: absolute; top: -80px; right: -80px;
-      width: 300px; height: 300px;
-      background: rgba(255,255,255,0.05);
-      border-radius: 50%;
-    }
-    .cta-banner h2 { color: var(--white); margin-bottom: 16px; }
-    .cta-banner p { color: rgba(255,255,255,0.75); font-size: 1.05rem; margin-bottom: 32px; }
-    .btn-white {
-      background: var(--white); color: var(--blue-dark);
-      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-    }
-    .btn-white:hover { background: var(--off-white); transform: translateY(-2px); }
-
-    /* Animations */
-    .fade-up { opacity: 0; transform: translateY(24px); transition: opacity 0.6s ease, transform 0.6s ease; }
-    .fade-up.visible { opacity: 1; transform: translateY(0); }
-
-    @media (max-width: 900px) {
-      .hero-grid { grid-template-columns: 1fr; gap: 48px; }
-      .features-grid { grid-template-columns: 1fr 1fr; }
-      .why-grid { grid-template-columns: 1fr 1fr; }
-      .cta-banner { padding: 40px 24px; }
-    }
-    @media (max-width: 600px) {
-      .features-grid { grid-template-columns: 1fr; }
-      .why-grid { grid-template-columns: 1fr; }
-      .hero-stats { grid-template-columns: 1fr 1fr; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZY-Invest — Smart Investing, Simply Done</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
 </head>
-<body>
+<body class="motion">
 
-<!-- Navbar -->
-<nav class="navbar">
-  <div class="container">
-    <a href="index.html" class="navbar-brand">
-      <img src="assets/img/logo.png" alt="ZY-Invest">
+<!-- ===================== NAV ===================== -->
+<nav class="nav" id="nav">
+  <div class="container nav-inner">
+    <a href="index.html" class="nav-logo">
+      <img src="assets/logo.png" alt="ZY-Invest">
+      <span class="lt"><b>ZY-Invest</b><span>Smart Investing, Simply Done</span></span>
     </a>
-    <ul class="navbar-nav">
-      <li><a href="index.html" class="active">Home</a></li>
-      <li><a href="team.html">Team</a></li>
-      <li><a href="about.html">About Us</a></li>
-      <li><a href="login.html" class="btn-nav-login">Member Login</a></li>
-    </ul>
-    <button class="navbar-toggle" aria-label="Menu">
-      <span></span><span></span><span></span>
-    </button>
+    <div class="nav-links">
+      <a href="index.html" class="current">Home</a>
+      <a href="team.html">Team</a>
+      <a href="about.html">About</a>
+      <a href="login.html" class="nav-cta">Member Login</a>
+    </div>
   </div>
 </nav>
 
-<!-- Hero -->
-<section class="hero">
-  <div class="container">
-    <div class="hero-grid">
-      <div class="hero-left">
-        <div class="hero-badge">
-          <span class="badge badge-blue">Private Investment Fund · Est. 2021</span>
-        </div>
-        <h1 class="hero-title">
-          Smart Investing,<br>
-          <span class="accent">Simply Done</span>
-        </h1>
-        <p class="hero-desc">
-          ZY-Invest is a founder-led private fund focused on equity markets
-          across Bursa Malaysia and beyond — combining actuarial precision
-          with long-term thinking to compound wealth for our investors.
-        </p>
-        <div class="hero-cta">
-          <a href="login.html" class="btn btn-primary btn-lg">Access Dashboard</a>
-          <a href="about.html" class="btn btn-outline btn-lg">Learn More</a>
-        </div>
+<!-- ===================== HERO ===================== -->
+<header class="hero" id="top">
+  <canvas id="wp"></canvas>
+  <svg class="skyline" viewBox="0 0 1440 300" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <defs>
+      <linearGradient id="skyG" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0" stop-color="#1B3A6B" stop-opacity="0.26"/>
+        <stop offset="0.55" stop-color="#1565C0" stop-opacity="0.12"/>
+        <stop offset="1" stop-color="#1E88E5" stop-opacity="0.03"/>
+      </linearGradient>
+      <linearGradient id="skyG2" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0" stop-color="#13294D" stop-opacity="0.34"/>
+        <stop offset="1" stop-color="#1565C0" stop-opacity="0.10"/>
+      </linearGradient>
+      <style>
+        .lit{fill:#FFD79A;}
+        .litc{fill:#BFE2FF;}
+        body.motion .tw{animation:tw 3.4s ease-in-out infinite;}
+        body.motion .tw2{animation:tw 4.6s ease-in-out infinite .8s;}
+        body.motion .tw3{animation:tw 2.8s ease-in-out infinite 1.4s;}
+        @keyframes tw{0%,100%{opacity:.25;}50%{opacity:.9;}}
+      </style>
+    </defs>
+    <g fill="url(#skyG)">
+      <rect x="20" y="180" width="70" height="120"/>
+      <rect x="96" y="150" width="48" height="150"/>
+      <rect x="150" y="200" width="60" height="100"/>
+      <path d="M218 300 V120 l24 -14 24 14 V300 Z"/>
+      <rect x="276" y="168" width="40" height="132"/>
+      <rect x="1120" y="160" width="52" height="140"/>
+      <rect x="1178" y="196" width="64" height="104"/>
+      <rect x="1248" y="146" width="46" height="154"/>
+      <rect x="1300" y="190" width="60" height="110"/>
+      <rect x="1366" y="166" width="74" height="134"/>
+    </g>
+    <g fill="url(#skyG2)">
+      <path d="M338 300 L344 96 L356 40 L362 18 L368 40 L380 96 L386 300 Z"/>
+      <rect x="404" y="150" width="46" height="150"/>
+      <rect x="456" y="186" width="40" height="114"/>
+      <rect x="506" y="120" width="40" height="180"/>
+      <path d="M584 300 L596 150 L606 78 L632 78 L642 150 L654 300 Z"/>
+      <path d="M615 78 L619 36 L623 78 Z"/>
+      <rect x="654" y="118" width="52" height="9"/>
+      <path d="M706 300 L718 150 L728 78 L754 78 L764 150 L776 300 Z"/>
+      <path d="M737 78 L741 36 L745 78 Z"/>
+      <rect x="800" y="170" width="44" height="130"/>
+      <rect x="876" y="120" width="12" height="180"/>
+      <ellipse cx="882" cy="116" rx="20" ry="13"/>
+      <rect x="880" y="58" width="4" height="48"/>
+      <rect x="924" y="156" width="42" height="144"/>
+      <rect x="982" y="86" width="52" height="214"/>
+      <rect x="996" y="66" width="24" height="22"/>
+      <rect x="1004" y="48" width="8" height="20"/>
+      <rect x="1052" y="172" width="46" height="128"/>
+    </g>
+    <g>
+      <rect class="lit tw"  x="610" y="170" width="3" height="3"/>
+      <rect class="lit tw2" x="624" y="200" width="3" height="3"/>
+      <rect class="litc tw3" x="616" y="230" width="3" height="3"/>
+      <rect class="lit tw2" x="732" y="178" width="3" height="3"/>
+      <rect class="litc tw"  x="746" y="212" width="3" height="3"/>
+      <rect class="lit tw3" x="724" y="250" width="3" height="3"/>
+      <rect class="litc tw" x="998" y="120" width="3" height="3"/>
+      <rect class="lit tw2" x="1014" y="150" width="3" height="3"/>
+      <rect class="litc tw3" x="1006" y="190" width="3" height="3"/>
+      <rect class="lit tw"  x="350" y="120" width="3" height="3"/>
+      <rect class="litc tw2" x="368" y="160" width="3" height="3"/>
+    </g>
+  </svg>
+  <div class="hero-fade"></div>
 
-        <div class="hero-stats">
-          <div class="hero-stat">
-            <div class="stat-number" style="font-size:clamp(1.4rem,3vw,2.1rem)"><span>RM </span><span data-fund="aum">961K</span></div>
-            <div class="stat-label">Assets Under Mgmt</div>
-          </div>
-          <div class="hero-stat">
-            <div class="stat-number"><span data-fund="investor_count">8</span></div>
-            <div class="stat-label">Fund Investors</div>
-          </div>
-          <div class="hero-stat">
-            <div class="stat-number" style="color:var(--green)"><span data-fund="total_return_pct">+8.9%</span></div>
-            <div class="stat-label">Total Return</div>
-          </div>
-          <div class="hero-stat">
-            <div class="stat-number">4+ <span style="font-size:1.2rem">Yrs</span></div>
-            <div class="stat-label">Track Record</div>
-          </div>
+  <div class="hero-inner">
+    <div class="container hero-grid">
+      <div class="reveal in">
+        <span class="badge">Private Investment Fund · Malaysia</span>
+        <h1>Smart Investing,<br><span class="serif">Simply&nbsp;Done.</span></h1>
+        <p class="lead">A founder-led private fund compounding capital for a close network — disciplined, transparent, and built for the long term.</p>
+        <div class="hero-ctas">
+          <a href="#approach" class="btn btn-primary">The Approach</a>
+          <a href="#principles" class="btn btn-ghost">Why ZY-Invest</a>
+        </div>
+        <div class="hero-meta">
+          <div><div class="ml">Inception</div><div class="mv"><span class="serif">Dec 2021</span></div></div>
+          <div><div class="ml">Base Currency</div><div class="mv">Malaysian Ringgit</div></div>
+          <div><div class="ml">Mandate</div><div class="mv">Malaysia Only</div></div>
         </div>
       </div>
 
-      <div class="hero-right">
-        <div class="snapshot-card">
-          <div class="snapshot-title">Portfolio Snapshot</div>
-          <div id="portfolio-snapshot">
-            <!-- Filled by JS, fallback below -->
-            <div class="snapshot-row">
-              <div class="snapshot-label"><span>Securities [H]</span><span class="snapshot-pct">88.6%</span></div>
-              <div class="snapshot-bar-bg"><div class="snapshot-bar" style="width:88.6%"></div></div>
-            </div>
-            <div class="snapshot-row">
-              <div class="snapshot-label"><span>Securities [M]</span><span class="snapshot-pct">6.1%</span></div>
-              <div class="snapshot-bar-bg"><div class="snapshot-bar" style="width:6.1%;background:var(--green)"></div></div>
-            </div>
-            <div class="snapshot-row">
-              <div class="snapshot-label"><span>Cash</span><span class="snapshot-pct">0.8%</span></div>
-              <div class="snapshot-bar-bg"><div class="snapshot-bar" style="width:0.8%;background:var(--orange)"></div></div>
-            </div>
+      <div class="reveal in d1">
+        <div class="glass">
+          <div class="gt"><span>How We Operate</span><span class="badge live">Active</span></div>
+          <div class="gprin g1">
+            <div class="gi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div>
+            <div><h4>Disciplined &amp; concentrated</h4><p>Fewer than 20 convictions, re-underwritten every quarter.</p></div>
           </div>
-          <div class="snapshot-footer">
-            <div class="snapshot-metric">
-              <div class="label">NTA</div>
-              <div class="value"><span data-fund="current_nta">1.0245</span></div>
-            </div>
-            <div class="snapshot-metric" style="text-align:right">
-              <div class="label">Return</div>
-              <div class="value green"><span data-fund="total_return_pct">+8.90%</span></div>
-            </div>
+          <div class="gprin g2">
+            <div class="gi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg></div>
+            <div><h4>Fully transparent</h4><p>Daily NTA and complete history — for members, always.</p></div>
+          </div>
+          <div class="gprin g3">
+            <div class="gi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg></div>
+            <div><h4>Aligned interests</h4><p>The manager's capital moves alongside yours.</p></div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
 
-        <!-- Watermark logo -->
-        <div style="position:absolute;right:-20px;bottom:-20px;opacity:0.06;pointer-events:none;z-index:0;">
-          <img src="assets/img/logo.png" style="width:180px;filter:grayscale(1)">
+  <div class="scrollcue"><div class="mouse"></div><span>Scroll</span></div>
+</header>
+
+<!-- ===================== STATEMENT ===================== -->
+<section class="section-sm statement">
+  <div class="container" style="text-align:center;display:flex;flex-direction:column;align-items:center;">
+    <span class="eyebrow reveal">Our Mandate</span>
+    <p class="big reveal d1" style="margin:18px auto 0;">We compound capital the way a careful owner would — concentrating in a handful of businesses we understand, holding them through cycles, and treating <span class="serif">every ringgit as our own.</span></p>
+  </div>
+</section>
+
+<!-- ===================== APPROACH (dark) ===================== -->
+<section class="section dark" id="approach">
+  <span class="glow" style="width:420px;height:420px;background:radial-gradient(circle,rgba(21,101,192,.5),transparent 70%);top:-120px;left:-80px;"></span>
+  <span class="glow" style="width:360px;height:360px;background:radial-gradient(circle,rgba(46,125,50,.4),transparent 70%);bottom:-140px;right:-60px;"></span>
+  <div class="container" style="position:relative;z-index:2;">
+    <div class="sect-head reveal">
+      <span class="eyebrow">The Approach</span>
+      <h2>A repeatable process, not a forecast</h2>
+      <p>Consistent active management since December 2021 — across multiple market cycles.</p>
+    </div>
+    <div class="ap-grid">
+      <div class="ap-item reveal"><div class="n">01</div><h3>Underwrite</h3><p>We study a business until we can explain its economics simply. Quality of the franchise comes before the price we'll pay.</p></div>
+      <div class="ap-item reveal d1"><div class="n">02</div><h3>Concentrate</h3><p>We typically hold fewer than twenty positions, sized by conviction. Diversification for its own sake dilutes our best ideas.</p></div>
+      <div class="ap-item reveal d2"><div class="n">03</div><h3>Hold &amp; review</h3><p>Every position is re-underwritten each quarter. We act on facts that change the thesis — not on market noise.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== PRINCIPLES ===================== -->
+<section class="section" id="principles">
+  <div class="container">
+    <div class="sect-head reveal">
+      <span class="eyebrow">Why ZY-Invest</span>
+      <h2>Built for serious, long-term wealth</h2>
+      <p>Principles that define how we steward a close network's capital.</p>
+    </div>
+    <div class="grid-3">
+      <div class="p-card reveal">
+        <div class="p-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 4 3 7-8"/><path d="M16 7h4v4"/></svg></div>
+        <h3>Long-term focus</h3><p>Built for compounding. We ignore short-term noise and own businesses for the next decade, not the next quarter.</p>
+      </div>
+      <div class="p-card acc-g reveal d1">
+        <div class="p-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 14h5"/></svg></div>
+        <h3>Transparent reporting</h3><p>A live portfolio dashboard, daily NTA, and full transaction history — always available to every member.</p>
+      </div>
+      <div class="p-card acc-o reveal d2">
+        <div class="p-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 8h9a3 3 0 010 6H5"/></svg></div>
+        <h3>Fair distribution</h3><p>A proportional framework — every unit receives the same DPS, regardless of when it was subscribed.</p>
+      </div>
+      <div class="p-card reveal">
+        <div class="p-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h3>Aligned interests</h3><p>The fund manager invests alongside every participant. Our capital moves with yours — always.</p>
+      </div>
+      <div class="p-card acc-g reveal d1">
+        <div class="p-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5m0 14l7-4 5 3 4-3V5l-4 3-5-3-7 4"/></svg></div>
+        <h3>Disciplined precision</h3><p>Every decision is backed by rigorous, repeatable analysis and patient, long-term thinking.</p>
+      </div>
+      <div class="p-card acc-o reveal d2">
+        <div class="p-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>
+        <h3>A close network</h3><p>A private fund for family and trusted associates. Quality relationships over scale, by introduction only.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== MALAYSIA FOCUS ===================== -->
+<section class="section" id="focus" style="background:var(--off-white);border-top:1px solid var(--border);">
+  <div class="container">
+    <div class="focus-grid">
+      <div class="reveal">
+        <div class="focus-card">
+          <div class="sky-mini">
+            <svg viewBox="0 0 520 240" preserveAspectRatio="xMidYMax meet" style="position:absolute;inset:0;width:100%;height:100%;" aria-hidden="true">
+              <defs><linearGradient id="mG" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#1565C0" stop-opacity=".42"/><stop offset="1" stop-color="#1E88E5" stop-opacity=".08"/></linearGradient></defs>
+              <circle cx="420" cy="62" r="30" fill="#FFE7C2" opacity=".7"/>
+              <g fill="url(#mG)">
+                <rect x="30" y="150" width="34" height="90"/>
+                <rect x="70" y="120" width="28" height="120"/>
+                <path d="M150 240 V70 l9 -30 9 30 V240 Z"/>
+                <path d="M214 240 L222 120 L228 78 L246 78 L252 120 L260 240 Z"/><path d="M233 78 L237 50 L241 78 Z"/>
+                <rect x="260" y="108" width="30" height="11"/>
+                <path d="M290 240 L298 120 L304 78 L322 78 L328 120 L336 240 Z"/><path d="M309 78 L313 50 L317 78 Z"/>
+                <rect x="360" y="96" width="9" height="144"/><ellipse cx="364" cy="92" rx="15" ry="9"/><rect x="362" y="56" width="3" height="36"/>
+                <rect x="402" y="130" width="32" height="110"/>
+                <rect x="446" y="100" width="36" height="140"/>
+              </g>
+            </svg>
+          </div>
+        </div>
+      </div>
+      <div class="reveal d1">
+        <span class="eyebrow">Where We Invest</span>
+        <h2 style="font-size:clamp(1.6rem,3vw,2.3rem);font-weight:600;letter-spacing:-.02em;color:var(--fg-1);margin:14px 0 18px;">Rooted in Malaysia, open to the world</h2>
+        <p style="font-size:1.06rem;line-height:1.7;color:var(--fg-2);margin:0 0 18px;">Our universe is <b>Bursa Malaysia</b> equities — companies whose markets, customers, and management we can know first-hand. We invest where we have an edge, and our edge is at home.</p>
+        <p style="font-size:.98rem;line-height:1.7;color:var(--fg-3);margin:0 0 8px;">The fund operates on the Ringgit and publishes daily NTA per unit to its members.</p>
+        <div class="tag-row">
+          <span class="tag"><span class="d"></span> Bursa Malaysia</span>
+          <span class="tag g"><span class="d"></span> Malaysia-only mandate</span>
+          <span class="tag o"><span class="d"></span> MYR base currency</span>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- Features -->
-<section class="section" style="background:var(--off-white)">
+<!-- ===================== CTA ===================== -->
+<section class="section-sm" id="contact">
   <div class="container">
-    <div class="section-header fade-up">
-      <span class="badge badge-blue">Why Choose Us</span>
-      <h2>Built for Serious, Long-term Wealth</h2>
-      <p>We combine institutional-grade investment discipline with the transparency and accessibility of a close-knit private fund.</p>
-    </div>
-    <div class="features-grid">
-      <div class="card feature-card fade-up">
-        <div class="feature-icon">📊</div>
-        <h3>Data Driven Decision</h3>
-        <p>Every investment decision is backed by rigorous quantitative analysis, defined risk parameters, and a clear exit plan.</p>
-      </div>
-      <div class="card feature-card fade-up" style="transition-delay:0.1s">
-        <div class="feature-icon">🏦</div>
-        <h3>Transparent Reporting</h3>
-        <p>Real-time portfolio dashboard, daily NTA updates, and full transaction history — always available to every investor.</p>
-      </div>
-      <div class="card feature-card fade-up" style="transition-delay:0.2s">
-        <div class="feature-icon">💰</div>
-        <h3>Fair Distribution</h3>
-        <p>Proportional distribution framework ensures every participant benefits equitably based on their contribution and tenure.</p>
-      </div>
-      <div class="card feature-card fade-up" style="transition-delay:0.3s">
-        <div class="feature-icon">📈</div>
-        <h3>Bursa Malaysia Focus</h3>
-        <p>Deep expertise in Malaysian equity markets with selective exposure to US and regional opportunities.</p>
-      </div>
-      <div class="card feature-card fade-up" style="transition-delay:0.4s">
-        <div class="feature-icon">🔒</div>
-        <h3>Secure Investor Portal</h3>
-        <p>Dedicated member portal with personalised performance analytics, including individual IRR computation.</p>
-      </div>
-      <div class="card feature-card fade-up" style="transition-delay:0.5s">
-        <div class="feature-icon">🤝</div>
-        <h3>Founder-led Fund</h3>
-        <p>Management fees are aligned with performance — when you win, we win. Patient capital over speculative trading.</p>
+    <div class="cta reveal">
+      <span class="badge" style="background:rgba(255,255,255,.15);color:#fff;">Access Dashboard</span>
+      <h2>Considering an introduction to the fund?</h2>
+      <p>ZY-Invest accepts new members through its existing network. Reach out to start a conversation, or sign in to your member portal.</p>
+      <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;position:relative;z-index:1;">
+        <a href="mailto:zy.invest@zhiyao.my" class="btn btn-white">Request an Introduction →</a>
+        <a href="login.html" class="btn" style="background:rgba(255,255,255,.12);color:#fff;border:1.5px solid rgba(255,255,255,.4);">Member Login</a>
       </div>
     </div>
   </div>
 </section>
 
-<!-- Why ZY -->
-<section class="section why-section">
-  <div class="container">
-    <div class="section-header fade-up">
-      <span class="badge" style="background:rgba(30,136,229,0.15);color:#90CAF9">Track Record</span>
-      <h2>Numbers That Matter</h2>
-      <p>Four years of disciplined investing across multiple market cycles.</p>
-    </div>
-    <div class="why-grid">
-      <div class="why-card fade-up">
-        <div class="why-number">1,557+</div>
-        <h4>Trading Days</h4>
-        <p>Consistent active management since December 2021.</p>
-      </div>
-      <div class="why-card fade-up" style="transition-delay:0.1s">
-        <div class="why-number">80%+</div>
-        <h4>Interim Dividend</h4>
-        <p>Minimum payout ratio on revenue income each financial year.</p>
-      </div>
-      <div class="why-card fade-up" style="transition-delay:0.2s">
-        <div class="why-number">MYR</div>
-        <h4>Base Currency</h4>
-        <p>Ringgit-denominated fund with multi-currency exposure capabilities.</p>
-      </div>
-      <div class="why-card fade-up" style="transition-delay:0.3s">
-        <div class="why-number">3×</div>
-        <h4>Dividend Types</h4>
-        <p>Interim, final, and special distributions based on fund performance.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- CTA -->
-<section class="section-sm">
-  <div class="container">
-    <div class="cta-banner fade-up">
-      <h2>Ready to View Your Portfolio?</h2>
-      <p>Log in to your member dashboard to track your investments, view distributions, and monitor fund performance in real time.</p>
-      <a href="login.html" class="btn btn-white btn-lg">Access Member Portal →</a>
-    </div>
-  </div>
-</section>
-
-<!-- Footer -->
+<!-- ===================== FOOTER ===================== -->
 <footer class="footer">
   <div class="container">
     <div class="footer-grid">
-      <div class="footer-brand">
-        <img src="assets/img/logo.png" alt="ZY-Invest">
-        <p>A founder-led private investment fund focused on long-term wealth compounding through disciplined equity investing.</p>
+      <div>
+        <div class="footer-logo"><img src="assets/logo.png" alt="ZY-Invest"></div>
+        <p>A private investment fund for long-term wealth creation through disciplined portfolio management.</p>
       </div>
-      <div class="footer-links">
-        <h4>Navigation</h4>
-        <a href="index.html">Home</a>
-        <a href="team.html">Team</a>
-        <a href="about.html">About Us</a>
-        <a href="login.html">Member Login</a>
+      <div>
+        <h4>Navigate</h4>
+        <ul><li><a href="index.html">Home</a></li><li><a href="team.html">Team</a></li><li><a href="about.html">About</a></li><li><a href="login.html">Login</a></li></ul>
       </div>
-      <div class="footer-links">
+      <div>
         <h4>Fund</h4>
-        <a href="about.html#mission">Our Mission</a>
-        <a href="about.html#philosophy">Philosophy</a>
-        <a href="about.html#distribution">Distribution Policy</a>
-        <a href="about.html#overview">Fund Overview</a>
+        <ul><li><a href="index.html#approach">Approach</a></li><li><a href="about.html#philosophy">Philosophy</a></li><li><a href="about.html#distribution">Distribution Policy</a></li><li><a href="about.html#milestones">Milestones</a></li></ul>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <ul><li>zy.invest@zhiyao.my</li><li>Kuala Lumpur, Malaysia</li></ul>
       </div>
     </div>
     <div class="footer-bottom">
-      <span>© 2021–2026 ZY-Invest. All rights reserved.</span>
-      <span>Private Investment Fund · Bursa Malaysia</span>
+      <span>© 2026 ZY-Invest. All rights reserved.</span>
+      <span>A private fund — not offered to the general public.</span>
     </div>
   </div>
 </footer>
 
-<script src="assets/js/api.js"></script>
-<script>
-  // Load live fund data
-  loadFundOverview();
-
-  // Scroll animations
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
-  }, { threshold: 0.1 });
-  document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
-</script>
+<script src="assets/site.js"></script>
 </body>
 </html>
