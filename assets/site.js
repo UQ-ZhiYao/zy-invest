@@ -5,6 +5,18 @@
   onScroll(); window.addEventListener('scroll',onScroll,{passive:true});
 })();
 
+/* ===== MOBILE MENU (hamburger) ===== */
+(function(){
+  var b=document.getElementById('navBurger'), m=document.getElementById('mobileMenu'), c=document.getElementById('mmClose');
+  if(!b||!m) return;
+  function open(){ m.classList.add('open'); document.body.style.overflow='hidden'; }
+  function close(){ m.classList.remove('open'); document.body.style.overflow=''; }
+  b.addEventListener('click',open);
+  if(c) c.addEventListener('click',close);
+  m.querySelectorAll('a').forEach(function(a){ a.addEventListener('click',close); });
+  window.addEventListener('keydown',function(e){ if(e.key==='Escape') close(); });
+})();
+
 /* ===== Reveal on scroll ===== */
 (function(){
   var io=new IntersectionObserver(function(es){
