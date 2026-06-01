@@ -127,6 +127,8 @@
       <h3>Member Login</h3>
       <p class="subtitle">Enter your credentials to access the investor portal.</p>
 
+      <div class="login-note" id="loginNote"></div>
+
       <form id="loginForm" autocomplete="on">
         <div class="form-group">
           <label class="form-label" for="email">Email Address</label>
@@ -154,21 +156,56 @@
   </div>
 </div>
 
+<script src="assets/js/api.js"></script>
 <script src="assets/site.js"></script>
 <script>
 (function(){
+  // Show / hide password
   var pw=document.getElementById('password'), tog=document.getElementById('pwToggle');
   tog.addEventListener('click',function(){
     if(pw.type==='password'){ pw.type='text'; tog.textContent='Hide'; }
     else { pw.type='password'; tog.textContent='Show'; }
   });
+
+  // Already logged in? Go straight to the dashboard.
+  try{
+    if(typeof authUser==='function'){
+      var u=authUser();
+      if(u && u.token){
+        window.location.href = (window.innerWidth<768) ? 'dashboard/mobile/index.html' : 'dashboard/index.html';
+        return;
+      }
+    }
+  }catch(e){}
+
   var form=document.getElementById('loginForm'), btn=document.getElementById('submitBtn'),
-      btnText=document.getElementById('btnText'), spin=document.getElementById('spinner');
-  form.addEventListener('submit',function(e){
+      btnText=document.getElementById('btnText'), spin=document.getElementById('spinner'),
+      note=document.getElementById('loginNote');
+
+  function showError(msg){ if(note){ note.textContent=msg; note.classList.add('show','error'); } }
+  function hideError(){ if(note){ note.classList.remove('show','error'); } }
+
+  form.addEventListener('submit', async function(e){
     e.preventDefault();
+    hideError();
+    var email=document.getElementById('email').value.trim();
+    var password=document.getElementById('password').value;
     btn.disabled=true; btnText.textContent='Signing in...'; spin.style.display='block';
-    // On successful login, play the progress transition into the dashboard.
-    setTimeout(function(){ window.zyEnterDashboard('dashboard/index.html'); }, 500);
+    try{
+      // Real authentication against the ZY-Invest API.
+      var data=await api.post('/api/auth/login',{ email:email, password:password });
+      if(!data || !data.access_token) throw new Error('Login failed');
+      authSave(data);
+      var dest = (data.role==='admin') ? 'dashboard/index.html'
+               : (window.innerWidth<768 ? 'dashboard/mobile/index.html' : 'dashboard/index.html');
+      // Only after a successful login: play the progress transition into the dashboard.
+      window.zyEnterDashboard(dest);
+    }catch(err){
+      var m=(err && err.message) || 'Login failed. Please try again.';
+      if(/invalid credentials/i.test(m)) m='Incorrect email or password. Please try again.';
+      showError(m);
+      btn.disabled=false; btnText.textContent='Sign In'; spin.style.display='none';
+    }
   });
 })();
 </script>
